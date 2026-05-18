@@ -25,10 +25,12 @@ export async function createBrand(formData: FormData) {
   redirect(`/brands/${data.id}`)
 }
 
-export async function createProject(formData: FormData) {
+// Returns the redirect path so the client component can navigate itself.
+// Never calls redirect() here — that breaks inside client-component try/catch.
+export async function createProject(formData: FormData): Promise<{ redirect: string }> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
+  if (!user) return { redirect: '/login' }
 
   const brandId = formData.get('brand_id') as string
   const imageUrls = JSON.parse(formData.get('image_urls') as string) as Array<{ path: string; url: string }>
@@ -69,7 +71,7 @@ export async function createProject(formData: FormData) {
   }
 
   revalidatePath(`/brands/${brandId}`)
-  redirect(`/brands/${brandId}/projects/${data.id}`)
+  return { redirect: `/brands/${brandId}/projects/${data.id}` }
 }
 
 export async function updateProjectStage(

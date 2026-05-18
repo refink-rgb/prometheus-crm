@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import ImageUploader from '@/components/ImageUploader'
 import { createProject } from '@/lib/actions'
@@ -17,6 +17,7 @@ const SECTIONS = ['Basics', 'Offer Description', 'Copy & Offer', 'Product Images
 export default function NewProjectPage() {
   const params = useParams()
   const brandId = params.brandId as string
+  const router = useRouter()
 
   const [step, setStep] = useState(0)
   const [offerType, setOfferType] = useState<'flat' | 'tiered' | ''>('')
@@ -40,10 +41,9 @@ export default function NewProjectPage() {
     fd.set('image_urls', JSON.stringify(images.map(({ path, url }) => ({ path, url }))))
 
     try {
-      await createProject(fd)
+      const result = await createProject(fd)
+      router.push(result.redirect)
     } catch (err: unknown) {
-      // Next.js redirect() throws a special internal error — must re-throw it
-      if (err && typeof err === 'object' && 'digest' in err) throw err
       setError(err instanceof Error ? err.message : 'Something went wrong.')
       setSubmitting(false)
     }
