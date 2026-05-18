@@ -12,14 +12,40 @@ interface UploadedImage {
   preview: string
 }
 
-const SECTIONS = ['Basics', 'Offer Description', 'Copy & Offer', 'Product Images']
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div style={{
+      background: 'var(--surface)',
+      border: '1px solid var(--border)',
+      borderRadius: 12,
+      padding: '24px',
+      marginBottom: 16,
+    }}>
+      <h2 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 20 }}>
+        {title}
+      </h2>
+      {children}
+    </div>
+  )
+}
+
+function Field({ label, optional, children }: { label: string; optional?: boolean; children: React.ReactNode }) {
+  return (
+    <div style={{ marginBottom: 18 }}>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+        <span>{label}</span>
+        {optional && <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>optional</span>}
+      </label>
+      {children}
+    </div>
+  )
+}
 
 export default function NewProjectPage() {
   const params = useParams()
   const brandId = params.brandId as string
   const router = useRouter()
 
-  const [step, setStep] = useState(0)
   const [offerType, setOfferType] = useState<'flat' | 'tiered' | ''>('')
   const [images, setImages] = useState<UploadedImage[]>([])
   const [submitting, setSubmitting] = useState(false)
@@ -28,8 +54,8 @@ export default function NewProjectPage() {
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     if (images.length < 3) {
-      setError('Please upload at least 3 product images.')
-      setStep(3)
+      setError('Please upload at least 3 product images before submitting.')
+      document.getElementById('images-section')?.scrollIntoView({ behavior: 'smooth' })
       return
     }
     setSubmitting(true)
@@ -44,13 +70,14 @@ export default function NewProjectPage() {
       const result = await createProject(fd)
       router.push(result.redirect)
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Something went wrong.')
+      setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.')
       setSubmitting(false)
     }
   }
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--background)' }}>
+      {/* Top bar */}
       <div style={{
         background: 'var(--surface)',
         borderBottom: '1px solid var(--border)',
@@ -58,114 +85,75 @@ export default function NewProjectPage() {
         height: 56,
         display: 'flex',
         alignItems: 'center',
-        gap: 16,
+        justifyContent: 'space-between',
+        position: 'sticky',
+        top: 0,
+        zIndex: 50,
       }}>
-        <Link href={`/brands/${brandId}`} style={{ color: 'var(--text-muted)', fontSize: 13, textDecoration: 'none' }}>
-          ← Back
-        </Link>
-        <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>New Marketing Moment</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <Link href={`/brands/${brandId}`} style={{ color: 'var(--text-muted)', fontSize: 13, textDecoration: 'none' }}>
+            ← Back
+          </Link>
+          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>New Marketing Moment</span>
+        </div>
+        <button
+          type="submit"
+          form="project-form"
+          className="btn-primary"
+          disabled={submitting}
+          style={{ padding: '8px 20px' }}
+        >
+          {submitting ? 'Submitting…' : '🚀 Submit project'}
+        </button>
       </div>
 
-      <main style={{ maxWidth: 680, margin: '0 auto', padding: '40px 24px' }}>
-        {/* Step tabs */}
-        <div style={{ display: 'flex', gap: 0, marginBottom: 36, borderBottom: '1px solid var(--border)' }}>
-          {SECTIONS.map((s, i) => (
-            <button
-              key={s}
-              type="button"
-              onClick={() => setStep(i)}
-              style={{
-                padding: '10px 18px',
-                background: 'none',
-                border: 'none',
-                borderBottom: `2px solid ${i === step ? 'var(--accent)' : 'transparent'}`,
-                color: i === step ? 'var(--accent)' : i < step ? 'var(--text-secondary)' : 'var(--text-muted)',
-                fontSize: 13,
-                fontWeight: i === step ? 600 : 400,
-                cursor: 'pointer',
-                marginBottom: -1,
-                transition: 'color 0.15s',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-              }}
-            >
-              <span style={{
-                width: 18,
-                height: 18,
-                borderRadius: '50%',
-                background: i < step ? 'var(--success)' : i === step ? 'var(--accent)' : 'var(--border)',
-                color: 'white',
-                fontSize: 10,
-                fontWeight: 700,
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}>
-                {i < step ? '✓' : i + 1}
-              </span>
-              {s}
-            </button>
-          ))}
-        </div>
+      <main style={{ maxWidth: 720, margin: '0 auto', padding: '32px 24px 80px' }}>
+        <form id="project-form" onSubmit={handleSubmit}>
 
-        <form onSubmit={handleSubmit}>
-
-          {/* All steps always rendered; only active one is visible.
-              This keeps all inputs in the DOM so FormData picks them up on submit. */}
-
-          {/* Step 0: Basics */}
-          <div style={{ display: step === 0 ? 'block' : 'none' }}>
-            <h2 style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 24 }}>Project basics</h2>
-            <div style={{ marginBottom: 20 }}>
-              <label htmlFor="name">Marketing moment name *</label>
-              <input id="name" name="name" type="text" placeholder="e.g. Memorial Day Sale 2025" required />
+          {/* Basics */}
+          <Section title="Basics">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+              <Field label="Marketing moment name *">
+                <input name="name" type="text" placeholder="e.g. Memorial Day Sale 2025" required autoFocus />
+              </Field>
+              <Field label="Due date *">
+                <input name="due_date" type="date" required />
+              </Field>
             </div>
-            <div>
-              <label htmlFor="due_date">Due date *</label>
-              <input id="due_date" name="due_date" type="date" required />
-            </div>
-          </div>
+          </Section>
 
-          {/* Step 1: Offer Description */}
-          <div style={{ display: step === 1 ? 'block' : 'none' }}>
-            <h2 style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>Offer description</h2>
-            <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 24 }}>
-              Describe the offer in plain language — what it is, who it's for, and why it's compelling.
-            </p>
-            <div style={{ marginBottom: 20 }}>
-              <label htmlFor="offer_description">Offer overview</label>
+          {/* Offer Description */}
+          <Section title="Offer Description">
+            <Field label="Offer overview" optional>
               <textarea
-                id="offer_description"
                 name="offer_description"
-                rows={5}
+                rows={4}
                 placeholder="What is the offer? Who are we targeting? What's the key buying motivation? What makes this moment relevant right now?"
                 style={{ resize: 'vertical' }}
               />
-            </div>
-            <div>
-              <label htmlFor="inspiration">Inspiration <span style={{ color: 'var(--text-muted)', fontWeight: 400, textTransform: 'none', fontSize: 11 }}>— optional</span></label>
+            </Field>
+            <Field label="Inspiration" optional>
               <textarea
-                id="inspiration"
                 name="inspiration"
-                rows={3}
-                placeholder="Paste reference URLs, describe a visual direction, or name brands/ads you want us to draw from…"
+                rows={2}
+                placeholder="Reference URLs, visual direction, brands or ads to draw from…"
                 style={{ resize: 'vertical' }}
               />
+            </Field>
+          </Section>
+
+          {/* Copy & Offer */}
+          <Section title="Copy & Offer">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+              <Field label="Offer / Promo" optional>
+                <input name="offer" type="text" placeholder="e.g. Buy 2 Get 1 Free" />
+              </Field>
+              <Field label="Call to action" optional>
+                <input name="cta" type="text" placeholder="e.g. Shop Now, Claim Your Deal" />
+              </Field>
             </div>
-          </div>
 
-          {/* Step 2: Copy & Offer */}
-          <div style={{ display: step === 2 ? 'block' : 'none' }}>
-            <h2 style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 24 }}>Copy & offer</h2>
-
-            <div style={{ marginBottom: 20 }}>
-              <label>Offer / Promo</label>
-              <input name="offer" type="text" placeholder="e.g. Buy 2 Get 1 Free, Free Shipping, Summer Sale" />
-            </div>
-
-            <div style={{ marginBottom: 8 }}>
-              <label>Discount structure</label>
+            <Field label="Discount structure" optional>
               <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
                 {(['flat', 'tiered'] as const).map(t => (
                   <button
@@ -188,7 +176,6 @@ export default function NewProjectPage() {
                   </button>
                 ))}
               </div>
-              {/* Both inputs always in DOM; hidden when not selected */}
               <input
                 name="discount"
                 type="text"
@@ -197,57 +184,48 @@ export default function NewProjectPage() {
               />
               <textarea
                 name="tiered_offer"
-                rows={3}
+                rows={2}
                 placeholder="e.g. Spend $50 → 10% off · Spend $100 → 20% off · Spend $150 → 25% off"
                 style={{ resize: 'vertical', display: offerType === 'tiered' ? 'block' : 'none' }}
               />
-            </div>
+            </Field>
 
-            <div style={{ height: 24 }} />
+            <Field label="Hero headline" optional>
+              <input name="headline" type="text" placeholder="The main hook for this moment" />
+            </Field>
+            <Field label="Body copy" optional>
+              <textarea name="body_copy" rows={3} placeholder="Key claims, product benefits, supporting proof…" style={{ resize: 'vertical' }} />
+            </Field>
+            <Field label="Supporting message" optional>
+              <textarea name="supporting_message" rows={2} placeholder="Secondary line, urgency cue, or subtext…" style={{ resize: 'vertical' }} />
+            </Field>
+          </Section>
 
-            <div style={{ marginBottom: 20 }}>
-              <label htmlFor="headline">Hero headline</label>
-              <input id="headline" name="headline" type="text" placeholder="The main hook for this moment" />
-            </div>
-            <div style={{ marginBottom: 20 }}>
-              <label htmlFor="body_copy">Body copy</label>
-              <textarea id="body_copy" name="body_copy" rows={3} placeholder="Key claims, product benefits, supporting proof…" style={{ resize: 'vertical' }} />
-            </div>
-            <div style={{ marginBottom: 20 }}>
-              <label htmlFor="supporting_message">Supporting message</label>
-              <textarea id="supporting_message" name="supporting_message" rows={2} placeholder="Secondary line, urgency cue, or subtext…" style={{ resize: 'vertical' }} />
-            </div>
-            <div>
-              <label htmlFor="cta">Call to action</label>
-              <input id="cta" name="cta" type="text" placeholder="e.g. Shop Now, Claim Your Deal, Get 20% Off" />
-            </div>
-          </div>
-
-          {/* Step 3: Product Images */}
-          <div style={{ display: step === 3 ? 'block' : 'none' }}>
-            <h2 style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>Product images</h2>
-            <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 4 }}>
-              Upload <strong>at least 3</strong> clean product images (no background clutter) for the static studio.
-            </p>
-            <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 20 }}>
-              The more you provide, the better — more options means stronger creative output.
-            </p>
+          {/* Product Images */}
+          <Section title="Product Images">
+            <div id="images-section">
+              <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 4 }}>
+                Upload <strong>at least 3</strong> clean product images (no background clutter).
+              </p>
+              <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 20 }}>
+                The more you provide, the better — more options means stronger creative output.
+              </p>
               <ImageUploader value={images} onChange={setImages} />
               {images.length > 0 && images.length < 3 && (
                 <p style={{ color: 'var(--warning)', fontSize: 13, marginTop: 12 }}>
-                  ⚠ Need {3 - images.length} more image{3 - images.length !== 1 ? 's' : ''} to continue
+                  ⚠ Need {3 - images.length} more image{3 - images.length !== 1 ? 's' : ''}
                 </p>
               )}
               {images.length >= 3 && (
                 <p style={{ color: 'var(--success)', fontSize: 13, marginTop: 12 }}>
-                  ✓ {images.length} images uploaded — good to go!
+                  ✓ {images.length} images ready
                 </p>
               )}
-          </div>
+            </div>
+          </Section>
 
           {error && (
             <div style={{
-              marginTop: 20,
               padding: '12px 16px',
               background: 'rgba(239,68,68,0.1)',
               border: '1px solid rgba(239,68,68,0.3)',
@@ -259,35 +237,6 @@ export default function NewProjectPage() {
             </div>
           )}
 
-          {/* Navigation */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 36, paddingTop: 24, borderTop: '1px solid var(--border)' }}>
-            <button
-              type="button"
-              onClick={() => setStep(s => Math.max(0, s - 1))}
-              disabled={step === 0}
-              className="btn-secondary"
-            >
-              ← Back
-            </button>
-
-            {step < SECTIONS.length - 1 ? (
-              <button
-                type="button"
-                onClick={() => setStep(s => s + 1)}
-                className="btn-primary"
-              >
-                Next: {SECTIONS[step + 1]} →
-              </button>
-            ) : (
-              <button
-                type="submit"
-                className="btn-primary"
-                disabled={submitting || images.length < 3}
-              >
-                {submitting ? 'Submitting…' : '🚀 Submit project'}
-              </button>
-            )}
-          </div>
         </form>
       </main>
     </div>
