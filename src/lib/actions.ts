@@ -144,10 +144,11 @@ export async function updateBrandDetails(formData: FormData) {
   const monthly_retainer = retainerRaw ? parseFloat(retainerRaw) : null
   const start_date = (formData.get('start_date') as string) || null
   const growth_strategist = (formData.get('growth_strategist') as string)?.trim() || null
+  const is_active = formData.get('is_active') === 'true'
 
   await supabase
     .from('brands')
-    .update({ monthly_retainer, start_date, growth_strategist })
+    .update({ monthly_retainer, start_date, growth_strategist, is_active })
     .eq('id', brandId)
 
   revalidatePath(`/brands/${brandId}`)

@@ -132,6 +132,26 @@ export default async function BrandPage({ params }: { params: Promise<{ brandId:
                 </div>
               </div>
             </div>
+
+            {/* Active/Inactive status — only visible to authorized users */}
+            {isAuthorized && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20, padding: '12px 16px', background: 'var(--surface-raised)', borderRadius: 8, border: '1px solid var(--border)' }}>
+                <span style={{ fontSize: 13, color: 'var(--text-secondary)', flex: 1 }}>
+                  Client status — affects revenue tracking
+                </span>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', textTransform: 'none', letterSpacing: 0, fontSize: 13, fontWeight: 500, color: (brand as Brand).is_active ? 'var(--success)' : 'var(--text-muted)', marginBottom: 0 }}>
+                    <input type="radio" name="is_active" value="true" defaultChecked={(brand as Brand).is_active} style={{ width: 'auto', padding: 0 }} />
+                    Active
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', textTransform: 'none', letterSpacing: 0, fontSize: 13, fontWeight: 500, color: !(brand as Brand).is_active ? 'var(--danger)' : 'var(--text-muted)', marginBottom: 0 }}>
+                    <input type="radio" name="is_active" value="false" defaultChecked={!(brand as Brand).is_active} style={{ width: 'auto', padding: 0 }} />
+                    Inactive
+                  </label>
+                </div>
+              </div>
+            )}
+
             {isAuthorized && (
               <button type="submit" className="btn-secondary" style={{ fontSize: 13 }}>
                 Save account details
