@@ -11,7 +11,8 @@ export async function createBrand(formData: FormData) {
   if (!user) redirect('/login')
 
   const name = formData.get('name') as string
-  const website = formData.get('website') as string
+  const raw = (formData.get('website') as string).trim()
+  const website = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`
 
   const { data, error } = await supabase
     .from('brands')

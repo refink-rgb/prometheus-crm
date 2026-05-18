@@ -44,8 +44,8 @@ export default async function NewBrandPage() {
               <input
                 id="website"
                 name="website"
-                type="url"
-                placeholder="https://auraskincare.com"
+                type="text"
+                placeholder="eyemuse.my or https://eyemuse.my"
                 required
               />
             </div>
