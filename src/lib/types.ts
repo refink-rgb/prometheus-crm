@@ -13,16 +13,25 @@ export interface Project {
   brand_id: string
   name: string
   due_date: string
-  font: string | null
-  author: string | null
+  // offer description step
+  offer_description: string | null
+  inspiration: string | null
+  // copy & offer step
+  offer_type: string | null
   offer: string | null
   discount: string | null
+  tiered_offer: string | null
   headline: string | null
   body_copy: string | null
+  supporting_message: string | null
   cta: string | null
+  // legacy / unused but kept for DB compat
+  font: string | null
+  author: string | null
   target_audience: string | null
   notes: string | null
   assigned_designer: string | null
+  // pipeline
   lp_stage: Stage
   creatives_stage: Stage
   lp_url: string | null

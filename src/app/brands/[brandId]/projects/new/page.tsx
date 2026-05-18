@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter, useParams } from 'next/navigation'
+import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import ImageUploader from '@/components/ImageUploader'
 import { createProject } from '@/lib/actions'
@@ -12,14 +12,14 @@ interface UploadedImage {
   preview: string
 }
 
-const SECTIONS = ['Basics', 'Creative Brief', 'Copy & Offer', 'Product Images']
+const SECTIONS = ['Basics', 'Offer Description', 'Copy & Offer', 'Product Images']
 
 export default function NewProjectPage() {
   const params = useParams()
   const brandId = params.brandId as string
-  const router = useRouter()
 
   const [step, setStep] = useState(0)
+  const [offerType, setOfferType] = useState<'flat' | 'tiered' | ''>('')
   const [images, setImages] = useState<UploadedImage[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -36,11 +36,14 @@ export default function NewProjectPage() {
 
     const fd = new FormData(e.currentTarget)
     fd.set('brand_id', brandId)
+    fd.set('offer_type', offerType)
     fd.set('image_urls', JSON.stringify(images.map(({ path, url }) => ({ path, url }))))
 
     try {
       await createProject(fd)
-    } catch (err) {
+    } catch (err: unknown) {
+      // Next.js redirect() throws a special internal error — must re-throw it
+      if (err && typeof err === 'object' && 'digest' in err) throw err
       setError(err instanceof Error ? err.message : 'Something went wrong.')
       setSubmitting(false)
     }
@@ -48,7 +51,6 @@ export default function NewProjectPage() {
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--background)' }}>
-      {/* Minimal top bar */}
       <div style={{
         background: 'var(--surface)',
         borderBottom: '1px solid var(--border)',
@@ -108,44 +110,48 @@ export default function NewProjectPage() {
         </div>
 
         <form onSubmit={handleSubmit}>
+
           {/* Step 0: Basics */}
           {step === 0 && (
             <div>
               <h2 style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 24 }}>Project basics</h2>
               <div style={{ marginBottom: 20 }}>
-                <label htmlFor="name">Project / Moment name *</label>
-                <input id="name" name="name" type="text" placeholder="e.g. Memorial Day Sale 2025" required />
-              </div>
-              <div style={{ marginBottom: 20 }}>
-                <label htmlFor="due_date">Due date *</label>
-                <input id="due_date" name="due_date" type="date" required />
-              </div>
-              <div style={{ marginBottom: 20 }}>
-                <label htmlFor="assigned_designer">Assigned designer</label>
-                <input id="assigned_designer" name="assigned_designer" type="text" placeholder="e.g. Roberto Fink" />
+                <label htmlFor="name">Marketing moment name *</label>
+                <input id="name" name="name" type="text" placeholder="e.g. Memorial Day Sale 2025" required autoFocus />
               </div>
               <div>
-                <label htmlFor="author">Copywriter / Author</label>
-                <input id="author" name="author" type="text" placeholder="Who wrote the copy?" />
+                <label htmlFor="due_date">Due date *</label>
+                <input id="due_date" name="due_date" type="date" required />
               </div>
             </div>
           )}
 
-          {/* Step 1: Creative Brief */}
+          {/* Step 1: Offer Description */}
           {step === 1 && (
             <div>
-              <h2 style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 24 }}>Creative brief</h2>
+              <h2 style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>Offer description</h2>
+              <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 24 }}>
+                Describe the offer in plain language — what it is, who it's for, and why it's compelling.
+              </p>
               <div style={{ marginBottom: 20 }}>
-                <label htmlFor="font">Primary font used in ads</label>
-                <input id="font" name="font" type="text" placeholder="e.g. Canela Display, Helvetica Neue" />
-              </div>
-              <div style={{ marginBottom: 20 }}>
-                <label htmlFor="target_audience">Target audience</label>
-                <textarea id="target_audience" name="target_audience" rows={3} placeholder="Who are we targeting? Age, interests, buying behavior…" style={{ resize: 'vertical' }} />
+                <label htmlFor="offer_description">Offer overview *</label>
+                <textarea
+                  id="offer_description"
+                  name="offer_description"
+                  rows={5}
+                  placeholder="What is the offer? Who are we targeting? What's the key buying motivation? What makes this moment relevant right now?"
+                  style={{ resize: 'vertical' }}
+                />
               </div>
               <div>
-                <label htmlFor="notes">Additional notes / creative direction</label>
-                <textarea id="notes" name="notes" rows={4} placeholder="Any specific requests, references, or things to avoid…" style={{ resize: 'vertical' }} />
+                <label htmlFor="inspiration">Inspiration <span style={{ color: 'var(--text-muted)', fontWeight: 400, textTransform: 'none', fontSize: 11 }}>— optional</span></label>
+                <textarea
+                  id="inspiration"
+                  name="inspiration"
+                  rows={3}
+                  placeholder="Paste reference URLs, describe a visual direction, or name brands/ads you want us to draw from…"
+                  style={{ resize: 'vertical' }}
+                />
               </div>
             </div>
           )}
@@ -154,25 +160,68 @@ export default function NewProjectPage() {
           {step === 2 && (
             <div>
               <h2 style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 24 }}>Copy & offer</h2>
+
+              {/* Offer type toggle */}
               <div style={{ marginBottom: 20 }}>
-                <label htmlFor="offer">Offer / Promo</label>
-                <input id="offer" name="offer" type="text" placeholder="e.g. Buy 2 Get 1 Free, Free Shipping" />
+                <label>Offer / Promo</label>
+                <input name="offer" type="text" placeholder="e.g. Buy 2 Get 1 Free, Free Shipping, Summer Sale" />
               </div>
-              <div style={{ marginBottom: 20 }}>
-                <label htmlFor="discount">Discount amount</label>
-                <input id="discount" name="discount" type="text" placeholder="e.g. 20% off, $15 off $75+" />
+
+              <div style={{ marginBottom: 8 }}>
+                <label>Discount structure</label>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                  {(['flat', 'tiered'] as const).map(t => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => setOfferType(prev => prev === t ? '' : t)}
+                      style={{
+                        padding: '7px 16px',
+                        borderRadius: 8,
+                        border: `1px solid ${offerType === t ? 'var(--accent)' : 'var(--border)'}`,
+                        background: offerType === t ? 'var(--accent-muted)' : 'transparent',
+                        color: offerType === t ? 'var(--accent)' : 'var(--text-secondary)',
+                        fontSize: 13,
+                        fontWeight: offerType === t ? 600 : 400,
+                        cursor: 'pointer',
+                        transition: 'all 0.15s',
+                      }}
+                    >
+                      {t === 'flat' ? 'Flat discount' : 'Tiered discount'}
+                    </button>
+                  ))}
+                </div>
+
+                {offerType === 'flat' && (
+                  <input name="discount" type="text" placeholder="e.g. 20% off, $15 off orders $75+" />
+                )}
+                {offerType === 'tiered' && (
+                  <textarea
+                    name="tiered_offer"
+                    rows={3}
+                    placeholder="e.g. Spend $50 → 10% off · Spend $100 → 20% off · Spend $150 → 25% off"
+                    style={{ resize: 'vertical' }}
+                  />
+                )}
               </div>
+
+              <div style={{ height: 24 }} />
+
               <div style={{ marginBottom: 20 }}>
                 <label htmlFor="headline">Hero headline</label>
-                <input id="headline" name="headline" type="text" placeholder="The main hook / headline for this moment" />
+                <input id="headline" name="headline" type="text" placeholder="The main hook for this moment" />
               </div>
               <div style={{ marginBottom: 20 }}>
-                <label htmlFor="body_copy">Body copy / supporting message</label>
-                <textarea id="body_copy" name="body_copy" rows={4} placeholder="Supporting copy, key claims, product benefits…" style={{ resize: 'vertical' }} />
+                <label htmlFor="body_copy">Body copy</label>
+                <textarea id="body_copy" name="body_copy" rows={3} placeholder="Key claims, product benefits, supporting proof…" style={{ resize: 'vertical' }} />
+              </div>
+              <div style={{ marginBottom: 20 }}>
+                <label htmlFor="supporting_message">Supporting message</label>
+                <textarea id="supporting_message" name="supporting_message" rows={2} placeholder="Secondary line, urgency cue, or subtext…" style={{ resize: 'vertical' }} />
               </div>
               <div>
                 <label htmlFor="cta">Call to action</label>
-                <input id="cta" name="cta" type="text" placeholder="e.g. Shop Now, Claim Your Deal" />
+                <input id="cta" name="cta" type="text" placeholder="e.g. Shop Now, Claim Your Deal, Get 20% Off" />
               </div>
             </div>
           )}
@@ -181,8 +230,11 @@ export default function NewProjectPage() {
           {step === 3 && (
             <div>
               <h2 style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>Product images</h2>
-              <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 24 }}>
+              <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 4 }}>
                 Upload <strong>at least 3</strong> clean product images (no background clutter) for the static studio.
+              </p>
+              <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 20 }}>
+                The more you provide, the better — more options means stronger creative output.
               </p>
               <ImageUploader value={images} onChange={setImages} />
               {images.length > 0 && images.length < 3 && (

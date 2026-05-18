@@ -33,22 +33,24 @@ export async function createProject(formData: FormData) {
   const brandId = formData.get('brand_id') as string
   const imageUrls = JSON.parse(formData.get('image_urls') as string) as Array<{ path: string; url: string }>
 
+  const str = (key: string) => (formData.get(key) as string)?.trim() || null
+
   const { data, error } = await supabase
     .from('projects')
     .insert({
       brand_id: brandId,
       name: formData.get('name') as string,
       due_date: formData.get('due_date') as string,
-      font: formData.get('font') as string || null,
-      author: formData.get('author') as string || null,
-      offer: formData.get('offer') as string || null,
-      discount: formData.get('discount') as string || null,
-      headline: formData.get('headline') as string || null,
-      body_copy: formData.get('body_copy') as string || null,
-      cta: formData.get('cta') as string || null,
-      target_audience: formData.get('target_audience') as string || null,
-      assigned_designer: formData.get('assigned_designer') as string || null,
-      notes: formData.get('notes') as string || null,
+      offer_description: str('offer_description'),
+      inspiration: str('inspiration'),
+      offer_type: str('offer_type'),
+      offer: str('offer'),
+      discount: str('discount'),
+      tiered_offer: str('tiered_offer'),
+      headline: str('headline'),
+      body_copy: str('body_copy'),
+      supporting_message: str('supporting_message'),
+      cta: str('cta'),
       created_by: user.id,
     })
     .select()

@@ -117,17 +117,35 @@ export default async function ProjectPage({
               </div>
             )}
 
-            {/* Brief info */}
+            {/* Offer Description */}
+            {(p.offer_description || p.inspiration) && (
+              <div className="card">
+                <h3 style={{ fontWeight: 700, fontSize: 15, marginBottom: 16, color: 'var(--text-primary)' }}>Offer Description</h3>
+                {p.offer_description && (
+                  <div style={{ marginBottom: p.inspiration ? 16 : 0 }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Overview</div>
+                    <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{p.offer_description}</div>
+                  </div>
+                )}
+                {p.inspiration && (
+                  <div style={{ paddingTop: p.offer_description ? 16 : 0, borderTop: p.offer_description ? '1px solid var(--border)' : 'none' }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Inspiration</div>
+                    <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{p.inspiration}</div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Copy & Offer */}
             <div className="card">
-              <h3 style={{ fontWeight: 700, fontSize: 15, marginBottom: 20, color: 'var(--text-primary)' }}>Brief</h3>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+              <h3 style={{ fontWeight: 700, fontSize: 15, marginBottom: 20, color: 'var(--text-primary)' }}>Copy & Offer</h3>
+
+              {/* Offer pills */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
                 {[
-                  { label: 'Offer', value: p.offer },
+                  { label: 'Offer / Promo', value: p.offer },
                   { label: 'Discount', value: p.discount },
-                  { label: 'Font', value: p.font },
-                  { label: 'Author / Copywriter', value: p.author },
-                  { label: 'Assigned Designer', value: p.assigned_designer },
-                  { label: 'Call to Action', value: p.cta },
+                  { label: 'CTA', value: p.cta },
                 ].map(({ label, value }) => value ? (
                   <div key={label}>
                     <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>{label}</div>
@@ -136,28 +154,33 @@ export default async function ProjectPage({
                 ) : null)}
               </div>
 
-              {p.headline && (
-                <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Headline</div>
-                  <div style={{ fontSize: 14, color: 'var(--text-primary)', fontWeight: 600 }}>{p.headline}</div>
+              {p.tiered_offer && (
+                <div style={{ marginBottom: 16, padding: '12px 14px', background: 'var(--surface-raised)', borderRadius: 8, border: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Tiered Discount</div>
+                  <div style={{ fontSize: 14, color: 'var(--text-primary)', whiteSpace: 'pre-wrap' }}>{p.tiered_offer}</div>
                 </div>
               )}
-              {p.body_copy && (
-                <div style={{ marginTop: 16 }}>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Body Copy</div>
-                  <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6 }}>{p.body_copy}</div>
-                </div>
-              )}
-              {p.target_audience && (
-                <div style={{ marginTop: 16 }}>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Target Audience</div>
-                  <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6 }}>{p.target_audience}</div>
-                </div>
-              )}
-              {p.notes && (
-                <div style={{ marginTop: 16 }}>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Notes</div>
-                  <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6 }}>{p.notes}</div>
+
+              {(p.headline || p.body_copy || p.supporting_message) && (
+                <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  {p.headline && (
+                    <div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Hero Headline</div>
+                      <div style={{ fontSize: 15, color: 'var(--text-primary)', fontWeight: 700 }}>{p.headline}</div>
+                    </div>
+                  )}
+                  {p.body_copy && (
+                    <div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Body Copy</div>
+                      <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.7 }}>{p.body_copy}</div>
+                    </div>
+                  )}
+                  {p.supporting_message && (
+                    <div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Supporting Message</div>
+                      <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.7 }}>{p.supporting_message}</div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
