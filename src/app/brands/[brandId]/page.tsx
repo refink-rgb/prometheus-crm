@@ -74,11 +74,9 @@ export default async function BrandPage({ params }: { params: Promise<{ brandId:
               </a>
             </div>
           </div>
-          {isAuthorized && (
-            <Link href={`/brands/${brandId}/projects/new`} className="btn-primary" style={{ flexShrink: 0 }}>
-              + New Project
-            </Link>
-          )}
+          <Link href={`/brands/${brandId}/projects/new`} className="btn-primary" style={{ flexShrink: 0 }}>
+            + New Project
+          </Link>
         </div>
 
         {/* Account Details */}
@@ -151,11 +149,9 @@ export default async function BrandPage({ params }: { params: Promise<{ brandId:
             <p style={{ color: 'var(--text-secondary)', marginBottom: 24, fontSize: 14 }}>
               Create a marketing moment to kick off the Prometheus workflow.
             </p>
-            {isAuthorized && (
-              <Link href={`/brands/${brandId}/projects/new`} className="btn-primary">
-                + Create first project
-              </Link>
-            )}
+            <Link href={`/brands/${brandId}/projects/new`} className="btn-primary">
+              + Create first project
+            </Link>
           </div>
         )}
 

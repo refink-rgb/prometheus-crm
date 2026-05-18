@@ -55,11 +55,9 @@ export default async function DashboardPage() {
               {allBrands.length} brand{allBrands.length !== 1 ? 's' : ''} · {pipeline.length} active project{pipeline.length !== 1 ? 's' : ''}
             </p>
           </div>
-          {isAuthorized && (
-            <Link href="/brands/new" className="btn-primary">
-              + New Brand
-            </Link>
-          )}
+          <Link href="/brands/new" className="btn-primary">
+            + New Brand
+          </Link>
         </div>
 
         {allBrands.length === 0 && (
@@ -71,9 +69,7 @@ export default async function DashboardPage() {
             <p style={{ color: 'var(--text-secondary)', marginBottom: 24, fontSize: 14 }}>
               Create your first brand to get started with the Prometheus workflow.
             </p>
-            {isAuthorized && (
-              <Link href="/brands/new" className="btn-primary">+ Create your first brand</Link>
-            )}
+            <Link href="/brands/new" className="btn-primary">+ Create your first brand</Link>
           </div>
         )}
 

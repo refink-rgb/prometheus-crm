@@ -10,7 +10,6 @@ export async function createBrand(formData: FormData) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
 
   const name = formData.get('name') as string
   const raw = (formData.get('website') as string).trim()
@@ -36,7 +35,6 @@ export async function createProject(formData: FormData): Promise<{ redirect: str
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { redirect: '/login' }
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
 
   const brandId = formData.get('brand_id') as string
   const imageUrls = JSON.parse(formData.get('image_urls') as string) as Array<{ path: string; url: string }>

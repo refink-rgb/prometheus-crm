@@ -32,24 +32,9 @@ export default async function NewBrandPage() {
               <input id="name" name="name" type="text" placeholder="e.g. Aura Skincare" required autoFocus />
             </div>
 
-            <div style={{ marginBottom: 20 }}>
+            <div style={{ marginBottom: 28 }}>
               <label htmlFor="website">Website URL *</label>
               <input id="website" name="website" type="text" placeholder="eyemuse.my or https://eyemuse.my" required />
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
-              <div>
-                <label htmlFor="monthly_retainer">Monthly Retainer ($)</label>
-                <input id="monthly_retainer" name="monthly_retainer" type="number" min="0" step="1" placeholder="e.g. 5000" />
-              </div>
-              <div>
-                <label htmlFor="start_date">Start Date</label>
-                <input id="start_date" name="start_date" type="date" />
-              </div>
-            </div>
-
-            <div style={{ marginBottom: 28, padding: '12px 14px', background: 'var(--surface-raised)', borderRadius: 8, fontSize: 13, color: 'var(--text-muted)' }}>
-              Growth strategist will be set to <strong style={{ color: 'var(--text-secondary)' }}>{user.email}</strong>
             </div>
 
             <div style={{ display: 'flex', gap: 12 }}>
