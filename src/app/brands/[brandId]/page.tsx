@@ -3,7 +3,8 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import Nav from '@/components/Nav'
 import { canEdit } from '@/lib/permissions'
-import { updateBrandDetails } from '@/lib/actions'
+import { updateBrandDetails, deleteBrand } from '@/lib/actions'
+import ConfirmDeleteForm from '@/components/ConfirmDeleteForm'
 import type { Brand, Project } from '@/lib/types'
 import { STAGE_LABELS } from '@/lib/types'
 
@@ -74,9 +75,30 @@ export default async function BrandPage({ params }: { params: Promise<{ brandId:
               </a>
             </div>
           </div>
-          <Link href={`/brands/${brandId}/projects/new`} className="btn-primary" style={{ flexShrink: 0 }}>
-            + New Project
-          </Link>
+          <div style={{ display: 'flex', gap: 10, flexShrink: 0 }}>
+            {isAuthorized && (
+              <ConfirmDeleteForm
+                action={deleteBrand.bind(null, brandId)}
+                message={`Delete "${(brand as Brand).name}" and all its projects? This cannot be undone.`}
+              >
+                <button type="submit" style={{
+                  background: 'transparent',
+                  color: 'var(--danger)',
+                  border: '1px solid rgba(239,68,68,0.25)',
+                  borderRadius: 8,
+                  padding: '8px 14px',
+                  fontSize: 13,
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                }}>
+                  Delete brand
+                </button>
+              </ConfirmDeleteForm>
+            )}
+            <Link href={`/brands/${brandId}/projects/new`} className="btn-primary">
+              + New Project
+            </Link>
+          </div>
         </div>
 
         {/* Account Details */}

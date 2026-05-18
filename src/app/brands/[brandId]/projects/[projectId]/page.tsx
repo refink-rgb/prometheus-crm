@@ -3,8 +3,9 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import Nav from '@/components/Nav'
 import StageTracker from '@/components/StageTracker'
-import { markProjectComplete, updateProjectDeliverable } from '@/lib/actions'
+import { markProjectComplete, updateProjectDeliverable, deleteProject } from '@/lib/actions'
 import { canEdit } from '@/lib/permissions'
+import ConfirmDeleteForm from '@/components/ConfirmDeleteForm'
 import type { Project, Brand, ProjectImage } from '@/lib/types'
 
 export default async function ProjectPage({
@@ -74,6 +75,25 @@ export default async function ProjectPage({
               Due: <span style={{ color: isOverdue ? 'var(--danger)' : 'var(--text-secondary)', fontWeight: isOverdue ? 600 : 400 }}>{dueStr}</span>
             </p>
           </div>
+          {isAuthorized && (
+            <ConfirmDeleteForm
+              action={deleteProject.bind(null, projectId, brandId)}
+              message={`Delete "${p.name}"? This cannot be undone.`}
+            >
+              <button type="submit" style={{
+                background: 'transparent',
+                color: 'var(--danger)',
+                border: '1px solid rgba(239,68,68,0.25)',
+                borderRadius: 8,
+                padding: '8px 14px',
+                fontSize: 13,
+                fontWeight: 500,
+                cursor: 'pointer',
+              }}>
+                Delete project
+              </button>
+            </ConfirmDeleteForm>
+          )}
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 24, alignItems: 'start' }}>

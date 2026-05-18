@@ -154,6 +154,42 @@ export async function updateBrandDetails(formData: FormData) {
   revalidatePath(`/brands/${brandId}`)
 }
 
+export async function deleteProject(projectId: string, brandId: string) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
+
+  await supabase.from('project_images').delete().eq('project_id', projectId)
+  await supabase.from('projects').delete().eq('id', projectId)
+
+  revalidatePath(`/brands/${brandId}`)
+  redirect(`/brands/${brandId}`)
+}
+
+export async function deleteBrand(brandId: string) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
+
+  const { data: projects } = await supabase
+    .from('projects')
+    .select('id')
+    .eq('brand_id', brandId)
+
+  if (projects && projects.length > 0) {
+    const ids = projects.map(p => p.id)
+    await supabase.from('project_images').delete().in('project_id', ids)
+    await supabase.from('projects').delete().eq('brand_id', brandId)
+  }
+
+  await supabase.from('brands').delete().eq('id', brandId)
+
+  revalidatePath('/')
+  redirect('/')
+}
+
 export async function signOut() {
   const supabase = await createClient()
   await supabase.auth.signOut()
