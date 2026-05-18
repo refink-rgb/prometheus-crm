@@ -106,6 +106,14 @@ label {
   padding: 24px;
 }
 
+.brand-card {
+  transition: border-color 0.15s, transform 0.1s;
+}
+.brand-card:hover {
+  border-color: var(--border-hover);
+  transform: translateY(-1px);
+}
+
 .badge {
   display: inline-flex;
   align-items: center;

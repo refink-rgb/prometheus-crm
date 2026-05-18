@@ -108,18 +108,7 @@ function BrandCard({ brand }: { brand: BrandWithProjects }) {
 
   return (
     <Link href={`/brands/${brand.id}`} style={{ textDecoration: 'none' }}>
-      <div className="card" style={{ cursor: 'pointer', transition: 'border-color 0.15s, transform 0.1s' }}
-        onMouseEnter={e => {
-          const el = e.currentTarget as HTMLElement
-          el.style.borderColor = 'var(--border-hover)'
-          el.style.transform = 'translateY(-1px)'
-        }}
-        onMouseLeave={e => {
-          const el = e.currentTarget as HTMLElement
-          el.style.borderColor = 'var(--border)'
-          el.style.transform = 'none'
-        }}
-      >
+      <div className="card brand-card" style={{ cursor: 'pointer' }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12 }}>
           <div style={{
             width: 40,
