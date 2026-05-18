@@ -4,6 +4,9 @@ export interface Brand {
   id: string
   name: string
   website: string
+  monthly_retainer: number | null
+  start_date: string | null
+  growth_strategist: string | null
   created_at: string
   created_by: string
 }

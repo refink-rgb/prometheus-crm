@@ -15,10 +15,13 @@ export async function createBrand(formData: FormData) {
   const name = formData.get('name') as string
   const raw = (formData.get('website') as string).trim()
   const website = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`
+  const retainerRaw = (formData.get('monthly_retainer') as string)?.trim()
+  const monthly_retainer = retainerRaw ? parseFloat(retainerRaw) : null
+  const start_date = (formData.get('start_date') as string) || null
 
   const { data, error } = await supabase
     .from('brands')
-    .insert({ name, website, created_by: user.id })
+    .insert({ name, website, created_by: user.id, growth_strategist: user.email, monthly_retainer, start_date })
     .select()
     .single()
 
@@ -130,6 +133,26 @@ export async function markProjectComplete(projectId: string, brandId: string) {
 
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)
   revalidatePath('/')
+}
+
+export async function updateBrandDetails(formData: FormData) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
+
+  const brandId = formData.get('brand_id') as string
+  const retainerRaw = (formData.get('monthly_retainer') as string)?.trim()
+  const monthly_retainer = retainerRaw ? parseFloat(retainerRaw) : null
+  const start_date = (formData.get('start_date') as string) || null
+  const growth_strategist = (formData.get('growth_strategist') as string)?.trim() || null
+
+  await supabase
+    .from('brands')
+    .update({ monthly_retainer, start_date, growth_strategist })
+    .eq('id', brandId)
+
+  revalidatePath(`/brands/${brandId}`)
 }
 
 export async function signOut() {
