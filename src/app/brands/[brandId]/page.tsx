@@ -2,6 +2,7 @@ import { redirect, notFound } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import Nav from '@/components/Nav'
+import { canEdit } from '@/lib/permissions'
 import type { Brand, Project } from '@/lib/types'
 import { STAGE_LABELS } from '@/lib/types'
 
@@ -10,6 +11,7 @@ export default async function BrandPage({ params }: { params: Promise<{ brandId:
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
+  const isAuthorized = canEdit(user.email)
 
   const { data: brand } = await supabase
     .from('brands')
@@ -71,9 +73,11 @@ export default async function BrandPage({ params }: { params: Promise<{ brandId:
               </a>
             </div>
           </div>
-          <Link href={`/brands/${brandId}/projects/new`} className="btn-primary" style={{ flexShrink: 0 }}>
-            + New Project
-          </Link>
+          {isAuthorized && (
+            <Link href={`/brands/${brandId}/projects/new`} className="btn-primary" style={{ flexShrink: 0 }}>
+              + New Project
+            </Link>
+          )}
         </div>
 
         {allProjects.length === 0 && (
@@ -85,9 +89,11 @@ export default async function BrandPage({ params }: { params: Promise<{ brandId:
             <p style={{ color: 'var(--text-secondary)', marginBottom: 24, fontSize: 14 }}>
               Create a marketing moment to kick off the Prometheus workflow.
             </p>
-            <Link href={`/brands/${brandId}/projects/new`} className="btn-primary">
-              + Create first project
-            </Link>
+            {isAuthorized && (
+              <Link href={`/brands/${brandId}/projects/new`} className="btn-primary">
+                + Create first project
+              </Link>
+            )}
           </div>
         )}
 

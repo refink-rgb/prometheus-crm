@@ -114,6 +114,13 @@ label {
   transform: translateY(-1px);
 }
 
+.pipeline-row {
+  transition: background 0.12s;
+}
+.pipeline-row:hover {
+  background: var(--surface-raised);
+}
+
 .badge {
   display: inline-flex;
   align-items: center;

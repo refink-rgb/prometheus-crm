@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import Nav from '@/components/Nav'
 import StageTracker from '@/components/StageTracker'
 import { markProjectComplete, updateProjectDeliverable } from '@/lib/actions'
+import { canEdit } from '@/lib/permissions'
 import type { Project, Brand, ProjectImage } from '@/lib/types'
 
 export default async function ProjectPage({
@@ -38,6 +39,7 @@ export default async function ProjectPage({
   const p = project as Project
   const b = brand as Brand
   const imgs = (images ?? []) as ProjectImage[]
+  const isAuthorized = canEdit(user.email)
 
   const due = p.due_date ? new Date(p.due_date) : null
   const isOverdue = due && due < new Date() && !p.is_complete
@@ -96,7 +98,7 @@ export default async function ProjectPage({
             )}
 
             {/* Mark complete CTA */}
-            {!p.is_complete && bothDone && (
+            {!p.is_complete && bothDone && isAuthorized && (
               <div style={{
                 background: 'rgba(249,115,22,0.08)',
                 border: '1px solid rgba(249,115,22,0.2)',
@@ -199,6 +201,7 @@ export default async function ProjectPage({
                     type="url"
                     defaultValue={p.lp_url ?? ''}
                     placeholder="https://…"
+                    disabled={!isAuthorized}
                   />
                   {p.lp_url && (
                     <a href={p.lp_url} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-block', marginTop: 6, fontSize: 13, color: 'var(--accent)' }}>
@@ -215,11 +218,14 @@ export default async function ProjectPage({
                     defaultValue={p.creatives_notes ?? ''}
                     placeholder="Drive link, Figma link, or delivery notes…"
                     style={{ resize: 'vertical' }}
+                    disabled={!isAuthorized}
                   />
                 </div>
-                <button type="submit" className="btn-secondary" style={{ fontSize: 13 }}>
-                  Save deliverables
-                </button>
+                {isAuthorized && (
+                  <button type="submit" className="btn-secondary" style={{ fontSize: 13 }}>
+                    Save deliverables
+                  </button>
+                )}
               </form>
             </div>
 
@@ -256,7 +262,7 @@ export default async function ProjectPage({
               track="lp_stage"
               currentStage={p.lp_stage}
               label="Landing Page"
-              disabled={p.is_complete}
+              disabled={p.is_complete || !isAuthorized}
             />
             <StageTracker
               projectId={projectId}
@@ -264,7 +270,7 @@ export default async function ProjectPage({
               track="creatives_stage"
               currentStage={p.creatives_stage}
               label="Creatives / Statics"
-              disabled={p.is_complete}
+              disabled={p.is_complete || !isAuthorized}
             />
           </div>
         </div>
