@@ -1,4 +1,4 @@
-import { redirect, notFound } from 'next/navigation'
+import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import Nav from '@/components/Nav'
@@ -6,7 +6,7 @@ import StageTracker from '@/components/StageTracker'
 import { markProjectComplete, updateProjectDeliverable, deleteProject } from '@/lib/actions'
 import { canEdit } from '@/lib/permissions'
 import ConfirmDeleteForm from '@/components/ConfirmDeleteForm'
-import type { Project, Brand, ProjectImage } from '@/lib/types'
+import type { Project, Brand, ProjectImage, Stage } from '@/lib/types'
 
 export default async function ProjectPage({
   params,
@@ -45,6 +45,9 @@ export default async function ProjectPage({
   const dueStr = due ? due.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '—'
 
   const bothDone = p.lp_stage === 'done' && p.creatives_stage === 'done'
+
+  const STAGE_PCT: Record<Stage, number> = { brief: 25, in_progress: 50, review: 75, done: 100 }
+  const overallPct = Math.round((STAGE_PCT[p.lp_stage] + STAGE_PCT[p.creatives_stage]) / 2)
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--background)' }}>
@@ -92,6 +95,36 @@ export default async function ProjectPage({
               </button>
             </ConfirmDeleteForm>
           )}
+        </div>
+
+        {/* ── Progress Banner — visible to everyone ── */}
+        <div className="card" style={{ marginBottom: 28 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              Project Progress
+            </span>
+            <span style={{
+              fontSize: 24, fontWeight: 800, letterSpacing: '-0.03em',
+              color: overallPct === 100 ? 'var(--success)' : 'var(--accent)',
+            }}>
+              {overallPct}%
+            </span>
+          </div>
+
+          {/* Overall fill bar */}
+          <div style={{ height: 6, background: 'var(--border)', borderRadius: 3, marginBottom: 24, overflow: 'hidden' }}>
+            <div style={{
+              height: '100%', borderRadius: 3,
+              width: `${overallPct}%`,
+              background: overallPct === 100 ? 'var(--success)' : 'var(--accent)',
+              transition: 'width 0.4s ease',
+            }} />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+            <TrackSteps label="Landing Page" stage={p.lp_stage} />
+            <TrackSteps label="Creatives & Statics" stage={p.creatives_stage} />
+          </div>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 24, alignItems: 'start' }}>
@@ -293,6 +326,73 @@ export default async function ProjectPage({
           </div>
         </div>
       </main>
+    </div>
+  )
+}
+
+// ─── TrackSteps ──────────────────────────────────────────────────────────────
+
+const TRACK_STEPS: Array<{ key: Stage; label: string }> = [
+  { key: 'brief',       label: 'Brief\nReceived'  },
+  { key: 'in_progress', label: 'In\nProduction'   },
+  { key: 'review',      label: 'Under\nReview'    },
+  { key: 'done',        label: 'Delivered'        },
+]
+
+function TrackSteps({ label, stage }: { label: string; stage: Stage }) {
+  const idx = TRACK_STEPS.findIndex(s => s.key === stage)
+
+  // Build a flat array of dots + connector lines to avoid Fragment+key headaches
+  const nodes: React.ReactNode[] = []
+  TRACK_STEPS.forEach((step, i) => {
+    const complete = i < idx || (i === idx && stage === 'done')
+    const current  = i === idx && stage !== 'done'
+    const dotBg     = complete ? 'var(--success)' : current ? 'var(--accent)' : 'transparent'
+    const dotBorder = complete ? 'var(--success)' : current ? 'var(--accent)' : 'var(--border)'
+
+    nodes.push(
+      <div key={step.key} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
+        <div style={{
+          width: 28, height: 28, borderRadius: '50%',
+          background: dotBg,
+          border: `2px solid ${dotBorder}`,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: complete || current ? 'white' : 'var(--text-muted)',
+          fontSize: 11, fontWeight: 700,
+        }}>
+          {complete ? '✓' : i + 1}
+        </div>
+        <div style={{
+          fontSize: 10, marginTop: 5, textAlign: 'center', lineHeight: 1.3, maxWidth: 52,
+          color: complete ? 'var(--success)' : current ? 'var(--accent)' : 'var(--text-muted)',
+          fontWeight: current || complete ? 600 : 400,
+          whiteSpace: 'pre-line',
+        }}>
+          {step.label}
+        </div>
+      </div>
+    )
+    if (i < TRACK_STEPS.length - 1) {
+      nodes.push(
+        <div key={`line-${i}`} style={{
+          flex: 1, height: 2, marginBottom: 22,
+          background: i < idx ? 'var(--success)' : 'var(--border)',
+        }} />
+      )
+    }
+  })
+
+  return (
+    <div>
+      <div style={{
+        fontSize: 10, fontWeight: 600, color: 'var(--text-muted)',
+        textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 12,
+      }}>
+        {label}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center' }}>
+        {nodes}
+      </div>
     </div>
   )
 }
