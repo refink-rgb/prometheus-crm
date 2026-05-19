@@ -2,7 +2,7 @@ import { redirect, notFound } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import Nav from '@/components/Nav'
-import { canEdit } from '@/lib/permissions'
+import { canEdit, PROFIT_ENGINEERS } from '@/lib/permissions'
 import { updateBrandDetails, deleteBrand } from '@/lib/actions'
 import ConfirmDeleteForm from '@/components/ConfirmDeleteForm'
 import type { Brand, Project } from '@/lib/types'
@@ -138,6 +138,15 @@ export default async function BrandPage({ params }: { params: Promise<{ brandId:
                   />
                 </div>
                 <div>
+                  <label>Profit Engineer</label>
+                  <select name="profit_engineer" defaultValue={(brand as Brand).profit_engineer ?? ''}>
+                    <option value="">Unassigned</option>
+                    {PROFIT_ENGINEERS.map(pe => (
+                      <option key={pe} value={pe}>{pe}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
                   <label>Account Created</label>
                   <div style={{
                     background: 'var(--surface-raised)',
@@ -216,47 +225,67 @@ export default async function BrandPage({ params }: { params: Promise<{ brandId:
   )
 }
 
+const STAGE_PCT: Record<string, number> = { brief: 25, in_progress: 50, review: 75, done: 100 }
+
 function ProjectRow({ project, brandId }: { project: Project; brandId: string }) {
   const due = project.due_date ? new Date(project.due_date) : null
   const isOverdue = due && due < new Date() && !project.is_complete
   const dueStr = due ? due.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
+  const overallPct = Math.round((STAGE_PCT[project.lp_stage] + STAGE_PCT[project.creatives_stage]) / 2)
+  const barColor = overallPct === 100 ? 'var(--success)' : overallPct >= 75 ? 'var(--warning)' : 'var(--accent)'
 
   return (
     <Link href={`/brands/${brandId}/projects/${project.id}`} style={{ textDecoration: 'none' }}>
       <div className="card" style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 20,
         cursor: 'pointer',
         padding: '16px 20px',
         transition: 'border-color 0.15s',
       }}>
-        {/* Project name + meta */}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-            <span style={{ fontWeight: 600, fontSize: 15, color: 'var(--text-primary)' }}>
-              {project.name}
+        {/* Top row: name + pills + due */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 20, marginBottom: 12 }}>
+          {/* Project name + meta */}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <span style={{ fontWeight: 600, fontSize: 15, color: 'var(--text-primary)' }}>
+                {project.name}
+              </span>
+              {project.is_complete && <span className="badge badge-done">Complete</span>}
+            </div>
+            <div style={{ display: 'flex', gap: 16, fontSize: 12, color: 'var(--text-muted)' }}>
+              {project.offer && <span>🎁 {project.offer}</span>}
+              {project.discount && <span>💸 {project.discount}</span>}
+            </div>
+          </div>
+
+          {/* LP track */}
+          <TrackPill label="Landing Page" stage={project.lp_stage} />
+          <TrackPill label="Creatives" stage={project.creatives_stage} />
+
+          {/* Due date */}
+          <div style={{ textAlign: 'right', flexShrink: 0 }}>
+            <span style={{ fontSize: 12, color: isOverdue ? 'var(--danger)' : 'var(--text-muted)', fontWeight: isOverdue ? 600 : 400 }}>
+              {isOverdue ? '⚠ ' : ''}{dueStr}
             </span>
-            {project.is_complete && <span className="badge badge-done">Complete</span>}
           </div>
-          <div style={{ display: 'flex', gap: 16, fontSize: 12, color: 'var(--text-muted)' }}>
-            {project.offer && <span>🎁 {project.offer}</span>}
-            {project.discount && <span>💸 {project.discount}</span>}
-          </div>
+
+          <span style={{ color: 'var(--text-muted)', fontSize: 16 }}>›</span>
         </div>
 
-        {/* LP track */}
-        <TrackPill label="Landing Page" stage={project.lp_stage} />
-        <TrackPill label="Creatives" stage={project.creatives_stage} />
-
-        {/* Due date */}
-        <div style={{ textAlign: 'right', flexShrink: 0 }}>
-          <span style={{ fontSize: 12, color: isOverdue ? 'var(--danger)' : 'var(--text-muted)', fontWeight: isOverdue ? 600 : 400 }}>
-            {isOverdue ? '⚠ ' : ''}{dueStr}
+        {/* Overall progress bar */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ flex: 1, height: 6, background: 'var(--border)', borderRadius: 99, overflow: 'hidden' }}>
+            <div style={{
+              width: `${overallPct}%`,
+              height: '100%',
+              background: barColor,
+              borderRadius: 99,
+              transition: 'width 0.3s ease',
+            }} />
+          </div>
+          <span style={{ fontSize: 11, fontWeight: 600, color: barColor, flexShrink: 0, minWidth: 32, textAlign: 'right' }}>
+            {overallPct}%
           </span>
         </div>
-
-        <span style={{ color: 'var(--text-muted)', fontSize: 16 }}>›</span>
       </div>
     </Link>
   )

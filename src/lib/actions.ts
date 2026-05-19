@@ -18,9 +18,11 @@ export async function createBrand(formData: FormData) {
   const monthly_retainer = retainerRaw ? parseFloat(retainerRaw) : null
   const start_date = (formData.get('start_date') as string) || null
 
+  const profit_engineer = (formData.get('profit_engineer') as string)?.trim() || null
+
   const { data, error } = await supabase
     .from('brands')
-    .insert({ name, website, created_by: user?.id ?? null, growth_strategist: user?.email ?? null, monthly_retainer, start_date })
+    .insert({ name, website, created_by: user?.id ?? null, growth_strategist: user?.email ?? null, monthly_retainer, start_date, profit_engineer })
     .select()
     .single()
 
@@ -144,10 +146,11 @@ export async function updateBrandDetails(formData: FormData) {
   const start_date = (formData.get('start_date') as string) || null
   const growth_strategist = (formData.get('growth_strategist') as string)?.trim() || null
   const is_active = formData.get('is_active') === 'true'
+  const profit_engineer = (formData.get('profit_engineer') as string)?.trim() || null
 
   await supabase
     .from('brands')
-    .update({ monthly_retainer, start_date, growth_strategist, is_active })
+    .update({ monthly_retainer, start_date, growth_strategist, is_active, profit_engineer })
     .eq('id', brandId)
 
   revalidatePath(`/brands/${brandId}`)

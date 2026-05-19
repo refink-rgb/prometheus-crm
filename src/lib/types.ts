@@ -8,6 +8,7 @@ export interface Brand {
   monthly_retainer: number | null
   start_date: string | null
   growth_strategist: string | null
+  profit_engineer: string | null
   created_at: string
   created_by: string
 }

@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import Nav from '@/components/Nav'
-import { canEdit } from '@/lib/permissions'
+import { canEdit, PROFIT_ENGINEERS } from '@/lib/permissions'
 import type { Brand, Project, Stage } from '@/lib/types'
 import { STAGE_LABELS } from '@/lib/types'
 
@@ -46,10 +46,19 @@ export default async function DashboardPage() {
 
   const allBrands = (brands ?? []) as BrandWithProjects[]
   const pipeline = (pipelineRaw ?? []) as PipelineProject[]
-  const active = allBrands.filter(b => b.projects.some(p => !p.is_complete))
-  const completed = allBrands.filter(b => b.projects.every(p => p.is_complete) && b.projects.length > 0)
-  const noprojects = allBrands.filter(b => b.projects.length === 0)
   const isAuthorized = canEdit(user?.email)
+
+  // Group brands by profit engineer, maintaining PROFIT_ENGINEERS order, "Unassigned" last
+  const peGroups: Array<{ pe: string; brands: BrandWithProjects[] }> = [
+    ...PROFIT_ENGINEERS.map(pe => ({
+      pe,
+      brands: allBrands.filter(b => b.profit_engineer === pe),
+    })),
+    {
+      pe: 'Unassigned',
+      brands: allBrands.filter(b => !b.profit_engineer || !PROFIT_ENGINEERS.includes(b.profit_engineer)),
+    },
+  ].filter(g => g.brands.length > 0)
 
   // Revenue calculations (authorized users only)
   const billableClients = allBrands
@@ -214,39 +223,17 @@ export default async function DashboardPage() {
           </section>
         )}
 
-        {/* Active brands */}
-        {active.length > 0 && (
-          <section style={{ marginBottom: 48 }}>
+        {/* Brands grouped by Profit Engineer */}
+        {peGroups.map((group, gi) => (
+          <section key={group.pe} style={{ marginBottom: gi < peGroups.length - 1 ? 48 : 0 }}>
             <h2 style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 16 }}>
-              Brands with Active Projects
+              {group.pe === 'Unassigned' ? 'Unassigned' : `${group.pe}'s Brands`} — {group.brands.length} brand{group.brands.length !== 1 ? 's' : ''}
             </h2>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 }}>
-              {active.map(brand => <BrandCard key={brand.id} brand={brand} />)}
+              {group.brands.map(brand => <BrandCard key={brand.id} brand={brand} />)}
             </div>
           </section>
-        )}
-
-        {noprojects.length > 0 && (
-          <section style={{ marginBottom: 48 }}>
-            <h2 style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 16 }}>
-              Brands — No Active Projects
-            </h2>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 }}>
-              {noprojects.map(brand => <BrandCard key={brand.id} brand={brand} />)}
-            </div>
-          </section>
-        )}
-
-        {completed.length > 0 && (
-          <section>
-            <h2 style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 16 }}>
-              Completed
-            </h2>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16, opacity: 0.6 }}>
-              {completed.map(brand => <BrandCard key={brand.id} brand={brand} />)}
-            </div>
-          </section>
-        )}
+        ))}
       </main>
     </div>
   )

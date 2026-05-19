@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import Nav from '@/components/Nav'
 import { createBrand } from '@/lib/actions'
+import { PROFIT_ENGINEERS } from '@/lib/permissions'
 
 export default async function NewBrandPage() {
   const supabase = await createClient()
@@ -31,9 +32,19 @@ export default async function NewBrandPage() {
               <input id="name" name="name" type="text" placeholder="e.g. Aura Skincare" required autoFocus />
             </div>
 
-            <div style={{ marginBottom: 28 }}>
+            <div style={{ marginBottom: 20 }}>
               <label htmlFor="website">Website URL *</label>
               <input id="website" name="website" type="text" placeholder="eyemuse.my or https://eyemuse.my" required />
+            </div>
+
+            <div style={{ marginBottom: 28 }}>
+              <label htmlFor="profit_engineer">Assigned Profit Engineer *</label>
+              <select id="profit_engineer" name="profit_engineer" required defaultValue="">
+                <option value="" disabled>Select Profit Engineer…</option>
+                {PROFIT_ENGINEERS.map(pe => (
+                  <option key={pe} value={pe}>{pe}</option>
+                ))}
+              </select>
             </div>
 
             <div style={{ display: 'flex', gap: 12 }}>
