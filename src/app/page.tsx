@@ -178,8 +178,8 @@ export default async function DashboardPage() {
           </div>
         )}
 
-        {/* Active Pipeline */}
-        {pipeline.length > 0 && (
+        {/* Active Pipeline — Roberto + Lucas only */}
+        {isAuthorized && pipeline.length > 0 && (
           <section style={{ marginBottom: 48 }}>
             <h2 style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 16 }}>
               Active Pipeline — {pipeline.length} project{pipeline.length !== 1 ? 's' : ''}

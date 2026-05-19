@@ -101,62 +101,58 @@ export default async function BrandPage({ params }: { params: Promise<{ brandId:
           </div>
         </div>
 
-        {/* Account Details */}
-        <div className="card" style={{ marginBottom: 32 }}>
-          <h2 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 20 }}>
-            Account Details
-          </h2>
-          <form action={updateBrandDetails}>
-            <input type="hidden" name="brand_id" value={brandId} />
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 20, marginBottom: 20 }}>
-              <div>
-                <label>Monthly Retainer ($)</label>
-                <input
-                  name="monthly_retainer"
-                  type="number"
-                  min="0"
-                  step="1"
-                  defaultValue={(brand as Brand).monthly_retainer ?? ''}
-                  placeholder="e.g. 5000"
-                  disabled={!isAuthorized}
-                />
-              </div>
-              <div>
-                <label>Start Date</label>
-                <input
-                  name="start_date"
-                  type="date"
-                  defaultValue={(brand as Brand).start_date ?? ''}
-                  disabled={!isAuthorized}
-                />
-              </div>
-              <div>
-                <label>Growth Strategist</label>
-                <input
-                  name="growth_strategist"
-                  type="text"
-                  defaultValue={(brand as Brand).growth_strategist ?? ''}
-                  placeholder="email@commonthreadglobal.com"
-                  disabled={!isAuthorized}
-                />
-              </div>
-              <div>
-                <label>Account Created</label>
-                <div style={{
-                  background: 'var(--surface-raised)',
-                  border: '1px solid var(--border)',
-                  borderRadius: 8,
-                  padding: '10px 14px',
-                  fontSize: 14,
-                  color: 'var(--text-muted)',
-                }}>
-                  {new Date((brand as Brand).created_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+        {/* Account Details — Roberto + Lucas only */}
+        {isAuthorized && (
+          <div className="card" style={{ marginBottom: 32 }}>
+            <h2 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 20 }}>
+              Account Details
+            </h2>
+            <form action={updateBrandDetails}>
+              <input type="hidden" name="brand_id" value={brandId} />
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 20, marginBottom: 20 }}>
+                <div>
+                  <label>Monthly Retainer ($)</label>
+                  <input
+                    name="monthly_retainer"
+                    type="number"
+                    min="0"
+                    step="1"
+                    defaultValue={(brand as Brand).monthly_retainer ?? ''}
+                    placeholder="e.g. 5000"
+                  />
+                </div>
+                <div>
+                  <label>Start Date</label>
+                  <input
+                    name="start_date"
+                    type="date"
+                    defaultValue={(brand as Brand).start_date ?? ''}
+                  />
+                </div>
+                <div>
+                  <label>Growth Strategist</label>
+                  <input
+                    name="growth_strategist"
+                    type="text"
+                    defaultValue={(brand as Brand).growth_strategist ?? ''}
+                    placeholder="email@commonthreadglobal.com"
+                  />
+                </div>
+                <div>
+                  <label>Account Created</label>
+                  <div style={{
+                    background: 'var(--surface-raised)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 8,
+                    padding: '10px 14px',
+                    fontSize: 14,
+                    color: 'var(--text-muted)',
+                  }}>
+                    {new Date((brand as Brand).created_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                  </div>
                 </div>
               </div>
-            </div>
 
-            {/* Active/Inactive status — only visible to authorized users */}
-            {isAuthorized && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20, padding: '12px 16px', background: 'var(--surface-raised)', borderRadius: 8, border: '1px solid var(--border)' }}>
                 <span style={{ fontSize: 13, color: 'var(--text-secondary)', flex: 1 }}>
                   Client status — affects revenue tracking
@@ -172,15 +168,13 @@ export default async function BrandPage({ params }: { params: Promise<{ brandId:
                   </label>
                 </div>
               </div>
-            )}
 
-            {isAuthorized && (
               <button type="submit" className="btn-secondary" style={{ fontSize: 13 }}>
                 Save account details
               </button>
-            )}
-          </form>
-        </div>
+            </form>
+          </div>
+        )}
 
         {allProjects.length === 0 && (
           <div style={{ textAlign: 'center', padding: '60px 24px' }}>
