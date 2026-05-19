@@ -16,8 +16,6 @@ export default async function ProjectPage({
   const { brandId, projectId } = await params
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
-
   const { data: project } = await supabase
     .from('projects')
     .select('*')
@@ -40,7 +38,7 @@ export default async function ProjectPage({
   const p = project as Project
   const b = brand as Brand
   const imgs = (images ?? []) as ProjectImage[]
-  const isAuthorized = canEdit(user.email)
+  const isAuthorized = canEdit(user?.email)
 
   const due = p.due_date ? new Date(p.due_date) : null
   const isOverdue = due && due < new Date() && !p.is_complete
@@ -50,7 +48,7 @@ export default async function ProjectPage({
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--background)' }}>
-      <Nav email={user.email} />
+      <Nav email={user?.email} />
       <main style={{ maxWidth: 1000, margin: '0 auto', padding: '40px 24px' }}>
         {/* Breadcrumb */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 28, fontSize: 13, color: 'var(--text-muted)' }}>

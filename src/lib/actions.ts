@@ -20,7 +20,7 @@ export async function createBrand(formData: FormData) {
 
   const { data, error } = await supabase
     .from('brands')
-    .insert({ name, website, created_by: user.id, growth_strategist: user.email, monthly_retainer, start_date })
+    .insert({ name, website, created_by: user?.id ?? null, growth_strategist: user?.email ?? null, monthly_retainer, start_date })
     .select()
     .single()
 
@@ -34,7 +34,6 @@ export async function createBrand(formData: FormData) {
 export async function createProject(formData: FormData): Promise<{ redirect: string }> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { redirect: '/login' }
 
   const brandId = formData.get('brand_id') as string
   const imageUrls = JSON.parse(formData.get('image_urls') as string) as Array<{ path: string; url: string }>
@@ -57,7 +56,7 @@ export async function createProject(formData: FormData): Promise<{ redirect: str
       body_copy: str('body_copy'),
       supporting_message: str('supporting_message'),
       cta: str('cta'),
-      created_by: user.id,
+      created_by: user?.id ?? null,
     })
     .select()
     .single()

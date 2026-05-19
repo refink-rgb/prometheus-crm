@@ -12,8 +12,7 @@ export default async function BrandPage({ params }: { params: Promise<{ brandId:
   const { brandId } = await params
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
-  const isAuthorized = canEdit(user.email)
+  const isAuthorized = canEdit(user?.email)
 
   const { data: brand } = await supabase
     .from('brands')
@@ -35,7 +34,7 @@ export default async function BrandPage({ params }: { params: Promise<{ brandId:
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--background)' }}>
-      <Nav email={user.email} />
+      <Nav email={user?.email} />
       <main style={{ maxWidth: 1000, margin: '0 auto', padding: '40px 24px' }}>
         {/* Breadcrumb */}
         <Link href="/" style={{ fontSize: 13, color: 'var(--text-muted)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4, marginBottom: 24 }}>

@@ -1,4 +1,3 @@
-import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import Nav from '@/components/Nav'
@@ -32,7 +31,6 @@ function fmtCurrency(n: number) {
 export default async function DashboardPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
 
   const [{ data: brands }, { data: pipelineRaw }] = await Promise.all([
     supabase
@@ -51,7 +49,7 @@ export default async function DashboardPage() {
   const active = allBrands.filter(b => b.projects.some(p => !p.is_complete))
   const completed = allBrands.filter(b => b.projects.every(p => p.is_complete) && b.projects.length > 0)
   const noprojects = allBrands.filter(b => b.projects.length === 0)
-  const isAuthorized = canEdit(user.email)
+  const isAuthorized = canEdit(user?.email)
 
   // Revenue calculations (authorized users only)
   const billableClients = allBrands
@@ -66,7 +64,7 @@ export default async function DashboardPage() {
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--background)' }}>
-      <Nav email={user.email} />
+      <Nav email={user?.email} />
 
       <main style={{ maxWidth: 1200, margin: '0 auto', padding: '32px 24px' }}>
 
