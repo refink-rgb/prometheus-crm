@@ -7,7 +7,8 @@ import { markProjectComplete, updateProjectDeliverable, deleteProject } from '@/
 import { canEdit } from '@/lib/permissions'
 import ConfirmDeleteForm from '@/components/ConfirmDeleteForm'
 import ShareButton from '@/components/ShareButton'
-import type { Project, Brand, ProjectImage, Stage } from '@/lib/types'
+import RevisionsToggle from '@/components/RevisionsToggle'
+import type { Project, Brand, ProjectImage, Journey, Stage } from '@/lib/types'
 
 export default async function ProjectPage({
   params,
@@ -41,6 +42,17 @@ export default async function ProjectPage({
   const imgs = (images ?? []) as ProjectImage[]
   const isAuthorized = canEdit(user?.email)
 
+  // Fetch journey if project has one
+  let journey: Journey | null = null
+  if (p.journey_id) {
+    const { data: jData } = await supabase
+      .from('journeys')
+      .select('*')
+      .eq('id', p.journey_id)
+      .single()
+    journey = jData as Journey | null
+  }
+
   const due = p.due_date ? new Date(p.due_date) : null
   const isOverdue = due && due < new Date() && !p.is_complete
   const dueStr = due ? due.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '—'
@@ -66,18 +78,35 @@ export default async function ProjectPage({
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 36 }}>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6, flexWrap: 'wrap' }}>
               <h1 style={{ fontSize: 26, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.03em' }}>
                 {p.name}
               </h1>
               {p.is_complete && <span className="badge badge-done">✓ Complete</span>}
               {p.lp_approved && <span className="badge badge-done">✓ LP Approved</span>}
               {p.creatives_approved && <span className="badge badge-done">✓ Creatives Approved</span>}
+              {p.needs_revisions && (
+                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--warning)', background: 'rgba(249,115,22,0.1)', border: '1px solid rgba(249,115,22,0.3)', padding: '3px 8px', borderRadius: 6 }}>
+                  ↩ Revisions Needed
+                </span>
+              )}
               {!p.is_complete && isOverdue && <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--danger)', background: 'rgba(239,68,68,0.1)', padding: '3px 8px', borderRadius: 6 }}>OVERDUE</span>}
             </div>
-            <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>
-              Due: <span style={{ color: isOverdue ? 'var(--danger)' : 'var(--text-secondary)', fontWeight: isOverdue ? 600 : 400 }}>{dueStr}</span>
-            </p>
+            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+              <p style={{ color: 'var(--text-muted)', fontSize: 14, margin: 0 }}>
+                Due: <span style={{ color: isOverdue ? 'var(--danger)' : 'var(--text-secondary)', fontWeight: isOverdue ? 600 : 400 }}>{dueStr}</span>
+              </p>
+              {journey && (
+                <span style={{ fontSize: 13, color: 'var(--accent)' }}>
+                  🗓 {journey.name}{p.marketing_moment ? ` · Moment ${p.marketing_moment}` : ''}
+                </span>
+              )}
+              {p.page_type && (
+                <span style={{ fontSize: 12, color: 'var(--text-muted)', background: 'var(--surface-raised)', border: '1px solid var(--border)', borderRadius: 6, padding: '2px 8px' }}>
+                  {p.page_type}
+                </span>
+              )}
+            </div>
           </div>
           {isAuthorized && (
             <ConfirmDeleteForm
@@ -170,6 +199,40 @@ export default async function ProjectPage({
                     ✓ Mark project complete
                   </button>
                 </form>
+              </div>
+            )}
+
+            {/* Project Meta — product featured + revisions */}
+            {(p.product_featured || isAuthorized) && (
+              <div className="card">
+                <h3 style={{ fontWeight: 700, fontSize: 15, marginBottom: 16, color: 'var(--text-primary)' }}>Project Info</h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  {p.product_featured && (
+                    <div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Product Featured</div>
+                      <div style={{ fontSize: 14, color: 'var(--text-primary)' }}>📦 {p.product_featured}</div>
+                    </div>
+                  )}
+                  {journey && (
+                    <div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Journey</div>
+                      <div style={{ fontSize: 14, color: 'var(--text-primary)' }}>
+                        🗓 {journey.name}
+                        {p.marketing_moment && <span style={{ color: 'var(--text-muted)', marginLeft: 8 }}>· Moment {p.marketing_moment} ({p.marketing_moment === 1 ? '1st half' : '2nd half'} of month)</span>}
+                      </div>
+                    </div>
+                  )}
+                  {isAuthorized && (
+                    <div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Revision Flag</div>
+                      <RevisionsToggle
+                        projectId={projectId}
+                        brandId={brandId}
+                        currentValue={p.needs_revisions}
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 

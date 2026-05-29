@@ -1,5 +1,29 @@
 export type Stage = 'brief' | 'in_progress' | 'review' | 'done'
 
+export type PipelineStatus = 'intro_contact' | 'discovery_call' | 'offer_prep' | 'active'
+
+export const PIPELINE_STATUS_LABELS: Record<PipelineStatus, string> = {
+  intro_contact:   'Intro Contact',
+  discovery_call:  'Discovery Call',
+  offer_prep:      'Offer Prep',
+  active:          'Active Client',
+}
+
+export const PIPELINE_STATUS_ORDER: PipelineStatus[] = [
+  'intro_contact', 'discovery_call', 'offer_prep', 'active',
+]
+
+export const PAGE_TYPE_OPTIONS = [
+  'Long Form',
+  'Short Form',
+  'Advertorial',
+  'Listicle',
+  'Video Sales Letter',
+  'Other',
+] as const
+
+export type PageType = typeof PAGE_TYPE_OPTIONS[number]
+
 export interface Brand {
   id: string
   name: string
@@ -10,8 +34,18 @@ export interface Brand {
   start_date: string | null
   growth_strategist: string | null
   profit_engineer: string | null
+  pipeline_status: PipelineStatus
+  client_number: number | null
+  brand_notes: string | null
   created_at: string
   created_by: string
+}
+
+export interface Journey {
+  id: string
+  brand_id: string
+  name: string
+  created_at: string
 }
 
 export interface Project {
@@ -37,6 +71,12 @@ export interface Project {
   target_audience: string | null
   notes: string | null
   assigned_designer: string | null
+  // journey & moment
+  journey_id: string | null
+  marketing_moment: 1 | 2 | null
+  page_type: string | null
+  product_featured: string | null
+  needs_revisions: boolean
   // client review
   share_token: string | null
   client_approved: boolean
@@ -52,6 +92,7 @@ export interface Project {
   created_by: string
   brand?: Brand
   images?: ProjectImage[]
+  journey?: Journey
 }
 
 export interface ProjectImage {

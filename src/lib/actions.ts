@@ -17,12 +17,31 @@ export async function createBrand(formData: FormData) {
   const retainerRaw = (formData.get('monthly_retainer') as string)?.trim()
   const monthly_retainer = retainerRaw ? parseFloat(retainerRaw) : null
   const start_date = (formData.get('start_date') as string) || null
-
   const profit_engineer = (formData.get('profit_engineer') as string)?.trim() || null
+
+  // Auto-assign next client number
+  const { data: maxRow } = await supabase
+    .from('brands')
+    .select('client_number')
+    .order('client_number', { ascending: false })
+    .limit(1)
+    .single()
+  const client_number = ((maxRow?.client_number as number | null) ?? 0) + 1
 
   const { data, error } = await supabase
     .from('brands')
-    .insert({ name, website, created_by: user?.id ?? null, growth_strategist: user?.email ?? null, monthly_retainer, start_date, profit_engineer })
+    .insert({
+      name,
+      website,
+      created_by: user?.id ?? null,
+      growth_strategist: user?.email ?? null,
+      monthly_retainer,
+      start_date,
+      profit_engineer,
+      pipeline_status: 'intro_contact',
+      is_active: false,
+      client_number,
+    })
     .select()
     .single()
 
@@ -42,6 +61,23 @@ export async function createProject(formData: FormData): Promise<{ redirect: str
 
   const str = (key: string) => (formData.get(key) as string)?.trim() || null
 
+  // Handle journey: use existing or create new
+  let journey_id = str('journey_id')
+  const newJourneyName = str('new_journey_name')
+
+  if (!journey_id && newJourneyName) {
+    const { data: newJourney, error: jErr } = await supabase
+      .from('journeys')
+      .insert({ brand_id: brandId, name: newJourneyName })
+      .select()
+      .single()
+    if (jErr) throw new Error(jErr.message)
+    journey_id = newJourney.id
+  }
+
+  const momentRaw = formData.get('marketing_moment') as string
+  const marketing_moment = momentRaw === '1' ? 1 : momentRaw === '2' ? 2 : null
+
   const { data, error } = await supabase
     .from('projects')
     .insert({
@@ -58,6 +94,10 @@ export async function createProject(formData: FormData): Promise<{ redirect: str
       body_copy: str('body_copy'),
       supporting_message: str('supporting_message'),
       cta: str('cta'),
+      journey_id,
+      marketing_moment,
+      page_type: str('page_type'),
+      product_featured: str('product_featured'),
       created_by: user?.id ?? null,
     })
     .select()
@@ -77,6 +117,22 @@ export async function createProject(formData: FormData): Promise<{ redirect: str
 
   revalidatePath(`/brands/${brandId}`)
   return { redirect: `/brands/${brandId}/projects/${data.id}` }
+}
+
+export async function createJourney(brandId: string, name: string): Promise<string> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authenticated.')
+
+  const { data, error } = await supabase
+    .from('journeys')
+    .insert({ brand_id: brandId, name: name.trim() })
+    .select()
+    .single()
+
+  if (error) throw new Error(error.message)
+  revalidatePath(`/brands/${brandId}`)
+  return data.id
 }
 
 export async function updateProjectStage(
@@ -119,6 +175,21 @@ export async function updateProjectDeliverable(formData: FormData) {
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)
 }
 
+export async function toggleProjectRevisions(projectId: string, brandId: string, value: boolean) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
+
+  await supabase
+    .from('projects')
+    .update({ needs_revisions: value })
+    .eq('id', projectId)
+
+  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+  revalidatePath('/')
+}
+
 export async function markProjectComplete(projectId: string, brandId: string) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -149,10 +220,12 @@ export async function updateBrandDetails(formData: FormData) {
   const is_trial = clientStatus === 'trial'
   const is_active = clientStatus === 'active' || clientStatus === 'trial'
   const profit_engineer = (formData.get('profit_engineer') as string)?.trim() || null
+  const pipeline_status = (formData.get('pipeline_status') as string) || 'active'
+  const brand_notes = (formData.get('brand_notes') as string)?.trim() || null
 
   await supabase
     .from('brands')
-    .update({ monthly_retainer, start_date, growth_strategist, is_active, is_trial, profit_engineer })
+    .update({ monthly_retainer, start_date, growth_strategist, is_active, is_trial, profit_engineer, pipeline_status, brand_notes })
     .eq('id', brandId)
 
   revalidatePath(`/brands/${brandId}`)
