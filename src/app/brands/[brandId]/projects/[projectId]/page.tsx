@@ -71,7 +71,8 @@ export default async function ProjectPage({
                 {p.name}
               </h1>
               {p.is_complete && <span className="badge badge-done">✓ Complete</span>}
-              {p.client_approved && <span className="badge badge-done">✓ Client Approved</span>}
+              {p.lp_approved && <span className="badge badge-done">✓ LP Approved</span>}
+              {p.creatives_approved && <span className="badge badge-done">✓ Creatives Approved</span>}
               {!p.is_complete && isOverdue && <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--danger)', background: 'rgba(239,68,68,0.1)', padding: '3px 8px', borderRadius: 6 }}>OVERDUE</span>}
             </div>
             <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>

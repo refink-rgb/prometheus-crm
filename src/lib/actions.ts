@@ -193,12 +193,14 @@ export async function addProjectComment(token: string, authorName: string, conte
   revalidatePath(`/review/${token}`)
 }
 
-export async function approveProject(token: string) {
+export async function approveProject(token: string, track: 'lp' | 'creatives') {
   const supabase = await createClient()
+
+  const field = track === 'lp' ? 'lp_approved' : 'creatives_approved'
 
   const { error } = await supabase
     .from('projects')
-    .update({ client_approved: true })
+    .update({ [field]: true })
     .eq('share_token', token)
 
   if (error) throw new Error(error.message)

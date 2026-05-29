@@ -35,8 +35,6 @@ export default async function ReviewPage({
   const due = p.due_date ? new Date(p.due_date) : null
   const dueStr = due?.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
 
-  const hasDeliverables = p.lp_url || p.creatives_notes
-
   return (
     <div style={{ minHeight: '100vh', background: 'var(--background)' }}>
       {/* Top bar */}
@@ -52,9 +50,10 @@ export default async function ReviewPage({
         <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--accent)', letterSpacing: '-0.02em' }}>
           Prometheus Studio
         </span>
-        {p.client_approved && (
-          <span className="badge badge-done" style={{ fontSize: 12 }}>✓ Approved</span>
-        )}
+        <div style={{ display: 'flex', gap: 8 }}>
+          {p.lp_approved && <span className="badge badge-done" style={{ fontSize: 12 }}>✓ LP Approved</span>}
+          {p.creatives_approved && <span className="badge badge-done" style={{ fontSize: 12 }}>✓ Creatives Approved</span>}
+        </div>
       </div>
 
       <main style={{ maxWidth: 800, margin: '0 auto', padding: '40px 24px 80px' }}>
@@ -68,52 +67,77 @@ export default async function ReviewPage({
             {p.name}
           </h1>
 
-          {p.client_approved ? (
+          {p.lp_approved && p.creatives_approved ? (
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 16px', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)', borderRadius: 10 }}>
               <span style={{ fontSize: 20 }}>🎉</span>
-              <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--success)' }}>You've approved this project</span>
+              <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--success)' }}>Both tracks approved — thank you!</span>
             </div>
           ) : (
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 16px', background: 'rgba(249,115,22,0.08)', border: '1px solid rgba(249,115,22,0.2)', borderRadius: 10 }}>
               <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
-                ⏳ Review the work below and leave comments or approve when ready.
+                ⏳ Review the deliverables below. Approve each track when you're happy.
               </span>
             </div>
           )}
         </div>
 
-        {/* Deliverables */}
+        {/* Landing Page track */}
+        <section style={{ marginBottom: 20 }}>
+          <SectionTitle>Landing Page</SectionTitle>
+          <div className="card">
+            {p.lp_url ? (
+              <div style={{ marginBottom: p.lp_approved ? 0 : 20 }}>
+                <FieldLabel>URL</FieldLabel>
+                <a
+                  href={p.lp_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ fontSize: 14, color: 'var(--accent)', wordBreak: 'break-all' }}
+                >
+                  {p.lp_url} ↗
+                </a>
+              </div>
+            ) : (
+              <p style={{ color: 'var(--text-muted)', fontSize: 14, marginBottom: p.lp_approved ? 0 : 20 }}>
+                Landing page coming soon — check back later.
+              </p>
+            )}
+            {p.lp_approved ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.2)', borderRadius: 8 }}>
+                <span style={{ fontSize: 16 }}>✓</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--success)' }}>Landing page approved</span>
+              </div>
+            ) : p.lp_url ? (
+              <ApproveButton token={token} track="lp" label="Landing Page" />
+            ) : null}
+          </div>
+        </section>
+
+        {/* Creatives track */}
         <section style={{ marginBottom: 28 }}>
-          <SectionTitle>Deliverables</SectionTitle>
-          {hasDeliverables ? (
-            <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-              {p.lp_url && (
-                <div>
-                  <FieldLabel>Landing Page</FieldLabel>
-                  <a
-                    href={p.lp_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ fontSize: 14, color: 'var(--accent)', wordBreak: 'break-all' }}
-                  >
-                    {p.lp_url} ↗
-                  </a>
+          <SectionTitle>Creatives</SectionTitle>
+          <div className="card">
+            {p.creatives_notes ? (
+              <div style={{ marginBottom: p.creatives_approved ? 0 : 20 }}>
+                <FieldLabel>Link / Notes</FieldLabel>
+                <div style={{ fontSize: 14, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>
+                  {p.creatives_notes}
                 </div>
-              )}
-              {p.creatives_notes && (
-                <div>
-                  <FieldLabel>Creatives</FieldLabel>
-                  <div style={{ fontSize: 14, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>
-                    {p.creatives_notes}
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="card">
-              <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>Deliverables are on their way — check back soon.</p>
-            </div>
-          )}
+              </div>
+            ) : (
+              <p style={{ color: 'var(--text-muted)', fontSize: 14, marginBottom: p.creatives_approved ? 0 : 20 }}>
+                Creatives coming soon — check back later.
+              </p>
+            )}
+            {p.creatives_approved ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.2)', borderRadius: 8 }}>
+                <span style={{ fontSize: 16 }}>✓</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--success)' }}>Creatives approved</span>
+              </div>
+            ) : p.creatives_notes ? (
+              <ApproveButton token={token} track="creatives" label="Creatives" />
+            ) : null}
+          </div>
         </section>
 
         {/* Offer Details */}
@@ -220,20 +244,6 @@ export default async function ReviewPage({
           </div>
         </section>
 
-        {/* Approve */}
-        {!p.client_approved && (
-          <section>
-            <SectionTitle>Approval</SectionTitle>
-            <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-                Once you&apos;re happy with the deliverables, click below to officially approve this project. You can still leave comments after approval.
-              </p>
-              <div>
-                <ApproveButton token={token} />
-              </div>
-            </div>
-          </section>
-        )}
 
       </main>
     </div>

@@ -40,6 +40,8 @@ export interface Project {
   // client review
   share_token: string | null
   client_approved: boolean
+  lp_approved: boolean
+  creatives_approved: boolean
   // pipeline
   lp_stage: Stage
   creatives_stage: Stage
