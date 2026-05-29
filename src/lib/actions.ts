@@ -145,15 +145,65 @@ export async function updateBrandDetails(formData: FormData) {
   const monthly_retainer = retainerRaw ? parseFloat(retainerRaw) : null
   const start_date = (formData.get('start_date') as string) || null
   const growth_strategist = (formData.get('growth_strategist') as string)?.trim() || null
-  const is_active = formData.get('is_active') === 'true'
+  const clientStatus = formData.get('client_status') as string
+  const is_trial = clientStatus === 'trial'
+  const is_active = clientStatus === 'active' || clientStatus === 'trial'
   const profit_engineer = (formData.get('profit_engineer') as string)?.trim() || null
 
   await supabase
     .from('brands')
-    .update({ monthly_retainer, start_date, growth_strategist, is_active, profit_engineer })
+    .update({ monthly_retainer, start_date, growth_strategist, is_active, is_trial, profit_engineer })
     .eq('id', brandId)
 
   revalidatePath(`/brands/${brandId}`)
+}
+
+export async function generateShareToken(projectId: string): Promise<string> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authenticated.')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
+
+  const { randomBytes } = await import('crypto')
+  const token = randomBytes(20).toString('hex')
+
+  await supabase
+    .from('projects')
+    .update({ share_token: token })
+    .eq('id', projectId)
+
+  return token
+}
+
+export async function addProjectComment(token: string, authorName: string, content: string) {
+  const supabase = await createClient()
+
+  const { data: project } = await supabase
+    .from('projects')
+    .select('id')
+    .eq('share_token', token)
+    .single()
+
+  if (!project) throw new Error('Invalid review link.')
+
+  await supabase
+    .from('project_comments')
+    .insert({ project_id: project.id, author_name: authorName.trim(), content: content.trim() })
+
+  revalidatePath(`/review/${token}`)
+}
+
+export async function approveProject(token: string) {
+  const supabase = await createClient()
+
+  const { error } = await supabase
+    .from('projects')
+    .update({ client_approved: true })
+    .eq('share_token', token)
+
+  if (error) throw new Error(error.message)
+
+  revalidatePath(`/review/${token}`)
 }
 
 export async function deleteProject(projectId: string, brandId: string) {
@@ -190,6 +240,16 @@ export async function deleteBrand(brandId: string) {
 
   revalidatePath('/')
   redirect('/')
+}
+
+export async function addProfitEngineer(name: string) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
+
+  await supabase.from('profit_engineers').insert({ name: name.trim() })
+  revalidatePath('/', 'layout')
 }
 
 export async function signOut() {

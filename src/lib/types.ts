@@ -5,6 +5,7 @@ export interface Brand {
   name: string
   website: string
   is_active: boolean
+  is_trial: boolean
   monthly_retainer: number | null
   start_date: string | null
   growth_strategist: string | null
@@ -36,6 +37,9 @@ export interface Project {
   target_audience: string | null
   notes: string | null
   assigned_designer: string | null
+  // client review
+  share_token: string | null
+  client_approved: boolean
   // pipeline
   lp_stage: Stage
   creatives_stage: Stage
@@ -53,6 +57,14 @@ export interface ProjectImage {
   project_id: string
   storage_path: string
   storage_url: string
+  created_at: string
+}
+
+export interface ProjectComment {
+  id: string
+  project_id: string
+  author_name: string
+  content: string
   created_at: string
 }
 

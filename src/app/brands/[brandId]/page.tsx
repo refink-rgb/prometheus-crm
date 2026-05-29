@@ -2,9 +2,10 @@ import { redirect, notFound } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import Nav from '@/components/Nav'
-import { canEdit, PROFIT_ENGINEERS } from '@/lib/permissions'
+import { canEdit } from '@/lib/permissions'
 import { updateBrandDetails, deleteBrand } from '@/lib/actions'
 import ConfirmDeleteForm from '@/components/ConfirmDeleteForm'
+import ProfitEngineerSelect from '@/components/ProfitEngineerSelect'
 import type { Brand, Project } from '@/lib/types'
 import { STAGE_LABELS } from '@/lib/types'
 
@@ -22,13 +23,13 @@ export default async function BrandPage({ params }: { params: Promise<{ brandId:
 
   if (!brand) notFound()
 
-  const { data: projects } = await supabase
-    .from('projects')
-    .select('*')
-    .eq('brand_id', brandId)
-    .order('due_date', { ascending: true })
+  const [{ data: projects }, { data: peRows }] = await Promise.all([
+    supabase.from('projects').select('*').eq('brand_id', brandId).order('due_date', { ascending: true }),
+    supabase.from('profit_engineers').select('name').order('name', { ascending: true }),
+  ])
 
   const allProjects = (projects ?? []) as Project[]
+  const engineerNames = (peRows ?? []).map((r: { name: string }) => r.name)
   const active = allProjects.filter(p => !p.is_complete)
   const done = allProjects.filter(p => p.is_complete)
 
@@ -129,22 +130,11 @@ export default async function BrandPage({ params }: { params: Promise<{ brandId:
                   />
                 </div>
                 <div>
-                  <label>Growth Strategist</label>
-                  <input
-                    name="growth_strategist"
-                    type="text"
-                    defaultValue={(brand as Brand).growth_strategist ?? ''}
-                    placeholder="email@commonthreadglobal.com"
-                  />
-                </div>
-                <div>
                   <label>Profit Engineer</label>
-                  <select name="profit_engineer" defaultValue={(brand as Brand).profit_engineer ?? ''}>
-                    <option value="">Unassigned</option>
-                    {PROFIT_ENGINEERS.map(pe => (
-                      <option key={pe} value={pe}>{pe}</option>
-                    ))}
-                  </select>
+                  <ProfitEngineerSelect
+                    engineers={engineerNames}
+                    current={(brand as Brand).profit_engineer}
+                  />
                 </div>
                 <div>
                   <label>Account Created</label>
@@ -161,21 +151,37 @@ export default async function BrandPage({ params }: { params: Promise<{ brandId:
                 </div>
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20, padding: '12px 16px', background: 'var(--surface-raised)', borderRadius: 8, border: '1px solid var(--border)' }}>
-                <span style={{ fontSize: 13, color: 'var(--text-secondary)', flex: 1 }}>
-                  Client status — affects revenue tracking
-                </span>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', textTransform: 'none', letterSpacing: 0, fontSize: 13, fontWeight: 500, color: (brand as Brand).is_active ? 'var(--success)' : 'var(--text-muted)', marginBottom: 0 }}>
-                    <input type="radio" name="is_active" value="true" defaultChecked={(brand as Brand).is_active} style={{ width: 'auto', padding: 0 }} />
-                    Active
-                  </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', textTransform: 'none', letterSpacing: 0, fontSize: 13, fontWeight: 500, color: !(brand as Brand).is_active ? 'var(--danger)' : 'var(--text-muted)', marginBottom: 0 }}>
-                    <input type="radio" name="is_active" value="false" defaultChecked={!(brand as Brand).is_active} style={{ width: 'auto', padding: 0 }} />
-                    Inactive
-                  </label>
-                </div>
-              </div>
+              {/* Client status — single 3-way toggle */}
+              {(() => {
+                const b = brand as Brand
+                const currentStatus = b.is_trial ? 'trial' : b.is_active ? 'active' : 'inactive'
+                const options = [
+                  { value: 'active',   label: 'Active',    color: 'var(--success)' },
+                  { value: 'inactive', label: 'Inactive',  color: 'var(--danger)'  },
+                  { value: 'trial',    label: 'On Trial',  color: 'var(--warning)' },
+                ]
+                return (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20, padding: '10px 16px', background: 'var(--surface-raised)', borderRadius: 8, border: '1px solid var(--border)' }}>
+                    <span style={{ fontSize: 13, color: 'var(--text-secondary)', flex: 1 }}>Client status</span>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      {options.map(opt => (
+                        <label key={opt.value} style={{
+                          display: 'flex', alignItems: 'center', gap: 5,
+                          cursor: 'pointer', textTransform: 'none', letterSpacing: 0,
+                          fontSize: 12, fontWeight: 500, marginBottom: 0,
+                          padding: '5px 10px', borderRadius: 6,
+                          background: currentStatus === opt.value ? `color-mix(in srgb, ${opt.color} 15%, transparent)` : 'transparent',
+                          border: `1px solid ${currentStatus === opt.value ? opt.color : 'transparent'}`,
+                          color: currentStatus === opt.value ? opt.color : 'var(--text-muted)',
+                        }}>
+                          <input type="radio" name="client_status" value={opt.value} defaultChecked={currentStatus === opt.value} style={{ width: 'auto', padding: 0 }} />
+                          {opt.label}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })()}
 
               <button type="submit" className="btn-secondary" style={{ fontSize: 13 }}>
                 Save account details
@@ -225,25 +231,41 @@ export default async function BrandPage({ params }: { params: Promise<{ brandId:
   )
 }
 
-const STAGE_PCT: Record<string, number> = { brief: 25, in_progress: 50, review: 75, done: 100 }
+const STAGES = ['brief', 'in_progress', 'review', 'done'] as const
+const STAGE_COLORS: Record<string, string> = {
+  brief: 'var(--text-muted)',
+  in_progress: 'var(--accent)',
+  review: 'var(--warning)',
+  done: 'var(--success)',
+}
 
 function ProjectRow({ project, brandId }: { project: Project; brandId: string }) {
   const due = project.due_date ? new Date(project.due_date) : null
-  const isOverdue = due && due < new Date() && !project.is_complete
+  const start = project.created_at ? new Date(project.created_at) : null
+  const now = new Date()
+  const daysLeft = due ? Math.ceil((due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)) : null
+  const isOverdue = daysLeft !== null && daysLeft < 0 && !project.is_complete
+  const startStr = start ? start.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
   const dueStr = due ? due.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
-  const overallPct = Math.round((STAGE_PCT[project.lp_stage] + STAGE_PCT[project.creatives_stage]) / 2)
-  const barColor = overallPct === 100 ? 'var(--success)' : overallPct >= 75 ? 'var(--warning)' : 'var(--accent)'
+
+  let daysLabel = '—'
+  let daysColor = 'var(--text-muted)'
+  if (daysLeft !== null && !project.is_complete) {
+    if (daysLeft < 0) { daysLabel = `${Math.abs(daysLeft)}d overdue`; daysColor = 'var(--danger)' }
+    else if (daysLeft === 0) { daysLabel = 'Due today'; daysColor = 'var(--danger)' }
+    else if (daysLeft <= 3) { daysLabel = `${daysLeft}d left`; daysColor = 'var(--danger)' }
+    else if (daysLeft <= 7) { daysLabel = `${daysLeft}d left`; daysColor = 'var(--warning)' }
+    else { daysLabel = `${daysLeft}d left`; daysColor = 'var(--text-muted)' }
+  } else if (project.is_complete) {
+    daysLabel = 'Complete'; daysColor = 'var(--success)'
+  }
 
   return (
     <Link href={`/brands/${brandId}/projects/${project.id}`} style={{ textDecoration: 'none' }}>
-      <div className="card" style={{
-        cursor: 'pointer',
-        padding: '16px 20px',
-        transition: 'border-color 0.15s',
-      }}>
-        {/* Top row: name + pills + due */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 20, marginBottom: 12 }}>
-          {/* Project name + meta */}
+      <div className="card" style={{ cursor: 'pointer', padding: '16px 20px', transition: 'border-color 0.15s' }}>
+
+        {/* Top row: name + dates */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 20, marginBottom: 14 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
               <span style={{ fontWeight: 600, fontSize: 15, color: 'var(--text-primary)' }}>
@@ -257,37 +279,51 @@ function ProjectRow({ project, brandId }: { project: Project; brandId: string })
             </div>
           </div>
 
-          {/* LP track */}
-          <TrackPill label="Landing Page" stage={project.lp_stage} />
-          <TrackPill label="Creatives" stage={project.creatives_stage} />
-
-          {/* Due date */}
-          <div style={{ textAlign: 'right', flexShrink: 0 }}>
-            <span style={{ fontSize: 12, color: isOverdue ? 'var(--danger)' : 'var(--text-muted)', fontWeight: isOverdue ? 600 : 400 }}>
-              {isOverdue ? '⚠ ' : ''}{dueStr}
-            </span>
+          {/* Date meta */}
+          <div style={{ display: 'flex', gap: 20, flexShrink: 0 }}>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>Started</div>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{startStr}</div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>Due</div>
+              <div style={{ fontSize: 12, color: isOverdue ? 'var(--danger)' : 'var(--text-secondary)', fontWeight: isOverdue ? 600 : 400 }}>{isOverdue ? '⚠ ' : ''}{dueStr}</div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>Remaining</div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: daysColor }}>{daysLabel}</div>
+            </div>
           </div>
 
-          <span style={{ color: 'var(--text-muted)', fontSize: 16 }}>›</span>
+          <span style={{ color: 'var(--text-muted)', fontSize: 16, alignSelf: 'center' }}>›</span>
         </div>
 
-        {/* Overall progress bar */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ flex: 1, height: 6, background: 'var(--border)', borderRadius: 99, overflow: 'hidden' }}>
-            <div style={{
-              width: `${overallPct}%`,
-              height: '100%',
-              background: barColor,
-              borderRadius: 99,
-              transition: 'width 0.3s ease',
-            }} />
-          </div>
-          <span style={{ fontSize: 11, fontWeight: 600, color: barColor, flexShrink: 0, minWidth: 32, textAlign: 'right' }}>
-            {overallPct}%
-          </span>
+        {/* Progress bars */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <TrackBar label="Landing Page" stage={project.lp_stage} />
+          <TrackBar label="Creatives" stage={project.creatives_stage} />
         </div>
       </div>
     </Link>
+  )
+}
+
+function TrackBar({ label, stage }: { label: string; stage: string }) {
+  const idx = STAGES.indexOf(stage as typeof STAGES[number])
+  const color = STAGE_COLORS[stage] ?? 'var(--text-muted)'
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+        <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</span>
+        <span style={{ fontSize: 10, fontWeight: 700, color }}>{STAGE_LABELS[stage as keyof typeof STAGE_LABELS]}</span>
+      </div>
+      <div style={{ display: 'flex', gap: 4 }}>
+        {STAGES.map((s, i) => {
+          const bg = i < idx ? 'var(--success)' : i === idx ? color : 'var(--border)'
+          return <div key={s} style={{ flex: 1, height: 5, borderRadius: 3, background: bg, transition: 'background 0.2s' }} />
+        })}
+      </div>
+    </div>
   )
 }
 

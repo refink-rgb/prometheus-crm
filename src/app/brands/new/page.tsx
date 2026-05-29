@@ -3,11 +3,17 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import Nav from '@/components/Nav'
 import { createBrand } from '@/lib/actions'
-import { PROFIT_ENGINEERS } from '@/lib/permissions'
+import ProfitEngineerSelect from '@/components/ProfitEngineerSelect'
 
 export default async function NewBrandPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
+
+  const { data: peRows } = await supabase
+    .from('profit_engineers')
+    .select('name')
+    .order('name', { ascending: true })
+  const engineerNames = (peRows ?? []).map((r: { name: string }) => r.name)
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--background)' }}>
@@ -38,13 +44,8 @@ export default async function NewBrandPage() {
             </div>
 
             <div style={{ marginBottom: 28 }}>
-              <label htmlFor="profit_engineer">Assigned Profit Engineer *</label>
-              <select id="profit_engineer" name="profit_engineer" required defaultValue="">
-                <option value="" disabled>Select Profit Engineer…</option>
-                {PROFIT_ENGINEERS.map(pe => (
-                  <option key={pe} value={pe}>{pe}</option>
-                ))}
-              </select>
+              <label>Assigned Profit Engineer *</label>
+              <ProfitEngineerSelect engineers={engineerNames} current={null} />
             </div>
 
             <div style={{ display: 'flex', gap: 12 }}>

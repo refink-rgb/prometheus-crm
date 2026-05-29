@@ -6,6 +6,7 @@ import StageTracker from '@/components/StageTracker'
 import { markProjectComplete, updateProjectDeliverable, deleteProject } from '@/lib/actions'
 import { canEdit } from '@/lib/permissions'
 import ConfirmDeleteForm from '@/components/ConfirmDeleteForm'
+import ShareButton from '@/components/ShareButton'
 import type { Project, Brand, ProjectImage, Stage } from '@/lib/types'
 
 export default async function ProjectPage({
@@ -70,6 +71,7 @@ export default async function ProjectPage({
                 {p.name}
               </h1>
               {p.is_complete && <span className="badge badge-done">✓ Complete</span>}
+              {p.client_approved && <span className="badge badge-done">✓ Client Approved</span>}
               {!p.is_complete && isOverdue && <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--danger)', background: 'rgba(239,68,68,0.1)', padding: '3px 8px', borderRadius: 6 }}>OVERDUE</span>}
             </div>
             <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>
@@ -278,6 +280,20 @@ export default async function ProjectPage({
                   </button>
                 )}
               </form>
+
+              {/* Share with client */}
+              <div style={{ marginTop: 24, paddingTop: 20, borderTop: '1px solid var(--border)' }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>
+                  Client Review Link
+                </div>
+                {isAuthorized ? (
+                  <ShareButton projectId={projectId} initialToken={p.share_token} />
+                ) : p.share_token ? (
+                  <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>A review link has been generated for this project.</p>
+                ) : (
+                  <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>No review link yet.</p>
+                )}
+              </div>
             </div>
 
             {/* Product images */}

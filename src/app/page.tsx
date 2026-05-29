@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import Nav from '@/components/Nav'
-import { canEdit, PROFIT_ENGINEERS } from '@/lib/permissions'
+import { canEdit } from '@/lib/permissions'
 import type { Brand, Project, Stage } from '@/lib/types'
 import { STAGE_LABELS } from '@/lib/types'
 
@@ -32,7 +32,7 @@ export default async function DashboardPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  const [{ data: brands }, { data: pipelineRaw }] = await Promise.all([
+  const [{ data: brands }, { data: pipelineRaw }, { data: peRows }] = await Promise.all([
     supabase
       .from('brands')
       .select('*, projects(*)')
@@ -42,21 +42,27 @@ export default async function DashboardPage() {
       .select('*, brands(id, name)')
       .eq('is_complete', false)
       .order('due_date', { ascending: true }),
+    supabase
+      .from('profit_engineers')
+      .select('name')
+      .order('name', { ascending: true }),
   ])
+
+  const allPEs = (peRows ?? []).map((r: { name: string }) => r.name)
 
   const allBrands = (brands ?? []) as BrandWithProjects[]
   const pipeline = (pipelineRaw ?? []) as PipelineProject[]
   const isAuthorized = canEdit(user?.email)
 
-  // Group brands by profit engineer, maintaining PROFIT_ENGINEERS order, "Unassigned" last
+  // Group brands by profit engineer, "Unassigned" last
   const peGroups: Array<{ pe: string; brands: BrandWithProjects[] }> = [
-    ...PROFIT_ENGINEERS.map(pe => ({
+    ...allPEs.map(pe => ({
       pe,
       brands: allBrands.filter(b => b.profit_engineer === pe),
     })),
     {
       pe: 'Unassigned',
-      brands: allBrands.filter(b => !b.profit_engineer || !PROFIT_ENGINEERS.includes(b.profit_engineer)),
+      brands: allBrands.filter(b => !b.profit_engineer || !allPEs.includes(b.profit_engineer)),
     },
   ].filter(g => g.brands.length > 0)
 
@@ -121,7 +127,7 @@ export default async function DashboardPage() {
             {billableClients.length > 0 ? (
               <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 200px 110px 120px 140px', gap: 16, padding: '10px 20px', borderBottom: '1px solid var(--border)', background: 'var(--surface-raised)' }}>
-                  {['Brand', 'Growth Strategist', 'Started', 'Monthly', 'To Date'].map(col => (
+                  {['Brand', 'Profit Engineer', 'Started', 'Monthly', 'To Date'].map(col => (
                     <span key={col} style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>{col}</span>
                   ))}
                 </div>
@@ -148,7 +154,7 @@ export default async function DashboardPage() {
                           )}
                         </div>
                         <span style={{ fontSize: 12, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {brand.growth_strategist ?? '—'}
+                          {brand.profit_engineer ?? '—'}
                         </span>
                         <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
                           {brand.start_date
