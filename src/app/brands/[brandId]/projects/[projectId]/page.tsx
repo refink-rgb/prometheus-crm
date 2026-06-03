@@ -4,11 +4,12 @@ import { createClient } from '@/lib/supabase/server'
 import Nav from '@/components/Nav'
 import StageTracker from '@/components/StageTracker'
 import { markProjectComplete, updateProjectDeliverable, deleteProject } from '@/lib/actions'
+import CreativeAssetsManager from '@/components/CreativeAssetsManager'
 import { canEdit } from '@/lib/permissions'
 import ConfirmDeleteForm from '@/components/ConfirmDeleteForm'
 import ShareButton from '@/components/ShareButton'
 import RevisionsToggle from '@/components/RevisionsToggle'
-import type { Project, Brand, ProjectImage, Journey, Stage } from '@/lib/types'
+import type { Project, Brand, ProjectImage, Journey, CreativeAsset, ProjectComment, Stage } from '@/lib/types'
 
 export default async function ProjectPage({
   params,
@@ -32,14 +33,17 @@ export default async function ProjectPage({
     .eq('id', brandId)
     .single()
 
-  const { data: images } = await supabase
-    .from('project_images')
-    .select('*')
-    .eq('project_id', projectId)
+  const [{ data: images }, { data: creativeAssetsRaw }, { data: imageCommentsRaw }] = await Promise.all([
+    supabase.from('project_images').select('*').eq('project_id', projectId),
+    supabase.from('creative_assets').select('*').eq('project_id', projectId).order('sort_order'),
+    supabase.from('project_comments').select('*').eq('project_id', projectId).eq('track', 'image').order('created_at'),
+  ])
 
   const p = project as Project
   const b = brand as Brand
   const imgs = (images ?? []) as ProjectImage[]
+  const creativeAssets = (creativeAssetsRaw ?? []) as CreativeAsset[]
+  const imageComments = (imageCommentsRaw ?? []) as ProjectComment[]
   const isAuthorized = canEdit(user?.email)
 
   // Fetch journey if project has one
@@ -344,6 +348,22 @@ export default async function ProjectPage({
                   </button>
                 )}
               </form>
+
+              {/* Creative assets (Drive images) */}
+              {isAuthorized && (
+                <div style={{ marginTop: 24, paddingTop: 20, borderTop: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 14 }}>
+                    Creative Assets
+                  </div>
+                  <CreativeAssetsManager
+                    projectId={projectId}
+                    brandId={brandId}
+                    initialFolderUrl={p.drive_folder_url}
+                    initialAssets={creativeAssets}
+                    imageComments={imageComments}
+                  />
+                </div>
+              )}
 
               {/* Share with client */}
               <div style={{ marginTop: 24, paddingTop: 20, borderTop: '1px solid var(--border)' }}>

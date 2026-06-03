@@ -53,6 +53,7 @@ export interface Project {
   brand_id: string
   name: string
   due_date: string
+  drive_folder_url: string | null
   // offer description step
   offer_description: string | null
   inspiration: string | null
@@ -103,12 +104,44 @@ export interface ProjectImage {
   created_at: string
 }
 
+export type CommentTrack = 'lp' | 'image' | 'general'
+
+export const LP_SECTIONS = [
+  'Hero',
+  'Offer Details',
+  'Product Features',
+  'Social Proof / Reviews',
+  'Pricing',
+  'CTA',
+  'Footer',
+  'General',
+] as const
+
 export interface ProjectComment {
   id: string
   project_id: string
   author_name: string
   content: string
   created_at: string
+  track: CommentTrack
+  asset_id: string | null
+  pin_x: number | null
+  pin_y: number | null
+  section_tag: string | null
+}
+
+export interface CreativeAsset {
+  id: string
+  project_id: string
+  drive_file_id: string
+  name: string | null
+  thumbnail_url: string | null
+  is_hidden: boolean
+  sort_order: number
+  created_at: string
+  revision_url: string | null
+  revision_prompt: string | null
+  revision_created_at: string | null
 }
 
 export const STAGE_LABELS: Record<Stage, string> = {

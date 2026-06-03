@@ -1,8 +1,8 @@
 import { notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import CommentForm from '@/components/CommentForm'
-import ApproveButton from '@/components/ApproveButton'
-import type { Project, Brand, ProjectImage, ProjectComment } from '@/lib/types'
+import LpReviewPanel from '@/components/LpReviewPanel'
+import ImageReviewPanel from '@/components/ImageReviewPanel'
+import type { Project, Brand, ProjectImage, ProjectComment, CreativeAsset } from '@/lib/types'
 
 export default async function ReviewPage({
   params,
@@ -22,15 +22,25 @@ export default async function ReviewPage({
 
   const p = projectRaw as Project
 
-  const [{ data: brandRaw }, { data: images }, { data: comments }] = await Promise.all([
+  const [
+    { data: brandRaw },
+    { data: images },
+    { data: allComments },
+    { data: assetsRaw },
+  ] = await Promise.all([
     supabase.from('brands').select('*').eq('id', p.brand_id).single(),
     supabase.from('project_images').select('*').eq('project_id', p.id).order('created_at'),
     supabase.from('project_comments').select('*').eq('project_id', p.id).order('created_at'),
+    supabase.from('creative_assets').select('*').eq('project_id', p.id).eq('is_hidden', false).order('sort_order'),
   ])
 
   const brand = brandRaw as Brand | null
   const imgs = (images ?? []) as ProjectImage[]
-  const cmts = (comments ?? []) as ProjectComment[]
+  const comments = (allComments ?? []) as ProjectComment[]
+  const assets = (assetsRaw ?? []) as CreativeAsset[]
+
+  const lpComments = comments.filter(c => c.track === 'lp' || c.track === 'general')
+  const imageComments = comments.filter(c => c.track === 'image')
 
   const due = p.due_date ? new Date(p.due_date) : null
   const dueStr = due?.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
@@ -56,7 +66,7 @@ export default async function ReviewPage({
         </div>
       </div>
 
-      <main style={{ maxWidth: 800, margin: '0 auto', padding: '40px 24px 80px' }}>
+      <main style={{ maxWidth: 960, margin: '0 auto', padding: '40px 24px 80px' }}>
 
         {/* Header */}
         <div style={{ marginBottom: 36 }}>
@@ -82,69 +92,64 @@ export default async function ReviewPage({
         </div>
 
         {/* Landing Page track */}
-        <section style={{ marginBottom: 20 }}>
+        <section style={{ marginBottom: 32 }}>
           <SectionTitle>Landing Page</SectionTitle>
-          <div className="card">
-            {p.lp_url ? (
-              <div style={{ marginBottom: p.lp_approved ? 0 : 20 }}>
-                <FieldLabel>URL</FieldLabel>
-                <a
-                  href={p.lp_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ fontSize: 14, color: 'var(--accent)', wordBreak: 'break-all' }}
-                >
-                  {p.lp_url} ↗
-                </a>
-              </div>
-            ) : (
-              <p style={{ color: 'var(--text-muted)', fontSize: 14, marginBottom: p.lp_approved ? 0 : 20 }}>
-                Landing page coming soon — check back later.
-              </p>
-            )}
-            {p.lp_approved ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.2)', borderRadius: 8 }}>
-                <span style={{ fontSize: 16 }}>✓</span>
-                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--success)' }}>Landing page approved</span>
-              </div>
-            ) : p.lp_url ? (
-              <ApproveButton token={token} track="lp" label="Landing Page" />
-            ) : null}
-          </div>
+          <LpReviewPanel
+            token={token}
+            lpUrl={p.lp_url}
+            lpApproved={p.lp_approved}
+            initialComments={lpComments}
+          />
         </section>
 
         {/* Creatives track */}
-        <section style={{ marginBottom: 28 }}>
-          <SectionTitle>Creatives</SectionTitle>
-          <div className="card">
-            {p.creatives_notes ? (
-              <div style={{ marginBottom: p.creatives_approved ? 0 : 20 }}>
-                <FieldLabel>Link / Notes</FieldLabel>
-                <div style={{ fontSize: 14, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>
-                  {p.creatives_notes}
+        <section style={{ marginBottom: 32 }}>
+          <SectionTitle>
+            Creatives {assets.length > 0 ? `(${assets.length})` : ''}
+          </SectionTitle>
+
+          {assets.length > 0 ? (
+            <ImageReviewPanel
+              token={token}
+              assets={assets}
+              creativesApproved={p.creatives_approved}
+              initialComments={imageComments}
+            />
+          ) : (
+            <div className="card">
+              {p.creatives_notes ? (
+                <div style={{ marginBottom: p.creatives_approved ? 0 : 20 }}>
+                  <FieldLabel>Link / Notes</FieldLabel>
+                  <div style={{ fontSize: 14, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>
+                    {p.creatives_notes}
+                  </div>
                 </div>
-              </div>
-            ) : (
-              <p style={{ color: 'var(--text-muted)', fontSize: 14, marginBottom: p.creatives_approved ? 0 : 20 }}>
-                Creatives coming soon — check back later.
-              </p>
-            )}
-            {p.creatives_approved ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.2)', borderRadius: 8 }}>
-                <span style={{ fontSize: 16 }}>✓</span>
-                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--success)' }}>Creatives approved</span>
-              </div>
-            ) : p.creatives_notes ? (
-              <ApproveButton token={token} track="creatives" label="Creatives" />
-            ) : null}
-          </div>
+              ) : (
+                <p style={{ color: 'var(--text-muted)', fontSize: 14, marginBottom: p.creatives_approved ? 0 : 20 }}>
+                  Creatives coming soon — check back later.
+                </p>
+              )}
+              {p.creatives_approved ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.2)', borderRadius: 8 }}>
+                  <span style={{ fontSize: 16 }}>✓</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--success)' }}>Creatives approved</span>
+                </div>
+              ) : null}
+            </div>
+          )}
         </section>
 
         {/* Offer Details */}
-        {(p.offer_description || p.inspiration || p.headline || p.body_copy || p.supporting_message || p.offer || p.cta || p.discount || p.tiered_offer) && (
+        {(p.offer_description || p.inspiration || p.headline || p.body_copy || p.supporting_message || p.offer || p.cta || p.discount || p.tiered_offer || p.product_featured) && (
           <section style={{ marginBottom: 28 }}>
             <SectionTitle>Offer Details</SectionTitle>
             <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              {p.product_featured && (
+                <div>
+                  <FieldLabel>Product Featured</FieldLabel>
+                  <div style={{ fontSize: 14, color: 'var(--text-primary)', fontWeight: 500 }}>📦 {p.product_featured}</div>
+                </div>
+              )}
               {p.offer_description && (
                 <div>
                   <FieldLabel>Overview</FieldLabel>
@@ -157,7 +162,7 @@ export default async function ReviewPage({
                   <div style={{ fontSize: 14, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>{p.inspiration}</div>
                 </div>
               )}
-              {(p.offer || p.discount || p.tiered_offer || p.cta) && (
+              {(p.offer || p.discount || p.cta) && (
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                   {p.offer && <FieldBlock label="Offer / Promo" value={p.offer} />}
                   {p.discount && <FieldBlock label="Discount" value={p.discount} />}
@@ -192,7 +197,7 @@ export default async function ReviewPage({
           </section>
         )}
 
-        {/* Product Images */}
+        {/* Brief / Product Images */}
         {imgs.length > 0 && (
           <section style={{ marginBottom: 28 }}>
             <SectionTitle>Product Images ({imgs.length})</SectionTitle>
@@ -210,40 +215,6 @@ export default async function ReviewPage({
             </div>
           </section>
         )}
-
-        {/* Comments */}
-        <section style={{ marginBottom: 28 }}>
-          <SectionTitle>Comments {cmts.length > 0 ? `(${cmts.length})` : ''}</SectionTitle>
-          <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-            {cmts.length > 0 && (
-              <div style={{ marginBottom: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
-                {cmts.map(c => (
-                  <div key={c.id} style={{ paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                      <div style={{
-                        width: 28, height: 28, borderRadius: '50%',
-                        background: `hsl(${c.author_name.charCodeAt(0) * 11 % 360}, 55%, 30%)`,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontSize: 12, fontWeight: 700, color: 'white', flexShrink: 0,
-                      }}>
-                        {c.author_name.charAt(0).toUpperCase()}
-                      </div>
-                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{c.author_name}</span>
-                      <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                        {new Date(c.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                      </span>
-                    </div>
-                    <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.7, margin: 0, paddingLeft: 36 }}>
-                      {c.content}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
-            <CommentForm token={token} />
-          </div>
-        </section>
-
 
       </main>
     </div>

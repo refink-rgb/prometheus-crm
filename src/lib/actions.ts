@@ -248,7 +248,18 @@ export async function generateShareToken(projectId: string): Promise<string> {
   return token
 }
 
-export async function addProjectComment(token: string, authorName: string, content: string) {
+export async function addProjectComment(
+  token: string,
+  authorName: string,
+  content: string,
+  extras?: {
+    track?: 'lp' | 'image' | 'general'
+    asset_id?: string
+    pin_x?: number
+    pin_y?: number
+    section_tag?: string
+  }
+) {
   const supabase = await createClient()
 
   const { data: project } = await supabase
@@ -261,9 +272,196 @@ export async function addProjectComment(token: string, authorName: string, conte
 
   await supabase
     .from('project_comments')
-    .insert({ project_id: project.id, author_name: authorName.trim(), content: content.trim() })
+    .insert({
+      project_id: project.id,
+      author_name: authorName.trim(),
+      content: content.trim(),
+      track: extras?.track ?? 'general',
+      asset_id: extras?.asset_id ?? null,
+      pin_x: extras?.pin_x ?? null,
+      pin_y: extras?.pin_y ?? null,
+      section_tag: extras?.section_tag ?? null,
+    })
 
   revalidatePath(`/review/${token}`)
+}
+
+export async function syncDriveImages(projectId: string, brandId: string, folderUrl: string): Promise<number> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
+
+  const apiKey = process.env.GOOGLE_DRIVE_API_KEY
+  if (!apiKey) throw new Error('GOOGLE_DRIVE_API_KEY is not set in environment variables. Add it in Vercel → Settings → Environment Variables.')
+
+  // Extract folder ID from various Drive URL formats
+  const match = folderUrl.match(/\/folders\/([a-zA-Z0-9_-]+)/)
+  if (!match) throw new Error('Invalid Google Drive folder URL. Expected format: https://drive.google.com/drive/folders/...')
+  const folderId = match[1]
+
+  // First, save the folder URL on the project
+  await supabase
+    .from('projects')
+    .update({ drive_folder_url: folderUrl })
+    .eq('id', projectId)
+
+  // Fetch folder contents from Drive API
+  const driveRes = await fetch(
+    `https://www.googleapis.com/drive/v3/files?q='${folderId}'+in+parents+and+trashed=false&key=${apiKey}&fields=files(id,name,mimeType)&orderBy=name&pageSize=200`
+  )
+
+  if (!driveRes.ok) {
+    const err = await driveRes.json()
+    throw new Error(`Drive API error: ${err.error?.message ?? driveRes.statusText}`)
+  }
+
+  const driveData = await driveRes.json()
+  const imageFiles = ((driveData.files ?? []) as Array<{ id: string; name: string; mimeType: string }>)
+    .filter(f => f.mimeType.startsWith('image/'))
+
+  if (imageFiles.length === 0) return 0
+
+  // Upsert assets — preserve is_hidden for existing entries
+  const { error } = await supabase
+    .from('creative_assets')
+    .upsert(
+      imageFiles.map((f, i) => ({
+        project_id: projectId,
+        drive_file_id: f.id,
+        name: f.name,
+        thumbnail_url: `https://drive.google.com/thumbnail?id=${f.id}&sz=w600`,
+        sort_order: i,
+      })),
+      { onConflict: 'project_id,drive_file_id', ignoreDuplicates: false }
+    )
+
+  if (error) throw new Error(error.message)
+
+  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+  return imageFiles.length
+}
+
+function describePosition(x: number, y: number): string {
+  const h = x < 33 ? 'left' : x < 66 ? 'center' : 'right'
+  const v = y < 25 ? 'top' : y < 75 ? 'middle' : 'bottom'
+  return `${v}-${h}`
+}
+
+function buildRevisionPrompt(comments: Array<{
+  author_name: string; content: string; pin_x: number | null; pin_y: number | null
+}>): string {
+  const pinned = comments.filter(c => c.pin_x != null)
+  const general = comments.filter(c => c.pin_x == null)
+  const lines = [
+    'Edit this marketing creative image. Apply the following reviewer-requested changes while maintaining the overall design style, brand colors, layout, and composition.',
+    '',
+    'REQUESTED CHANGES:',
+  ]
+  pinned.forEach((c, i) => {
+    const pos = describePosition(c.pin_x!, c.pin_y!)
+    lines.push(`${i + 1}. [${pos} area — from ${c.author_name}]: ${c.content}`)
+  })
+  general.forEach((c, i) => {
+    lines.push(`${pinned.length + i + 1}. [General — from ${c.author_name}]: ${c.content}`)
+  })
+  lines.push('', 'Maintain brand identity and only make the specific changes listed above.')
+  return lines.join('\n')
+}
+
+export async function applyAiEdits(
+  assetId: string,
+  projectId: string,
+  brandId: string,
+  quality: 'low' | 'medium' | 'high' = 'low'
+): Promise<{ revisionUrl: string; prompt: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
+
+  const openaiKey = process.env.OPENAI_API_KEY
+  if (!openaiKey) throw new Error('OPENAI_API_KEY is not set — add it in Vercel → Settings → Environment Variables.')
+
+  // Fetch asset
+  const { data: asset } = await supabase
+    .from('creative_assets')
+    .select('*')
+    .eq('id', assetId)
+    .single()
+  if (!asset) throw new Error('Asset not found.')
+
+  // Fetch comments for this asset
+  const { data: comments } = await supabase
+    .from('project_comments')
+    .select('author_name, content, pin_x, pin_y')
+    .eq('asset_id', assetId)
+    .order('created_at')
+
+  if (!comments || comments.length === 0) {
+    throw new Error('No comments found for this image. Add reviewer feedback before generating a revision.')
+  }
+
+  const prompt = buildRevisionPrompt(comments)
+
+  // Download image from Drive
+  const driveUrl = `https://drive.google.com/uc?export=download&id=${asset.drive_file_id}`
+  const imageRes = await fetch(driveUrl, { redirect: 'follow' })
+  if (!imageRes.ok) throw new Error(`Failed to download image from Drive (HTTP ${imageRes.status}). Make sure the file is publicly shared.`)
+
+  const imageBuffer = Buffer.from(await imageRes.arrayBuffer())
+
+  // Build the edit request
+  const { default: OpenAI, toFile } = await import('openai')
+  const openai = new OpenAI({ apiKey: openaiKey })
+  const imageFile = await toFile(imageBuffer, 'creative.jpg', { type: 'image/jpeg' })
+
+  const response = await (openai.images as unknown as {
+    edit: (params: unknown) => Promise<{ data: Array<{ b64_json?: string }> }>
+  }).edit({
+    model: 'gpt-image-1',
+    image: imageFile,
+    prompt,
+    n: 1,
+    size: '1024x1024',
+    quality,
+  })
+
+  const b64 = response.data[0]?.b64_json
+  if (!b64) throw new Error('OpenAI returned no image data. Try again.')
+
+  // Upload revision to Supabase storage
+  const revisionBuffer = Buffer.from(b64, 'base64')
+  const revisionPath = `revisions/${assetId}-${Date.now()}.png`
+  const { error: uploadError } = await supabase.storage
+    .from('project-images')
+    .upload(revisionPath, revisionBuffer, { contentType: 'image/png', upsert: true })
+  if (uploadError) throw new Error(`Storage upload failed: ${uploadError.message}`)
+
+  const { data: { publicUrl } } = supabase.storage.from('project-images').getPublicUrl(revisionPath)
+
+  // Persist revision on asset
+  await supabase
+    .from('creative_assets')
+    .update({ revision_url: publicUrl, revision_prompt: prompt, revision_created_at: new Date().toISOString() })
+    .eq('id', assetId)
+
+  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+  return { revisionUrl: publicUrl, prompt }
+}
+
+export async function toggleAssetVisibility(assetId: string, isHidden: boolean, projectId: string, brandId: string) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
+
+  await supabase
+    .from('creative_assets')
+    .update({ is_hidden: isHidden })
+    .eq('id', assetId)
+
+  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
 }
 
 export async function approveProject(token: string, track: 'lp' | 'creatives') {
