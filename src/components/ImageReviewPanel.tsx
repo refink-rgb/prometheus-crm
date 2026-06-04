@@ -160,59 +160,6 @@ function AssetRow({
           })}
         </div>
 
-        {/* Action bar below image */}
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px',
-          borderTop: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.03)',
-          flexShrink: 0,
-        }}>
-          {/* Approve */}
-          <button
-            onClick={() => handleStatus(status === 'approved' ? 'pending' : 'approved')}
-            disabled={updatingStatus}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 5,
-              padding: '7px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600,
-              cursor: 'pointer', transition: 'all 0.15s',
-              border: `1px solid ${status === 'approved' ? 'rgba(34,197,94,0.5)' : 'rgba(255,255,255,0.15)'}`,
-              background: status === 'approved' ? 'rgba(34,197,94,0.2)' : 'transparent',
-              color: status === 'approved' ? 'var(--success)' : 'rgba(255,255,255,0.6)',
-            }}
-          >
-            ✓ {status === 'approved' ? 'Approved' : 'Approve'}
-          </button>
-
-          {/* Needs revision */}
-          <button
-            onClick={() => handleStatus(status === 'needs_revision' ? 'pending' : 'needs_revision')}
-            disabled={updatingStatus}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 5,
-              padding: '7px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600,
-              cursor: 'pointer', transition: 'all 0.15s',
-              border: `1px solid ${status === 'needs_revision' ? 'rgba(239,68,68,0.5)' : 'rgba(255,255,255,0.15)'}`,
-              background: status === 'needs_revision' ? 'rgba(239,68,68,0.15)' : 'transparent',
-              color: status === 'needs_revision' ? 'var(--danger)' : 'rgba(255,255,255,0.6)',
-            }}
-          >
-            ↩ {status === 'needs_revision' ? 'Revision requested' : 'Needs revision'}
-          </button>
-
-          {/* Pin toggle */}
-          <button
-            onClick={() => { setPinMode(m => !m); setPendingPin(null) }}
-            style={{
-              marginLeft: 'auto',
-              padding: '7px 12px', borderRadius: 8, fontSize: 12, fontWeight: 500,
-              cursor: 'pointer', transition: 'all 0.15s',
-              border: `1px solid ${pinMode ? 'var(--accent)' : 'rgba(255,255,255,0.12)'}`,
-              background: pinMode ? 'var(--accent-muted)' : 'transparent',
-              color: pinMode ? 'var(--accent)' : 'rgba(255,255,255,0.5)',
-            }}
-          >
-            📍 {pinMode ? 'Click to pin…' : 'Add pin'}
-          </button>
-        </div>
       </div>
 
       {/* ── Right: Comments ── */}
@@ -313,6 +260,62 @@ function AssetRow({
               </div>
             )
           })}
+        </div>
+
+        {/* Action bar — approve / needs revision / pin */}
+        <div style={{
+          display: 'flex', flexDirection: 'column', gap: 8,
+          padding: '12px 16px',
+          borderTop: '1px solid var(--border)',
+          flexShrink: 0,
+        }}>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {/* Approve */}
+            <button
+              onClick={() => handleStatus(status === 'approved' ? 'pending' : 'approved')}
+              disabled={updatingStatus}
+              style={{
+                flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                padding: '8px 10px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                cursor: 'pointer', transition: 'all 0.15s',
+                border: `1px solid ${status === 'approved' ? 'rgba(34,197,94,0.5)' : 'var(--border)'}`,
+                background: status === 'approved' ? 'rgba(34,197,94,0.12)' : 'var(--surface-raised)',
+                color: status === 'approved' ? 'var(--success)' : 'var(--text-secondary)',
+              }}
+            >
+              ✓ {status === 'approved' ? 'Approved' : 'Approve'}
+            </button>
+
+            {/* Needs revision */}
+            <button
+              onClick={() => handleStatus(status === 'needs_revision' ? 'pending' : 'needs_revision')}
+              disabled={updatingStatus}
+              style={{
+                flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                padding: '8px 10px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                cursor: 'pointer', transition: 'all 0.15s',
+                border: `1px solid ${status === 'needs_revision' ? 'rgba(239,68,68,0.4)' : 'var(--border)'}`,
+                background: status === 'needs_revision' ? 'rgba(239,68,68,0.1)' : 'var(--surface-raised)',
+                color: status === 'needs_revision' ? 'var(--danger)' : 'var(--text-secondary)',
+              }}
+            >
+              ↩ {status === 'needs_revision' ? 'Revision requested' : 'Needs revision'}
+            </button>
+          </div>
+
+          {/* Pin toggle */}
+          <button
+            onClick={() => { setPinMode(m => !m); setPendingPin(null) }}
+            style={{
+              width: '100%', padding: '7px 12px', borderRadius: 8, fontSize: 12, fontWeight: 500,
+              cursor: 'pointer', transition: 'all 0.15s',
+              border: `1px solid ${pinMode ? 'var(--accent)' : 'var(--border)'}`,
+              background: pinMode ? 'var(--accent-muted)' : 'var(--surface-raised)',
+              color: pinMode ? 'var(--accent)' : 'var(--text-muted)',
+            }}
+          >
+            📍 {pinMode ? 'Click on the image to drop a pin…' : 'Add pin comment'}
+          </button>
         </div>
       </div>
     </div>
