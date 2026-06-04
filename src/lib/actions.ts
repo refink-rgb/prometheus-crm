@@ -450,6 +450,28 @@ export async function applyAiEdits(
   return { revisionUrl: publicUrl, prompt }
 }
 
+// Called from public review page via share token
+export async function updateAssetStatus(token: string, assetId: string, status: 'pending' | 'approved' | 'needs_revision') {
+  const supabase = await createClient()
+
+  // Verify the asset belongs to this token's project
+  const { data: project } = await supabase
+    .from('projects')
+    .select('id')
+    .eq('share_token', token)
+    .single()
+  if (!project) throw new Error('Invalid review link.')
+
+  const { error } = await supabase
+    .from('creative_assets')
+    .update({ status })
+    .eq('id', assetId)
+    .eq('project_id', project.id)
+
+  if (error) throw new Error(error.message)
+  revalidatePath(`/review/${token}`)
+}
+
 export async function toggleAssetVisibility(assetId: string, isHidden: boolean, projectId: string, brandId: string) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()

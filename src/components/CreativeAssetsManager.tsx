@@ -35,7 +35,7 @@ function InternalLightbox({
 
   const hasComments = comments.length > 0
   const hasRevision = !!asset.revision_url
-  const mainImage = hasRevision ? asset.revision_url! : `https://drive.google.com/thumbnail?id=${asset.drive_file_id}&sz=w800`
+  const mainImage = hasRevision ? asset.revision_url! : `https://drive.google.com/thumbnail?id=${asset.drive_file_id}&sz=w2048`
   const originalThumb = hasRevision ? `https://drive.google.com/thumbnail?id=${asset.drive_file_id}&sz=w200` : null
 
   const pinnedComments = comments.filter(c => c.pin_x != null)

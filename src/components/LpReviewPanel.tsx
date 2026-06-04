@@ -30,22 +30,21 @@ export default function LpReviewPanel({
 }) {
   const router = useRouter()
   const overlayRef = useRef<HTMLDivElement>(null)
-  const iframeContainerRef = useRef<HTMLDivElement>(null)
 
   const [comments, setComments] = useState<ProjectComment[]>(initialComments)
+  const [device, setDevice] = useState<'desktop' | 'mobile'>('desktop')
   const [pinMode, setPinMode] = useState(false)
   const [pendingPin, setPendingPin] = useState<{ x: number; y: number } | null>(null)
   const [activePin, setActivePin] = useState<string | null>(null)
 
   const [authorName, setAuthorName] = useState('')
   const [commentText, setCommentText] = useState('')
-  const [sectionTag, setSectionTag] = useState<string>('General')
+  const [sectionTag, setSectionTag] = useState('General')
   const [posting, setPosting] = useState(false)
   const [approving, setApproving] = useState(false)
-  const [iframeError, setIframeError] = useState(false)
 
   const pinnedComments = comments.filter(c => c.pin_x != null)
-  const unpinnedComments = comments.filter(c => c.pin_x == null)
+  const pinIndex = (c: ProjectComment) => pinnedComments.findIndex(p => p.id === c.id) + 1
 
   const handleOverlayClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (!pinMode) return
@@ -73,7 +72,7 @@ export default function LpReviewPanel({
       pin_y: pendingPin?.y ?? null,
       section_tag: pendingPin ? null : sectionTag,
     }
-    setComments(prev => [...prev, optimistic])
+    setComments(prev => [optimistic, ...prev])
 
     try {
       await addProjectComment(token, authorName.trim() || 'Anonymous', commentText.trim(), {
@@ -84,7 +83,6 @@ export default function LpReviewPanel({
       })
       setCommentText('')
       setPendingPin(null)
-      router.refresh()
     } catch {
       setComments(prev => prev.filter(c => c.id !== optimistic.id))
     } finally {
@@ -103,114 +101,161 @@ export default function LpReviewPanel({
     }
   }
 
-  const pinIndex = (comment: ProjectComment) =>
-    pinnedComments.findIndex(c => c.id === comment.id) + 1
+  async function handleKeyDown(e: React.KeyboardEvent) {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault()
+      const form = e.currentTarget.closest('form')
+      if (form) form.requestSubmit()
+    }
+  }
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 0, border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', background: 'var(--surface)' }}>
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: '1fr 300px',
+      height: 'calc(100vh - 100px)',
+      minHeight: 600,
+      border: '1px solid var(--border)',
+      borderRadius: 12,
+      overflow: 'hidden',
+      background: 'var(--surface)',
+    }}>
 
-      {/* ── Left: iframe preview ── */}
-      <div style={{ display: 'flex', flexDirection: 'column' }}>
+      {/* ══════════════════════════════════════════════════════════════
+          LEFT: LP Preview
+      ══════════════════════════════════════════════════════════════ */}
+      <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#f5f5f5' }}>
 
-        {/* Toolbar */}
+        {/* Toolbar — matches Lucas's layout */}
         <div style={{
-          display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px',
-          borderBottom: '1px solid var(--border)', background: 'var(--surface-raised)',
+          display: 'flex', alignItems: 'center', gap: 8,
+          padding: '8px 14px',
+          background: 'var(--surface)',
+          borderBottom: '1px solid var(--border)',
           flexShrink: 0,
         }}>
-          {lpUrl ? (
-            <>
-              {!lpApproved && (
-                <button
-                  onClick={() => setPinMode(m => !m)}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 6,
-                    padding: '6px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600,
-                    cursor: 'pointer', transition: 'all 0.15s',
-                    border: `1px solid ${pinMode ? 'var(--accent)' : 'var(--border)'}`,
-                    background: pinMode ? 'var(--accent-muted)' : 'transparent',
-                    color: pinMode ? 'var(--accent)' : 'var(--text-secondary)',
-                  }}
-                >
-                  📍 {pinMode ? 'Click on page to pin…' : 'Add pin comment'}
-                </button>
-              )}
-              <a
-                href={lpUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--accent)', textDecoration: 'none' }}
+          {/* Device toggle */}
+          <div style={{ display: 'flex', gap: 2, background: 'var(--surface-raised)', borderRadius: 7, padding: 2 }}>
+            {(['desktop', 'mobile'] as const).map(d => (
+              <button
+                key={d}
+                onClick={() => setDevice(d)}
+                style={{
+                  padding: '4px 10px', borderRadius: 5, fontSize: 12, fontWeight: 500,
+                  cursor: 'pointer', border: 'none',
+                  background: device === d ? 'var(--surface)' : 'transparent',
+                  color: device === d ? 'var(--text-primary)' : 'var(--text-muted)',
+                  boxShadow: device === d ? '0 1px 3px rgba(0,0,0,0.15)' : 'none',
+                }}
               >
-                Open in new tab ↗
-              </a>
-            </>
-          ) : (
-            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Landing page URL not set yet</span>
+                {d === 'desktop' ? '🖥 Desktop' : '📱 Mobile'}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ flex: 1 }} />
+
+          {/* Comment on the page */}
+          {lpUrl && !lpApproved && (
+            <button
+              onClick={() => { setPinMode(m => !m); setPendingPin(null) }}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                padding: '6px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600,
+                cursor: 'pointer', transition: 'all 0.15s',
+                border: `1px solid ${pinMode ? 'var(--accent)' : 'var(--border)'}`,
+                background: pinMode ? 'var(--accent-muted)' : 'var(--surface-raised)',
+                color: pinMode ? 'var(--accent)' : 'var(--text-secondary)',
+              }}
+            >
+              📍 {pinMode ? 'Click on page to pin…' : 'Comment on page'}
+            </button>
+          )}
+
+          {lpUrl && (
+            <a
+              href={lpUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: 'flex', alignItems: 'center', gap: 4,
+                padding: '6px 12px', borderRadius: 7, fontSize: 12, fontWeight: 500,
+                color: 'var(--text-secondary)', textDecoration: 'none',
+                border: '1px solid var(--border)', background: 'var(--surface-raised)',
+              }}
+            >
+              Open live page ↗
+            </a>
           )}
         </div>
 
-        {/* iframe + overlay */}
-        <div
-          ref={iframeContainerRef}
-          style={{ position: 'relative', flex: 1, minHeight: 560, background: '#111' }}
-        >
+        {/* LP embed area */}
+        <div style={{ flex: 1, overflow: 'hidden', position: 'relative', background: lpUrl ? '#f5f5f5' : 'var(--surface)' }}>
           {lpUrl ? (
             <>
-              <iframe
-                src={lpUrl}
-                style={{ width: '100%', height: '100%', border: 'none', display: 'block', minHeight: 560 }}
-                title="Landing page preview"
-                onError={() => setIframeError(true)}
-              />
-              {/* transparent overlay — blocks iframe interaction in pin mode */}
+              {/* Mobile wrapper */}
+              <div style={{
+                width: device === 'mobile' ? 390 : '100%',
+                height: '100%',
+                margin: device === 'mobile' ? '0 auto' : '0',
+                position: 'relative',
+                overflow: 'hidden',
+              }}>
+                <iframe
+                  src={lpUrl}
+                  style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
+                  title="Landing page preview"
+                />
+              </div>
+
+              {/* Pin overlay */}
               <div
                 ref={overlayRef}
                 onClick={handleOverlayClick}
                 style={{
                   position: 'absolute', inset: 0,
                   cursor: pinMode ? 'crosshair' : 'default',
-                  pointerEvents: pinMode || pendingPin ? 'all' : 'none',
+                  pointerEvents: pinMode ? 'all' : 'none',
                   zIndex: 10,
                 }}
               >
-                {/* Pending pin (unposted) */}
+                {/* Pending pin */}
                 {pendingPin && (
                   <div style={{
                     position: 'absolute',
-                    left: `${pendingPin.x}%`,
-                    top: `${pendingPin.y}%`,
+                    left: `${pendingPin.x}%`, top: `${pendingPin.y}%`,
                     transform: 'translate(-50%, -50%)',
                     width: 28, height: 28, borderRadius: '50%',
-                    background: 'var(--accent)', border: '2px solid white',
+                    background: '#111', border: '2px solid white',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     fontSize: 11, fontWeight: 700, color: 'white',
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
-                    zIndex: 20,
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.4)', zIndex: 20, pointerEvents: 'none',
                   }}>
                     {pinnedComments.length + 1}
                   </div>
                 )}
+
                 {/* Existing pins */}
-                {pinnedComments.map((c) => {
+                {pinnedComments.map(c => {
                   const idx = pinIndex(c)
                   const isActive = activePin === c.id
                   return (
                     <button
                       key={c.id}
-                      onClick={(e) => { e.stopPropagation(); setActivePin(isActive ? null : c.id) }}
+                      onClick={e => { e.stopPropagation(); setActivePin(isActive ? null : c.id) }}
                       style={{
                         position: 'absolute',
-                        left: `${c.pin_x}%`,
-                        top: `${c.pin_y}%`,
+                        left: `${c.pin_x}%`, top: `${c.pin_y}%`,
                         transform: 'translate(-50%, -50%)',
                         width: 26, height: 26, borderRadius: '50%',
-                        background: isActive ? 'white' : '#1a1a1a',
-                        border: `2px solid ${isActive ? 'var(--accent)' : 'white'}`,
+                        background: isActive ? 'white' : '#111',
+                        border: `2px solid ${isActive ? '#f97316' : 'white'}`,
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         fontSize: 10, fontWeight: 700,
-                        color: isActive ? 'var(--accent)' : 'white',
+                        color: isActive ? '#f97316' : 'white',
                         cursor: 'pointer', zIndex: 20,
-                        boxShadow: '0 2px 6px rgba(0,0,0,0.5)',
+                        boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
+                        pointerEvents: 'all',
                       }}
                     >
                       {idx}
@@ -218,152 +263,209 @@ export default function LpReviewPanel({
                   )
                 })}
               </div>
-              {iframeError && (
-                <div style={{
-                  position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
-                  alignItems: 'center', justifyContent: 'center',
-                  background: 'var(--surface)', pointerEvents: 'none',
-                }}>
-                  <div style={{ fontSize: 32, marginBottom: 12 }}>🚫</div>
-                  <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>This page blocks previews.</p>
-                  <a href={lpUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: 'var(--accent)', pointerEvents: 'all' }}>Open it directly ↗</a>
-                </div>
-              )}
+
+              {/* Iframe fallback notice */}
+              <div style={{
+                position: 'absolute', bottom: 0, left: 0, right: 0,
+                padding: '8px 14px',
+                background: 'rgba(0,0,0,0.6)',
+                display: 'flex', alignItems: 'center', gap: 8,
+                fontSize: 12, color: 'rgba(255,255,255,0.7)',
+                backdropFilter: 'blur(4px)',
+              }}>
+                <span>Preview not loading?</span>
+                <a href={lpUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'none', fontWeight: 600 }}>
+                  Open in new tab ↗
+                </a>
+                <span style={{ color: 'rgba(255,255,255,0.4)' }}>— you can still leave comments on the right</span>
+              </div>
             </>
           ) : (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)', fontSize: 14 }}>
-              Landing page coming soon
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', flexDirection: 'column', gap: 8 }}>
+              <div style={{ fontSize: 32 }}>🔗</div>
+              <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>Landing page URL not set yet</p>
             </div>
           )}
         </div>
       </div>
 
-      {/* ── Right: comment sidebar ── */}
+      {/* ══════════════════════════════════════════════════════════════
+          RIGHT: Feedback sidebar — matches Lucas's layout exactly
+      ══════════════════════════════════════════════════════════════ */}
       <div style={{
         borderLeft: '1px solid var(--border)',
         display: 'flex', flexDirection: 'column',
-        height: '100%', maxHeight: 640, overflow: 'hidden',
+        background: 'var(--surface)',
+        overflow: 'hidden',
       }}>
-        {/* Approve / approved banner */}
-        <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
-          {lpApproved ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.2)', borderRadius: 8 }}>
-              <span>✓</span>
-              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--success)' }}>Landing page approved</span>
-            </div>
-          ) : lpUrl ? (
+        {/* Sidebar header */}
+        <div style={{
+          display: 'flex', alignItems: 'center',
+          padding: '14px 16px',
+          borderBottom: '1px solid var(--border)',
+          flexShrink: 0,
+        }}>
+          <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
+            Feedback 💬
+          </span>
+          {comments.length > 0 && (
+            <span style={{
+              marginLeft: 8, fontSize: 12, color: 'var(--text-muted)',
+              background: 'var(--surface-raised)', border: '1px solid var(--border)',
+              borderRadius: 10, padding: '1px 7px',
+            }}>
+              {comments.length}
+            </span>
+          )}
+
+          {/* Approve button in header */}
+          {!lpApproved && lpUrl && (
             <button
               onClick={handleApprove}
               disabled={approving}
-              className="btn-primary"
-              style={{ width: '100%', fontSize: 13 }}
+              style={{
+                marginLeft: 'auto',
+                padding: '5px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+                cursor: 'pointer', border: '1px solid rgba(34,197,94,0.4)',
+                background: 'rgba(34,197,94,0.1)', color: 'var(--success)',
+              }}
             >
-              {approving ? 'Approving…' : '✓ Approve Landing Page'}
+              {approving ? '…' : '✓ Approve'}
             </button>
-          ) : null}
+          )}
+          {lpApproved && (
+            <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 600, color: 'var(--success)' }}>
+              ✓ Approved
+            </span>
+          )}
         </div>
 
-        {/* Comment form */}
-        {!lpApproved && (
-          <form onSubmit={handlePost} style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
-            {/* Active pin indicator or section tag */}
-            {pendingPin ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                <span style={{
-                  width: 22, height: 22, borderRadius: '50%',
-                  background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 10, fontWeight: 700, color: 'white', flexShrink: 0,
-                }}>
-                  {pinnedComments.length + 1}
-                </span>
-                <span style={{ fontSize: 12, color: 'var(--text-muted)', flex: 1 }}>Pinned to page</span>
-                <button type="button" onClick={() => setPendingPin(null)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 16, padding: 0 }}>×</button>
-              </div>
-            ) : (
-              <select
-                value={sectionTag}
-                onChange={e => setSectionTag(e.target.value)}
-                style={{ width: '100%', marginBottom: 10, fontSize: 12 }}
-              >
-                {LP_SECTIONS.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-            )}
-            <input
-              type="text"
-              placeholder="Your name (optional)"
-              value={authorName}
-              onChange={e => setAuthorName(e.target.value)}
-              style={{ marginBottom: 8, fontSize: 12 }}
-            />
-            <textarea
-              placeholder="Leave feedback…"
-              value={commentText}
-              onChange={e => setCommentText(e.target.value)}
-              rows={3}
-              style={{ resize: 'vertical', fontSize: 12, marginBottom: 8 }}
-            />
+        {/* Comment form — FIRST (like Lucas's tool) */}
+        <form onSubmit={handlePost} style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+          {pendingPin ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <span style={{
+                width: 22, height: 22, borderRadius: '50%',
+                background: '#111', border: '2px solid var(--border)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 9, fontWeight: 700, color: 'white', flexShrink: 0,
+              }}>
+                {pinnedComments.length + 1}
+              </span>
+              <span style={{ fontSize: 12, color: 'var(--text-muted)', flex: 1 }}>Pinned to page</span>
+              <button type="button" onClick={() => setPendingPin(null)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 16, padding: 0 }}>×</button>
+            </div>
+          ) : (
+            <select
+              value={sectionTag}
+              onChange={e => setSectionTag(e.target.value)}
+              style={{ width: '100%', marginBottom: 8, fontSize: 12 }}
+            >
+              {LP_SECTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          )}
+
+          <input
+            type="text"
+            placeholder="Your name (optional)"
+            value={authorName}
+            onChange={e => setAuthorName(e.target.value)}
+            style={{ marginBottom: 6, fontSize: 12 }}
+          />
+          <textarea
+            placeholder={pendingPin
+              ? 'What about this spot?'
+              : 'Leave general feedback (or use "Comment on page" to pin to a specific spot)'}
+            value={commentText}
+            onChange={e => setCommentText(e.target.value)}
+            onKeyDown={handleKeyDown}
+            rows={3}
+            style={{ resize: 'none', fontSize: 12, marginBottom: 6 }}
+          />
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>⌘↵ to send</span>
             <button
               type="submit"
               disabled={posting || !commentText.trim()}
-              className="btn-primary"
-              style={{ width: '100%', fontSize: 12, padding: '8px 12px' }}
+              style={{
+                padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+                cursor: posting || !commentText.trim() ? 'not-allowed' : 'pointer',
+                border: 'none',
+                background: posting || !commentText.trim() ? 'var(--border)' : 'var(--text-primary)',
+                color: posting || !commentText.trim() ? 'var(--text-muted)' : 'var(--background)',
+                transition: 'all 0.15s',
+              }}
             >
               {posting ? 'Posting…' : 'Post comment'}
             </button>
-          </form>
-        )}
+          </div>
+        </form>
 
-        {/* Comment list */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {/* Comment list — scrollable, below form */}
+        <div style={{ flex: 1, overflowY: 'auto' }}>
           {comments.length === 0 && (
-            <p style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', marginTop: 20 }}>
-              No comments yet
-            </p>
+            <div style={{ padding: '24px 16px', textAlign: 'center' }}>
+              <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>No comments yet</p>
+            </div>
           )}
-          {[...comments].reverse().map((c) => {
+          {comments.map(c => {
             const isPinned = c.pin_x != null
             const pIdx = isPinned ? pinIndex(c) : null
-            const isHighlighted = activePin === c.id
-            const sColor = c.section_tag ? (SECTION_COLORS[c.section_tag] ?? 'var(--text-muted)') : 'var(--text-muted)'
+            const isActive = activePin === c.id
+            const sColor = (!isPinned && c.section_tag) ? (SECTION_COLORS[c.section_tag] ?? 'var(--text-muted)') : undefined
 
             return (
               <div
                 key={c.id}
-                onClick={() => isPinned ? setActivePin(isHighlighted ? null : c.id) : undefined}
+                onClick={() => isPinned ? setActivePin(isActive ? null : c.id) : undefined}
                 style={{
-                  padding: '10px 12px',
-                  borderRadius: 8,
-                  border: `1px solid ${isHighlighted ? 'var(--accent)' : 'var(--border)'}`,
-                  background: isHighlighted ? 'var(--accent-muted)' : 'var(--surface-raised)',
+                  padding: '12px 16px',
+                  borderBottom: '1px solid var(--border)',
                   cursor: isPinned ? 'pointer' : 'default',
+                  background: isActive ? 'rgba(249,115,22,0.05)' : 'transparent',
+                  transition: 'background 0.1s',
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 6 }}>
                   {isPinned ? (
                     <span style={{
-                      width: 20, height: 20, borderRadius: '50%',
-                      background: isHighlighted ? 'var(--accent)' : '#333',
+                      width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
+                      background: isActive ? 'var(--accent)' : '#111',
+                      border: `2px solid ${isActive ? 'var(--accent)' : 'var(--border)'}`,
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: 9, fontWeight: 700, color: 'white', flexShrink: 0,
-                    }}>
-                      {pIdx}
-                    </span>
+                      fontSize: 9, fontWeight: 700, color: 'white',
+                    }}>{pIdx}</span>
                   ) : (
                     <span style={{
-                      fontSize: 10, fontWeight: 600, color: sColor,
-                      background: `color-mix(in srgb, ${sColor} 15%, transparent)`,
-                      border: `1px solid color-mix(in srgb, ${sColor} 30%, transparent)`,
-                      borderRadius: 4, padding: '1px 6px', flexShrink: 0,
-                    }}>
-                      {c.section_tag ?? 'General'}
-                    </span>
+                      width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
+                      background: 'var(--surface-raised)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 12,
+                    }}>💬</span>
                   )}
-                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.author_name}</span>
-                  <span style={{ fontSize: 10, color: 'var(--text-muted)', flexShrink: 0 }}>
-                    {new Date(c.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                  </span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{c.author_name}</span>
+                      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                        {new Date(c.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      </span>
+                    </div>
+                    {!isPinned && c.section_tag && c.section_tag !== 'General' && (
+                      <span style={{
+                        display: 'inline-block', marginBottom: 4,
+                        fontSize: 10, fontWeight: 600, color: sColor,
+                        background: `color-mix(in srgb, ${sColor} 15%, transparent)`,
+                        border: `1px solid color-mix(in srgb, ${sColor} 30%, transparent)`,
+                        borderRadius: 4, padding: '1px 6px',
+                      }}>
+                        {c.section_tag}
+                      </span>
+                    )}
+                    <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0, whiteSpace: 'pre-wrap' }}>
+                      {c.content}
+                    </p>
+                  </div>
                 </div>
-                <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0, whiteSpace: 'pre-wrap' }}>{c.content}</p>
               </div>
             )
           })}

@@ -142,6 +142,7 @@ export interface CreativeAsset {
   revision_url: string | null
   revision_prompt: string | null
   revision_created_at: string | null
+  status: 'pending' | 'approved' | 'needs_revision'
 }
 
 export const STAGE_LABELS: Record<Stage, string> = {
