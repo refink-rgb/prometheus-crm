@@ -253,7 +253,7 @@ export async function addProjectComment(
   authorName: string,
   content: string,
   extras?: {
-    track?: 'lp' | 'image' | 'general'
+    track?: 'lp' | 'image' | 'general' | 'note'
     asset_id?: string
     pin_x?: number
     pin_y?: number
