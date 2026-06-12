@@ -3,6 +3,7 @@ const ALLOWED_EDITORS = [
   'lucas@commonthreadglobal.com',
   'jan@commonthreadglobal.com',
   'joy@commonthreadglobal.com',
+  'giovane@commonthreadglobal.com',
 ]
 
 export const PROFIT_ENGINEERS = ['Roberto', 'Lucas']
