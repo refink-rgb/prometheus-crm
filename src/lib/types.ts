@@ -37,6 +37,7 @@ export interface Brand {
   pipeline_status: PipelineStatus
   client_number: number | null
   brand_notes: string | null
+  client_token: string | null
   created_at: string
   created_by: string
 }
@@ -78,6 +79,10 @@ export interface Project {
   page_type: string | null
   product_featured: string | null
   needs_revisions: boolean
+  // offer lock
+  offer_locked: boolean
+  offer_locked_at: string | null
+  offer_locked_by: string | null
   // client review
   share_token: string | null
   client_approved: boolean
@@ -104,7 +109,7 @@ export interface ProjectImage {
   created_at: string
 }
 
-export type CommentTrack = 'lp' | 'image' | 'general'
+export type CommentTrack = 'lp' | 'image' | 'general' | 'note'
 
 export const LP_SECTIONS = [
   'Hero',

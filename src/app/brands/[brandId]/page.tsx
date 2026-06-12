@@ -6,6 +6,7 @@ import { canEdit } from '@/lib/permissions'
 import { updateBrandDetails, deleteBrand } from '@/lib/actions'
 import ConfirmDeleteForm from '@/components/ConfirmDeleteForm'
 import ProfitEngineerSelect from '@/components/ProfitEngineerSelect'
+import ClientPortalButton from '@/components/ClientPortalButton'
 import type { Brand, Project, Journey } from '@/lib/types'
 import { STAGE_LABELS, PIPELINE_STATUS_LABELS, PIPELINE_STATUS_ORDER } from '@/lib/types'
 
@@ -280,6 +281,17 @@ export default async function BrandPage({ params }: { params: Promise<{ brandId:
                 Save account details
               </button>
             </form>
+
+            {/* Client Portal */}
+            <div style={{ marginTop: 24, paddingTop: 20, borderTop: '1px solid var(--border)' }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>
+                Client Portal Link
+              </div>
+              <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 12, lineHeight: 1.6 }}>
+                Share this link with your client — they can see all their projects, stages, and review deliverables.
+              </p>
+              <ClientPortalButton brandId={brandId} initialToken={b.client_token ?? null} />
+            </div>
           </div>
         )}
 

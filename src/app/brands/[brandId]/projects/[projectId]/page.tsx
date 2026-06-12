@@ -3,12 +3,13 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import Nav from '@/components/Nav'
 import StageTracker from '@/components/StageTracker'
-import { markProjectComplete, updateProjectDeliverable, deleteProject } from '@/lib/actions'
+import { markProjectComplete, updateProjectDeliverable, deleteProject, lockProjectOffer, unlockProjectOffer } from '@/lib/actions'
 import CreativeAssetsManager from '@/components/CreativeAssetsManager'
 import { canEdit } from '@/lib/permissions'
 import ConfirmDeleteForm from '@/components/ConfirmDeleteForm'
 import ShareButton from '@/components/ShareButton'
 import RevisionsToggle from '@/components/RevisionsToggle'
+import NotesThread from '@/components/NotesThread'
 import type { Project, Brand, ProjectImage, Journey, CreativeAsset, ProjectComment, Stage } from '@/lib/types'
 
 export default async function ProjectPage({
@@ -33,10 +34,11 @@ export default async function ProjectPage({
     .eq('id', brandId)
     .single()
 
-  const [{ data: images }, { data: creativeAssetsRaw }, { data: imageCommentsRaw }] = await Promise.all([
+  const [{ data: images }, { data: creativeAssetsRaw }, { data: imageCommentsRaw }, { data: notesRaw }] = await Promise.all([
     supabase.from('project_images').select('*').eq('project_id', projectId),
     supabase.from('creative_assets').select('*').eq('project_id', projectId).order('sort_order'),
     supabase.from('project_comments').select('*').eq('project_id', projectId).eq('track', 'image').order('created_at'),
+    supabase.from('project_comments').select('*').eq('project_id', projectId).eq('track', 'note').order('created_at'),
   ])
 
   const p = project as Project
@@ -44,7 +46,9 @@ export default async function ProjectPage({
   const imgs = (images ?? []) as ProjectImage[]
   const creativeAssets = (creativeAssetsRaw ?? []) as CreativeAsset[]
   const imageComments = (imageCommentsRaw ?? []) as ProjectComment[]
+  const notes = (notesRaw ?? []) as ProjectComment[]
   const isAuthorized = canEdit(user?.email)
+  const userDisplayName = user?.email?.split('@')[0] ?? 'Team'
 
   // Fetch journey if project has one
   let journey: Journey | null = null
@@ -261,7 +265,36 @@ export default async function ProjectPage({
 
             {/* Copy & Offer */}
             <div className="card">
-              <h3 style={{ fontWeight: 700, fontSize: 15, marginBottom: 20, color: 'var(--text-primary)' }}>Copy & Offer</h3>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+                <h3 style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>Copy & Offer</h3>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  {p.offer_locked ? (
+                    <>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--success)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        🔒 Offer Locked
+                        {p.offer_locked_by && (
+                          <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>
+                            by {p.offer_locked_by === 'client' ? 'client' : p.offer_locked_by}
+                          </span>
+                        )}
+                      </span>
+                      {isAuthorized && (
+                        <form action={unlockProjectOffer.bind(null, projectId, brandId)}>
+                          <button type="submit" style={{ fontSize: 11, color: 'var(--text-muted)', background: 'none', border: '1px solid var(--border)', borderRadius: 6, padding: '3px 8px', cursor: 'pointer' }}>
+                            Unlock
+                          </button>
+                        </form>
+                      )}
+                    </>
+                  ) : isAuthorized ? (
+                    <form action={lockProjectOffer.bind(null, projectId, brandId)}>
+                      <button type="submit" style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)', background: 'rgba(249,115,22,0.08)', border: '1px solid rgba(249,115,22,0.25)', borderRadius: 7, padding: '5px 12px', cursor: 'pointer' }}>
+                        🔒 Lock Offer
+                      </button>
+                    </form>
+                  ) : null}
+                </div>
+              </div>
 
               {/* Offer pills */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
@@ -378,6 +411,18 @@ export default async function ProjectPage({
                   <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>No review link yet.</p>
                 )}
               </div>
+            </div>
+
+            {/* Notes thread */}
+            <div className="card">
+              <h3 style={{ fontWeight: 700, fontSize: 15, marginBottom: 16, color: 'var(--text-primary)' }}>Notes</h3>
+              <NotesThread
+                notes={notes}
+                mode="internal"
+                projectId={projectId}
+                brandId={brandId}
+                currentUserName={userDisplayName}
+              />
             </div>
 
             {/* Product images */}

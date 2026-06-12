@@ -547,6 +547,90 @@ export async function addProfitEngineer(name: string) {
   revalidatePath('/', 'layout')
 }
 
+export async function addInternalNote(projectId: string, brandId: string, content: string, displayName: string) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  const name = displayName.trim() || user.email?.split('@')[0] || 'Team'
+
+  await supabase.from('project_comments').insert({
+    project_id: projectId,
+    author_name: name,
+    content: content.trim(),
+    track: 'note',
+    asset_id: null,
+    pin_x: null,
+    pin_y: null,
+    section_tag: null,
+  })
+
+  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+}
+
+export async function lockProjectOffer(projectId: string, brandId: string) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
+
+  await supabase.from('projects').update({
+    offer_locked: true,
+    offer_locked_at: new Date().toISOString(),
+    offer_locked_by: user.email,
+  }).eq('id', projectId)
+
+  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+}
+
+export async function unlockProjectOffer(projectId: string, brandId: string) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
+
+  await supabase.from('projects').update({
+    offer_locked: false,
+    offer_locked_at: null,
+    offer_locked_by: null,
+  }).eq('id', projectId)
+
+  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+}
+
+export async function confirmOfferByClient(token: string) {
+  const supabase = await createClient()
+
+  const { data: project } = await supabase
+    .from('projects')
+    .select('id')
+    .eq('share_token', token)
+    .single()
+  if (!project) throw new Error('Invalid review link.')
+
+  await supabase.from('projects').update({
+    offer_locked: true,
+    offer_locked_at: new Date().toISOString(),
+    offer_locked_by: 'client',
+  }).eq('id', project.id)
+
+  revalidatePath(`/review/${token}`)
+}
+
+export async function generateClientToken(brandId: string): Promise<string> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authenticated.')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
+
+  const { randomBytes } = await import('crypto')
+  const token = randomBytes(20).toString('hex')
+
+  await supabase.from('brands').update({ client_token: token }).eq('id', brandId)
+  revalidatePath(`/brands/${brandId}`)
+  return token
+}
+
 export async function signOut() {
   const supabase = await createClient()
   await supabase.auth.signOut()

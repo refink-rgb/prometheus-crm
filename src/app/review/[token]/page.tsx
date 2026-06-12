@@ -2,6 +2,8 @@ import { notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import LpReviewPanel from '@/components/LpReviewPanel'
 import ImageReviewPanel from '@/components/ImageReviewPanel'
+import NotesThread from '@/components/NotesThread'
+import ConfirmOfferButton from '@/components/ConfirmOfferButton'
 import type { Project, Brand, ProjectImage, ProjectComment, CreativeAsset } from '@/lib/types'
 
 export default async function ReviewPage({
@@ -41,6 +43,7 @@ export default async function ReviewPage({
 
   const lpComments = comments.filter(c => c.track === 'lp' || c.track === 'general')
   const imageComments = comments.filter(c => c.track === 'image')
+  const notes = comments.filter(c => c.track === 'note')
 
   const due = p.due_date ? new Date(p.due_date) : null
   const dueStr = due?.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
@@ -193,6 +196,25 @@ export default async function ReviewPage({
                   <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.7 }}>{p.supporting_message}</div>
                 </div>
               )}
+
+              {/* Offer confirm/lock */}
+              <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+                {p.offer_locked ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.2)', borderRadius: 8 }}>
+                    <span style={{ fontSize: 18 }}>🔒</span>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--success)' }}>Offer Confirmed</div>
+                      {p.offer_locked_at && (
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                          Locked on {new Date(p.offer_locked_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <ConfirmOfferButton token={token} />
+                )}
+              </div>
             </div>
           </section>
         )}
@@ -215,6 +237,18 @@ export default async function ReviewPage({
             </div>
           </section>
         )}
+
+        {/* Notes thread */}
+        <section style={{ marginBottom: 28 }}>
+          <SectionTitle>Notes & Messages</SectionTitle>
+          <div className="card">
+            <NotesThread
+              notes={notes}
+              mode="client"
+              token={token}
+            />
+          </div>
+        </section>
 
       </main>
     </div>
