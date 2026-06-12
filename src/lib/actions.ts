@@ -320,7 +320,26 @@ export async function syncDriveImages(projectId: string, brandId: string, folder
   const imageFiles = ((driveData.files ?? []) as Array<{ id: string; name: string; mimeType: string }>)
     .filter(f => f.mimeType.startsWith('image/'))
 
-  if (imageFiles.length === 0) return 0
+  const driveFileIds = imageFiles.map(f => f.id)
+
+  // Remove assets no longer in Drive
+  const { data: existing } = await supabase
+    .from('creative_assets')
+    .select('id, drive_file_id')
+    .eq('project_id', projectId)
+
+  const toDelete = (existing ?? []).filter(a => !driveFileIds.includes(a.drive_file_id))
+  if (toDelete.length > 0) {
+    await supabase
+      .from('creative_assets')
+      .delete()
+      .in('id', toDelete.map(a => a.id))
+  }
+
+  if (imageFiles.length === 0) {
+    revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+    return 0
+  }
 
   // Upsert assets — preserve is_hidden for existing entries
   const { error } = await supabase
