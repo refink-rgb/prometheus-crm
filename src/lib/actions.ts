@@ -650,6 +650,44 @@ export async function generateClientToken(brandId: string): Promise<string> {
   return token
 }
 
+export async function updateProjectDetails(
+  projectId: string,
+  brandId: string,
+  values: {
+    name: string
+    due_date: string | null
+    offer_description: string | null
+    inspiration: string | null
+    offer: string | null
+    cta: string | null
+    discount: string | null
+    tiered_offer: string | null
+    offer_type: string | null
+    headline: string | null
+    body_copy: string | null
+    supporting_message: string | null
+    journey_id: string | null
+    marketing_moment: 1 | 2 | null
+    page_type: string | null
+    product_featured: string | null
+    lp_url: string | null
+    creatives_notes: string | null
+  }
+) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
+
+  await supabase
+    .from('projects')
+    .update(values)
+    .eq('id', projectId)
+
+  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+  revalidatePath('/')
+}
+
 export async function signOut() {
   const supabase = await createClient()
   await supabase.auth.signOut()

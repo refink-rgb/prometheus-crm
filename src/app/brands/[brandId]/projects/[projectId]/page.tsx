@@ -11,6 +11,7 @@ import ShareButton from '@/components/ShareButton'
 import RevisionsToggle from '@/components/RevisionsToggle'
 import NotesThread from '@/components/NotesThread'
 import type { Project, Brand, ProjectImage, Journey, CreativeAsset, ProjectComment, Stage } from '@/lib/types'
+import ProjectEditForm from '@/components/ProjectEditForm'
 
 export default async function ProjectPage({
   params,
@@ -34,11 +35,12 @@ export default async function ProjectPage({
     .eq('id', brandId)
     .single()
 
-  const [{ data: images }, { data: creativeAssetsRaw }, { data: imageCommentsRaw }, { data: notesRaw }] = await Promise.all([
+  const [{ data: images }, { data: creativeAssetsRaw }, { data: imageCommentsRaw }, { data: notesRaw }, { data: brandJourneysRaw }] = await Promise.all([
     supabase.from('project_images').select('*').eq('project_id', projectId),
     supabase.from('creative_assets').select('*').eq('project_id', projectId).order('sort_order'),
     supabase.from('project_comments').select('*').eq('project_id', projectId).eq('track', 'image').order('created_at'),
     supabase.from('project_comments').select('*').eq('project_id', projectId).eq('track', 'note').order('created_at'),
+    supabase.from('journeys').select('*').eq('brand_id', brandId).order('created_at', { ascending: true }),
   ])
 
   const p = project as Project
@@ -47,6 +49,7 @@ export default async function ProjectPage({
   const creativeAssets = (creativeAssetsRaw ?? []) as CreativeAsset[]
   const imageComments = (imageCommentsRaw ?? []) as ProjectComment[]
   const notes = (notesRaw ?? []) as ProjectComment[]
+  const brandJourneys = (brandJourneysRaw ?? []) as Journey[]
   const isAuthorized = canEdit(user?.email)
   const userDisplayName = user?.email?.split('@')[0] ?? 'Team'
 
@@ -84,7 +87,7 @@ export default async function ProjectPage({
         </div>
 
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 36 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 16 }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6, flexWrap: 'wrap' }}>
               <h1 style={{ fontSize: 26, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.03em' }}>
@@ -136,6 +139,35 @@ export default async function ProjectPage({
             </ConfirmDeleteForm>
           )}
         </div>
+
+        {/* Inline edit form — only for authorized, active projects */}
+        {isAuthorized && !p.is_complete && (
+          <ProjectEditForm
+            projectId={projectId}
+            brandId={brandId}
+            journeys={brandJourneys}
+            initial={{
+              name: p.name,
+              due_date: p.due_date,
+              offer_description: p.offer_description,
+              inspiration: p.inspiration,
+              offer: p.offer,
+              cta: p.cta,
+              discount: p.discount,
+              tiered_offer: p.tiered_offer,
+              offer_type: p.offer_type,
+              headline: p.headline,
+              body_copy: p.body_copy,
+              supporting_message: p.supporting_message,
+              journey_id: p.journey_id,
+              marketing_moment: p.marketing_moment,
+              page_type: p.page_type,
+              product_featured: p.product_featured,
+              lp_url: p.lp_url,
+              creatives_notes: p.creatives_notes,
+            }}
+          />
+        )}
 
         {/* ── Progress Banner — visible to everyone ── */}
         <div className="card" style={{ marginBottom: 28 }}>

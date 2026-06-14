@@ -3,22 +3,14 @@ import { createClient } from '@/lib/supabase/server'
 import Nav from '@/components/Nav'
 import { canEdit } from '@/lib/permissions'
 import type { Brand, Project, Stage } from '@/lib/types'
-import { STAGE_LABELS } from '@/lib/types'
 import DashboardTabs from '@/components/DashboardTabs'
 import ProjectStatsCards from '@/components/ProjectStatsCards'
 import ProjectsByStage from '@/components/ProjectsByStage'
+import PipelineTable from '@/components/PipelineTable'
 
 type BrandWithProjects = Brand & { projects: Project[] }
 type PipelineProject = Project & { brands: { id: string; name: string } }
 
-const STAGE_COLORS: Record<Stage, string> = {
-  brief: 'var(--text-muted)',
-  in_progress: 'var(--accent)',
-  review: 'var(--warning)',
-  done: 'var(--success)',
-}
-
-const STAGES: Stage[] = ['brief', 'in_progress', 'review', 'done']
 
 function calcMonths(startDate: string): number {
   const start = new Date(startDate)
@@ -103,6 +95,7 @@ export default async function DashboardPage({
   ).length
 
   // Stage breakdown counts
+  const STAGES: Stage[] = ['brief', 'in_progress', 'review', 'done']
   const lpCounts = Object.fromEntries(
     STAGES.map(s => [s, pipeline.filter(p => p.lp_stage === s).length])
   ) as Record<Stage, number>
@@ -239,47 +232,8 @@ export default async function DashboardPage({
         )}
 
         {/* ── Tab 2: Active Pipeline ── */}
-        {tab === 'pipeline' && isAuthorized && pipeline.length > 0 && (
-          <section>
-            <h2 style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 16 }}>
-              Active Pipeline — {pipeline.length} project{pipeline.length !== 1 ? 's' : ''}
-            </h2>
-            <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr 88px 150px 150px', gap: 16, padding: '10px 20px', borderBottom: '1px solid var(--border)', background: 'var(--surface-raised)' }}>
-                {['Brand', 'Project', 'Due', 'Landing Page', 'Creatives'].map(col => (
-                  <span key={col} style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>{col}</span>
-                ))}
-              </div>
-              {pipeline.map((p, i) => (
-                <Link key={p.id} href={`/brands/${p.brands.id}/projects/${p.id}`} style={{ textDecoration: 'none', display: 'block' }}>
-                  <div className="pipeline-row" style={{
-                    display: 'grid',
-                    gridTemplateColumns: '150px 1fr 88px 150px 150px',
-                    gap: 16,
-                    padding: '14px 20px',
-                    borderBottom: i < pipeline.length - 1 ? '1px solid var(--border)' : 'none',
-                    alignItems: 'center',
-                  }}>
-                    <span style={{ fontSize: 13, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {p.brands.name}
-                    </span>
-                    <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {p.name}
-                    </span>
-                    <DueBadge dueDate={p.due_date} isComplete={p.is_complete} />
-                    <TrackProgress stage={p.lp_stage} />
-                    <TrackProgress stage={p.creatives_stage} />
-                  </div>
-                </Link>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {tab === 'pipeline' && isAuthorized && pipeline.length === 0 && (
-          <div style={{ padding: '64px 24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 }}>
-            No active projects in the pipeline.
-          </div>
+        {tab === 'pipeline' && isAuthorized && (
+          <PipelineTable pipeline={pipeline} />
         )}
 
         {tab === 'pipeline' && !isAuthorized && (
@@ -341,42 +295,6 @@ function StatCard({ label, value, sub, accent }: { label: string; value: string;
   )
 }
 
-function DueBadge({ dueDate, isComplete }: { dueDate: string | null; isComplete: boolean }) {
-  if (!dueDate) return <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>—</span>
-  const due = new Date(dueDate)
-  const now = new Date()
-  const daysUntil = Math.ceil((due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
-  const isOverdue = daysUntil < 0 && !isComplete
-  const isUrgent = daysUntil >= 0 && daysUntil <= 7 && !isComplete
-  const color = isOverdue ? 'var(--danger)' : isUrgent ? 'var(--warning)' : 'var(--text-muted)'
-  const dueStr = due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-  return (
-    <span style={{
-      fontSize: 12, fontWeight: isOverdue || isUrgent ? 600 : 400, color,
-      background: isOverdue ? 'rgba(239,68,68,0.1)' : isUrgent ? 'rgba(234,179,8,0.1)' : 'transparent',
-      padding: isOverdue || isUrgent ? '2px 6px' : '0', borderRadius: 4, whiteSpace: 'nowrap',
-    }}>
-      {isOverdue ? '⚠ ' : ''}{dueStr}
-    </span>
-  )
-}
-
-function TrackProgress({ stage }: { stage: Stage }) {
-  const idx = STAGES.indexOf(stage)
-  return (
-    <div>
-      <div style={{ fontSize: 10, fontWeight: 600, color: STAGE_COLORS[stage], marginBottom: 5, letterSpacing: '0.04em' }}>
-        {STAGE_LABELS[stage]}
-      </div>
-      <div style={{ display: 'flex', gap: 3 }}>
-        {STAGES.map((s, i) => {
-          const bg = i < idx ? 'var(--success)' : i === idx ? STAGE_COLORS[stage] : 'var(--border)'
-          return <div key={s} style={{ width: 26, height: 5, borderRadius: 3, background: bg, transition: 'background 0.2s' }} />
-        })}
-      </div>
-    </div>
-  )
-}
 
 function BrandCard({ brand }: { brand: BrandWithProjects }) {
   const activeProjects = brand.projects.filter(p => !p.is_complete)
