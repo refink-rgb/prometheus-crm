@@ -9,6 +9,7 @@ import ProfitEngineerSelect from '@/components/ProfitEngineerSelect'
 import ClientPortalButton from '@/components/ClientPortalButton'
 import type { Brand, Project, Journey } from '@/lib/types'
 import { STAGE_LABELS, PIPELINE_STATUS_LABELS, PIPELINE_STATUS_ORDER } from '@/lib/types'
+import JourneyHeader from '@/components/JourneyHeader'
 
 export default async function BrandPage({ params }: { params: Promise<{ brandId: string }> }) {
   const { brandId } = await params
@@ -332,22 +333,29 @@ export default async function BrandPage({ params }: { params: Promise<{ brandId:
                 {journeyGroups.map(({ journey, projects: jProjects }) => (
                   <div key={journey?.id ?? 'ungrouped'}>
                     {/* Journey header */}
-                    <div style={{
-                      display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12,
-                    }}>
-                      <div style={{
-                        fontSize: 11, fontWeight: 700, color: 'var(--accent)',
-                        textTransform: 'uppercase', letterSpacing: '0.08em',
-                        background: 'var(--accent-muted)', border: '1px solid rgba(249,115,22,0.2)',
-                        borderRadius: 6, padding: '3px 10px',
-                      }}>
-                        {journey ? `🗓 ${journey.name}` : '📋 No Journey'}
+                    {journey ? (
+                      <JourneyHeader
+                        journey={journey}
+                        brandId={brandId}
+                        projectCount={jProjects.length}
+                        isAuthorized={isAuthorized}
+                      />
+                    ) : (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+                        <div style={{
+                          fontSize: 11, fontWeight: 700, color: 'var(--accent)',
+                          textTransform: 'uppercase', letterSpacing: '0.08em',
+                          background: 'var(--accent-muted)', border: '1px solid rgba(249,115,22,0.2)',
+                          borderRadius: 6, padding: '3px 10px',
+                        }}>
+                          📋 No Journey
+                        </div>
+                        <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+                        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                          {jProjects.length} moment{jProjects.length !== 1 ? 's' : ''}
+                        </span>
                       </div>
-                      <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
-                      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                        {jProjects.length} moment{jProjects.length !== 1 ? 's' : ''}
-                      </span>
-                    </div>
+                    )}
 
                     {/* Moment 1 then Moment 2 */}
                     {[1, 2, null].map(moment => {

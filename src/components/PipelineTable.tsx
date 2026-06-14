@@ -23,50 +23,93 @@ function isWaitingOnClient(p: PipelineProject): boolean {
   )
 }
 
+type StatusFilter = 'all' | 'overdue' | 'in_review'
+
 export default function PipelineTable({ pipeline }: { pipeline: PipelineProject[] }) {
+  const [search, setSearch] = useState('')
+  const [status, setStatus] = useState<StatusFilter>('all')
   const [filterWaiting, setFilterWaiting] = useState(false)
 
+  const now = new Date()
   const waitingCount = pipeline.filter(isWaitingOnClient).length
-  const displayed = filterWaiting ? pipeline.filter(isWaitingOnClient) : pipeline
+
+  const displayed = pipeline.filter(p => {
+    if (search.trim() && !p.brands.name.toLowerCase().includes(search.trim().toLowerCase())) return false
+    if (status === 'overdue' && !(p.due_date && new Date(p.due_date) < now)) return false
+    if (status === 'in_review' && !(p.lp_stage === 'review' || p.creatives_stage === 'review')) return false
+    if (filterWaiting && !isWaitingOnClient(p)) return false
+    return true
+  })
+
+  const pillBase = {
+    padding: '5px 12px', borderRadius: 20, fontSize: 12,
+    cursor: 'pointer', transition: 'all 0.15s', border: '1px solid',
+  }
 
   return (
     <section>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-        <h2 style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-          Active Pipeline — {displayed.length}{filterWaiting ? ` of ${pipeline.length}` : ''} project{displayed.length !== 1 ? 's' : ''}
-        </h2>
+      {/* Filter bar */}
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' }}>
+        <input
+          type="text"
+          placeholder="Search by brand…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          style={{ width: 190, fontSize: 13 }}
+        />
+
+        <div style={{ display: 'flex', gap: 4 }}>
+          {(['all', 'overdue', 'in_review'] as const).map(opt => {
+            const active = status === opt
+            const labels = { all: 'All', overdue: 'Overdue', in_review: 'In Review' }
+            return (
+              <button
+                key={opt}
+                onClick={() => setStatus(opt)}
+                style={{
+                  ...pillBase,
+                  fontWeight: active ? 600 : 400,
+                  borderColor: active ? 'var(--accent)' : 'var(--border)',
+                  background: active ? 'var(--accent-muted)' : 'transparent',
+                  color: active ? 'var(--accent)' : 'var(--text-muted)',
+                }}
+              >
+                {labels[opt]}
+              </button>
+            )
+          })}
+        </div>
+
         <button
           onClick={() => setFilterWaiting(!filterWaiting)}
           style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 6,
-            padding: '5px 12px',
-            fontSize: 12,
+            ...pillBase,
+            display: 'inline-flex', alignItems: 'center', gap: 6,
             fontWeight: 600,
-            borderRadius: 20,
-            border: `1px solid ${filterWaiting ? 'rgba(234,179,8,0.4)' : 'var(--border)'}`,
-            background: filterWaiting ? 'rgba(234,179,8,0.1)' : 'var(--surface-raised)',
+            borderColor: filterWaiting ? 'rgba(234,179,8,0.4)' : 'var(--border)',
+            background: filterWaiting ? 'rgba(234,179,8,0.1)' : 'transparent',
             color: filterWaiting ? 'var(--warning)' : 'var(--text-muted)',
-            cursor: 'pointer',
-            transition: 'all 0.15s',
           }}
         >
           <span style={{ fontSize: 10 }}>⏳</span>
           Waiting on client
           {waitingCount > 0 && (
             <span style={{
-              fontSize: 10,
-              fontWeight: 700,
+              fontSize: 10, fontWeight: 700,
               background: filterWaiting ? 'rgba(234,179,8,0.2)' : 'var(--border)',
               color: filterWaiting ? 'var(--warning)' : 'var(--text-secondary)',
-              borderRadius: 10,
-              padding: '1px 6px',
+              borderRadius: 10, padding: '1px 6px',
             }}>
               {waitingCount}
             </span>
           )}
         </button>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
+        <h2 style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+          Active Pipeline — {displayed.length}{displayed.length !== pipeline.length ? ` of ${pipeline.length}` : ''} project{displayed.length !== 1 ? 's' : ''}
+        </h2>
       </div>
 
       {displayed.length === 0 ? (

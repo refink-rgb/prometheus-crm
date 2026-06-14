@@ -650,6 +650,38 @@ export async function generateClientToken(brandId: string): Promise<string> {
   return token
 }
 
+export async function renameJourney(journeyId: string, brandId: string, newName: string) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
+
+  await supabase
+    .from('journeys')
+    .update({ name: newName.trim() })
+    .eq('id', journeyId)
+
+  revalidatePath(`/brands/${brandId}`)
+}
+
+export async function deleteJourney(journeyId: string, brandId: string) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
+
+  const { count } = await supabase
+    .from('projects')
+    .select('id', { count: 'exact', head: true })
+    .eq('journey_id', journeyId)
+
+  if ((count ?? 0) > 0) throw new Error('Cannot delete a journey that still has projects assigned to it.')
+
+  await supabase.from('journeys').delete().eq('id', journeyId)
+
+  revalidatePath(`/brands/${brandId}`)
+}
+
 export async function updateProjectDetails(
   projectId: string,
   brandId: string,
