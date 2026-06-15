@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { syncDriveImages, toggleAssetVisibility, applyAiEdits } from '@/lib/actions'
+import { syncDriveImages, toggleAssetVisibility, applyAiEdits, approveAndPublishRevision } from '@/lib/actions'
 import { useRouter } from 'next/navigation'
 import type { CreativeAsset, ProjectComment } from '@/lib/types'
 
@@ -32,6 +32,21 @@ function InternalLightbox({
   const [generating, setGenerating] = useState(false)
   const [genError, setGenError] = useState('')
   const [activePin, setActivePin] = useState<string | null>(null)
+  const [publishing, setPublishing] = useState(false)
+  const [published, setPublished] = useState(asset.status === 'approved')
+
+  async function handlePublish() {
+    if (!confirm('Publish this revision to the client? They will see the revised image on the review link.')) return
+    setPublishing(true)
+    try {
+      await approveAndPublishRevision(asset.id, projectId, brandId)
+      setPublished(true)
+    } catch (err: unknown) {
+      setGenError(err instanceof Error ? err.message : 'Publish failed')
+    } finally {
+      setPublishing(false)
+    }
+  }
 
   const hasComments = comments.length > 0
   const hasRevision = !!asset.revision_url
@@ -205,6 +220,22 @@ function InternalLightbox({
                   `✦ Generate revision`
                 )}
               </button>
+
+              {hasRevision && (
+                <button
+                  onClick={handlePublish}
+                  disabled={publishing || published}
+                  style={{
+                    width: '100%', fontSize: 13, marginTop: 8, padding: '9px 0',
+                    borderRadius: 8, cursor: published ? 'default' : 'pointer',
+                    border: `1px solid ${published ? 'rgba(34,197,94,0.4)' : 'var(--accent)'}`,
+                    background: published ? 'rgba(34,197,94,0.12)' : 'transparent',
+                    color: published ? 'var(--success)' : 'var(--accent)', fontWeight: 600,
+                  }}
+                >
+                  {published ? '✓ Published to client' : publishing ? 'Publishing…' : '↗ Publish to client'}
+                </button>
+              )}
 
               {genError && (
                 <p style={{ fontSize: 11, color: 'var(--danger)', marginTop: 8, lineHeight: 1.5 }}>{genError}</p>

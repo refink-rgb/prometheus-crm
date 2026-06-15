@@ -367,6 +367,16 @@ function describePosition(x: number, y: number): string {
   return `${v}-${h}`
 }
 
+// A comment is actionable if it reads like a change request, not a pure
+// question or note. (v1 heuristic — can be upgraded to an LLM classifier.)
+function isActionableComment(content: string | null): boolean {
+  const t = (content || '').trim()
+  if (!t) return false
+  const isQuestion = t.endsWith('?') &&
+    /^(is|are|was|were|do|does|did|can|could|should|would|will|why|what|how|when|where|who|which)\b/i.test(t)
+  return !isQuestion
+}
+
 function buildRevisionPrompt(comments: Array<{
   author_name: string; content: string; pin_x: number | null; pin_y: number | null
 }>): string {
@@ -421,7 +431,14 @@ export async function applyAiEdits(
     throw new Error('No comments found for this image. Add reviewer feedback before generating a revision.')
   }
 
-  const prompt = buildRevisionPrompt(comments)
+  // Only feed actionable change requests to the model — skip pure questions /
+  // notes (e.g. "Is this a real review?") so they don't corrupt the revision.
+  const actionable = comments.filter(c => isActionableComment(c.content))
+  if (actionable.length === 0) {
+    throw new Error('No actionable edit requests found — the comments read like questions or notes, not change requests.')
+  }
+
+  const prompt = buildRevisionPrompt(actionable)
 
   // Download image from Drive
   const driveUrl = `https://drive.google.com/uc?export=download&id=${asset.drive_file_id}`
@@ -438,11 +455,11 @@ export async function applyAiEdits(
   const response = await (openai.images as unknown as {
     edit: (params: unknown) => Promise<{ data: Array<{ b64_json?: string }> }>
   }).edit({
-    model: 'gpt-image-1',
+    model: 'gpt-image-2',
     image: imageFile,
     prompt,
     n: 1,
-    size: '1024x1024',
+    size: 'auto',
     quality,
   })
 
@@ -467,6 +484,25 @@ export async function applyAiEdits(
 
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)
   return { revisionUrl: publicUrl, prompt }
+}
+
+// Team action (authenticated): approve a revision AND publish it to the client.
+// Sets the asset to 'approved', which the client review page reads as the
+// signal to show the revision instead of the original (the publish gate).
+export async function approveAndPublishRevision(assetId: string, projectId: string, brandId: string) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
+
+  const { error } = await supabase
+    .from('creative_assets')
+    .update({ status: 'approved' })
+    .eq('id', assetId)
+  if (error) throw new Error(error.message)
+
+  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+  revalidatePath(`/review`, 'layout')
 }
 
 // Called from public review page via share token
