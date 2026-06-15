@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useDeferredValue, useMemo } from 'react'
 import Link from 'next/link'
 import type { Project, Stage } from '@/lib/types'
 import { STAGE_LABELS } from '@/lib/types'
@@ -29,17 +29,24 @@ export default function PipelineTable({ pipeline }: { pipeline: PipelineProject[
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState<StatusFilter>('all')
   const [filterWaiting, setFilterWaiting] = useState(false)
+  const deferredSearch = useDeferredValue(search)
 
-  const now = new Date()
-  const waitingCount = pipeline.filter(isWaitingOnClient).length
+  const waitingCount = useMemo(
+    () => pipeline.filter(isWaitingOnClient).length,
+    [pipeline]
+  )
 
-  const displayed = pipeline.filter(p => {
-    if (search.trim() && !p.brands.name.toLowerCase().includes(search.trim().toLowerCase())) return false
-    if (status === 'overdue' && !(p.due_date && new Date(p.due_date) < now)) return false
-    if (status === 'in_review' && !(p.lp_stage === 'review' || p.creatives_stage === 'review')) return false
-    if (filterWaiting && !isWaitingOnClient(p)) return false
-    return true
-  })
+  const displayed = useMemo(() => {
+    const q = deferredSearch.trim().toLowerCase()
+    const now = Date.now()
+    return pipeline.filter(p => {
+      if (q && !p.brands.name.toLowerCase().includes(q)) return false
+      if (status === 'overdue' && !(p.due_date && new Date(p.due_date).getTime() < now)) return false
+      if (status === 'in_review' && !(p.lp_stage === 'review' || p.creatives_stage === 'review')) return false
+      if (filterWaiting && !isWaitingOnClient(p)) return false
+      return true
+    })
+  }, [pipeline, deferredSearch, status, filterWaiting])
 
   const pillBase = {
     padding: '5px 12px', borderRadius: 20, fontSize: 12,

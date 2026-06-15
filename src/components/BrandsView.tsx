@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useDeferredValue, useMemo } from 'react'
 import Link from 'next/link'
 import type { Brand, Project } from '@/lib/types'
 
@@ -20,31 +20,38 @@ export default function BrandsView({
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState<StatusFilter>('all')
   const [pe, setPe] = useState('')
+  const deferredSearch = useDeferredValue(search)
 
-  const now = new Date()
   const isFiltered = search.trim() !== '' || pe !== '' || status !== 'all'
 
-  const filteredBrands = allBrands.filter(brand => {
-    if (search.trim() && !brand.name.toLowerCase().includes(search.trim().toLowerCase())) return false
-    if (pe && brand.profit_engineer !== pe) return false
-    if (status === 'overdue') {
-      const hasOverdue = brand.projects.some(
-        p => !p.is_complete && p.due_date && new Date(p.due_date) < now
-      )
-      if (!hasOverdue) return false
-    }
-    if (status === 'in_review') {
-      const hasInReview = brand.projects.some(
-        p => !p.is_complete && (p.lp_stage === 'review' || p.creatives_stage === 'review')
-      )
-      if (!hasInReview) return false
-    }
-    return true
-  })
+  const filteredBrands = useMemo(() => {
+    const q = deferredSearch.trim().toLowerCase()
+    const now = Date.now()
+    return allBrands.filter(brand => {
+      if (q && !brand.name.toLowerCase().includes(q)) return false
+      if (pe && brand.profit_engineer !== pe) return false
+      if (status === 'overdue') {
+        const hasOverdue = brand.projects.some(
+          p => !p.is_complete && p.due_date && new Date(p.due_date).getTime() < now
+        )
+        if (!hasOverdue) return false
+      }
+      if (status === 'in_review') {
+        const hasInReview = brand.projects.some(
+          p => !p.is_complete && (p.lp_stage === 'review' || p.creatives_stage === 'review')
+        )
+        if (!hasInReview) return false
+      }
+      return true
+    })
+  }, [allBrands, deferredSearch, status, pe])
 
-  const filteredGroups = peGroups
-    .map(g => ({ ...g, brands: g.brands.filter(b => filteredBrands.some(fb => fb.id === b.id)) }))
-    .filter(g => g.brands.length > 0)
+  const filteredGroups = useMemo(() => {
+    const allowedIds = new Set(filteredBrands.map(b => b.id))
+    return peGroups
+      .map(g => ({ ...g, brands: g.brands.filter(b => allowedIds.has(b.id)) }))
+      .filter(g => g.brands.length > 0)
+  }, [peGroups, filteredBrands])
 
   function clearFilters() {
     setSearch('')

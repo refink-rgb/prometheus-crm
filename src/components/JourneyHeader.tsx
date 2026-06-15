@@ -20,16 +20,20 @@ export default function JourneyHeader({
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(journey.name)
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
 
   async function save() {
     const trimmed = name.trim()
     if (!trimmed) return
     if (trimmed === journey.name) { setEditing(false); return }
     setSaving(true)
+    setError('')
     try {
       await renameJourney(journey.id, brandId, trimmed)
       setEditing(false)
       router.refresh()
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Could not rename journey.')
     } finally {
       setSaving(false)
     }
@@ -59,7 +63,8 @@ export default function JourneyHeader({
 
   if (editing) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <span style={{ ...pillStyle, display: 'flex', alignItems: 'center', gap: 6, padding: '2px 6px 2px 10px' }}>
           🗓
           <input
@@ -86,13 +91,19 @@ export default function JourneyHeader({
           {saving ? '…' : 'Save'}
         </button>
         <button
-          onClick={() => { setName(journey.name); setEditing(false) }}
+          onClick={() => { setName(journey.name); setEditing(false); setError('') }}
           disabled={saving}
           className="btn-secondary"
           style={{ fontSize: 11, padding: '4px 10px' }}
         >
           Cancel
         </button>
+        </div>
+        {error && (
+          <div style={{ marginTop: 6, fontSize: 11, color: 'var(--danger)' }}>
+            {error}
+          </div>
+        )}
       </div>
     )
   }
