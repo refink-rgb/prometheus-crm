@@ -486,18 +486,25 @@ export async function applyAiEdits(
   return { revisionUrl: publicUrl, prompt }
 }
 
-// Team action (authenticated): approve a revision AND publish it to the client.
-// Sets the asset to 'approved', which the client review page reads as the
-// signal to show the revision instead of the original (the publish gate).
+// Team action (authenticated): publish the CURRENT revision to the client.
+// Freezes published_url to whatever revision exists now — so later edits (which
+// update revision_url) don't reach the client until you publish again.
 export async function approveAndPublishRevision(assetId: string, projectId: string, brandId: string) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
   if (!canEdit(user.email)) throw new Error('Not authorized.')
 
+  const { data: asset } = await supabase
+    .from('creative_assets')
+    .select('revision_url')
+    .eq('id', assetId)
+    .single()
+  if (!asset?.revision_url) throw new Error('No revision to publish. Generate a revision first.')
+
   const { error } = await supabase
     .from('creative_assets')
-    .update({ status: 'approved' })
+    .update({ published_url: asset.revision_url, status: 'approved' })
     .eq('id', assetId)
   if (error) throw new Error(error.message)
 

@@ -147,6 +147,10 @@ export interface CreativeAsset {
   revision_url: string | null
   revision_prompt: string | null
   revision_created_at: string | null
+  // The revision the client currently sees — set only on "Publish to client".
+  // New edits update revision_url (internal) but NOT this, so the client keeps
+  // seeing the last published version until you publish again.
+  published_url: string | null
   status: 'pending' | 'approved' | 'needs_revision'
 }
 
