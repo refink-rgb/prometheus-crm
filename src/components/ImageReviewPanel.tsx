@@ -86,7 +86,11 @@ function AssetRow({
     }
   }
 
-  const imgSrc = `https://drive.google.com/thumbnail?id=${asset.drive_file_id}&sz=w2048`
+  // Publish gate: once a revision is approved (published), the client sees the
+  // revision; until then they keep seeing the original.
+  const imgSrc = status === 'approved' && asset.revision_url
+    ? asset.revision_url
+    : `https://drive.google.com/thumbnail?id=${asset.drive_file_id}&sz=w2048`
   const statusColors: Record<CreativeAsset['status'], { bg: string; color: string; border: string }> = {
     pending:       { bg: 'transparent',           color: 'var(--text-muted)',    border: 'var(--border)' },
     approved:      { bg: 'rgba(34,197,94,0.12)',   color: 'var(--success)',       border: 'rgba(34,197,94,0.3)' },
