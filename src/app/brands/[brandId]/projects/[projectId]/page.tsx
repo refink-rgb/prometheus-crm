@@ -12,6 +12,7 @@ import RevisionsToggle from '@/components/RevisionsToggle'
 import NotesThread from '@/components/NotesThread'
 import type { Project, Brand, ProjectImage, Journey, CreativeAsset, ProjectComment, Stage } from '@/lib/types'
 import ProjectEditForm from '@/components/ProjectEditForm'
+import OpenEditFormButton from '@/components/OpenEditFormButton'
 
 export default async function ProjectPage({
   params,
@@ -319,11 +320,14 @@ export default async function ProjectPage({
                       )}
                     </>
                   ) : isAuthorized ? (
-                    <form action={lockProjectOffer.bind(null, projectId, brandId)}>
-                      <button type="submit" style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)', background: 'rgba(249,115,22,0.08)', border: '1px solid rgba(249,115,22,0.25)', borderRadius: 7, padding: '5px 12px', cursor: 'pointer' }}>
-                        🔒 Lock Offer
-                      </button>
-                    </form>
+                    <>
+                      <OpenEditFormButton />
+                      <form action={lockProjectOffer.bind(null, projectId, brandId)}>
+                        <button type="submit" style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)', background: 'rgba(249,115,22,0.08)', border: '1px solid rgba(249,115,22,0.25)', borderRadius: 7, padding: '5px 12px', cursor: 'pointer' }}>
+                          🔒 Lock Offer
+                        </button>
+                      </form>
+                    </>
                   ) : null}
                 </div>
               </div>

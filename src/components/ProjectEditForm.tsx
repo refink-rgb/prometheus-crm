@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { updateProjectDetails } from '@/lib/actions'
 import { PAGE_TYPE_OPTIONS } from '@/lib/types'
@@ -58,6 +58,16 @@ function Field({ label, optional, children }: { label: string; optional?: boolea
 export default function ProjectEditForm({ projectId, brandId, journeys, initial }: Props) {
   const router = useRouter()
   const [editing, setEditing] = useState(false)
+  const formRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handleOpen() {
+      setEditing(true)
+      setTimeout(() => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
+    }
+    window.addEventListener('prometheus-open-edit', handleOpen)
+    return () => window.removeEventListener('prometheus-open-edit', handleOpen)
+  }, [])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -149,7 +159,7 @@ export default function ProjectEditForm({ projectId, brandId, journeys, initial 
 
   if (!editing) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 24 }}>
+      <div ref={formRef} style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 24 }}>
         <button
           onClick={() => setEditing(true)}
           style={{
@@ -170,7 +180,7 @@ export default function ProjectEditForm({ projectId, brandId, journeys, initial 
   }
 
   return (
-    <div className="card" style={{ marginBottom: 24 }}>
+    <div ref={formRef} className="card" style={{ marginBottom: 24 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
         <h3 style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>Edit Project</h3>
         <div style={{ display: 'flex', gap: 8 }}>
