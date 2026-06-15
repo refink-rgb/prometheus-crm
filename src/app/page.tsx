@@ -6,7 +6,7 @@ import type { Brand, Project, Stage } from '@/lib/types'
 import DashboardTabs from '@/components/DashboardTabs'
 import ProjectStatsCards from '@/components/ProjectStatsCards'
 import ProjectsByStage from '@/components/ProjectsByStage'
-import PipelineTable from '@/components/PipelineTable'
+import PipelineView from '@/components/PipelineView'
 import BrandsView from '@/components/BrandsView'
 
 type BrandWithProjects = Brand & { projects: Project[] }
@@ -234,7 +234,7 @@ export default async function DashboardPage({
 
         {/* ── Tab 2: Active Pipeline ── */}
         {tab === 'pipeline' && isAuthorized && (
-          <PipelineTable pipeline={pipeline} />
+          <PipelineView pipeline={pipeline} />
         )}
 
         {tab === 'pipeline' && !isAuthorized && (
