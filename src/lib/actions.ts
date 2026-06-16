@@ -357,6 +357,19 @@ export async function syncDriveImages(projectId: string, brandId: string, folder
 
   if (error) throw new Error(error.message)
 
+  // New creatives start INTERNAL-ONLY — they only reach the client once
+  // explicitly published. (Only touch genuinely new ones, so re-syncing never
+  // un-publishes anything already live with the client.)
+  const existingIds = new Set((existing ?? []).map(a => a.drive_file_id))
+  const newIds = driveFileIds.filter(id => !existingIds.has(id))
+  if (newIds.length > 0) {
+    await supabase
+      .from('creative_assets')
+      .update({ client_visible: false })
+      .eq('project_id', projectId)
+      .in('drive_file_id', newIds)
+  }
+
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)
   return imageFiles.length
 }
@@ -500,11 +513,18 @@ export async function approveAndPublishRevision(assetId: string, projectId: stri
     .select('revision_url')
     .eq('id', assetId)
     .single()
-  if (!asset?.revision_url) throw new Error('No revision to publish. Generate a revision first.')
+
+  // Publish to client = make it client-visible + freeze the published image to
+  // the current revision (or the original, if there's no revision — publish as-is).
+  const update: { client_visible: boolean; status: string; published_url?: string } = {
+    client_visible: true,
+    status: 'approved',
+  }
+  if (asset?.revision_url) update.published_url = asset.revision_url
 
   const { error } = await supabase
     .from('creative_assets')
-    .update({ published_url: asset.revision_url, status: 'approved' })
+    .update(update)
     .eq('id', assetId)
   if (error) throw new Error(error.message)
 

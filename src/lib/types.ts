@@ -151,6 +151,8 @@ export interface CreativeAsset {
   // New edits update revision_url (internal) but NOT this, so the client keeps
   // seeing the last published version until you publish again.
   published_url: string | null
+  // false = internal-only (not yet on the client review link). Set true on publish.
+  client_visible: boolean
   status: 'pending' | 'approved' | 'needs_revision'
 }
 

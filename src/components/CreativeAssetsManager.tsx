@@ -33,7 +33,7 @@ function InternalLightbox({
   const [genError, setGenError] = useState('')
   const [activePin, setActivePin] = useState<string | null>(null)
   const [publishing, setPublishing] = useState(false)
-  const [published, setPublished] = useState(!!asset.published_url && asset.published_url === asset.revision_url)
+  const [published, setPublished] = useState(!!asset.client_visible && (!asset.revision_url || asset.published_url === asset.revision_url))
 
   async function handlePublish() {
     if (!confirm('Publish this revision to the client? They will see the revised image on the review link.')) return
@@ -222,31 +222,35 @@ function InternalLightbox({
                 )}
               </button>
 
-              {hasRevision && (
-                <button
-                  onClick={handlePublish}
-                  disabled={publishing || published}
-                  style={{
-                    width: '100%', fontSize: 13, marginTop: 8, padding: '9px 0',
-                    borderRadius: 8, cursor: published ? 'default' : 'pointer',
-                    border: `1px solid ${published ? 'rgba(34,197,94,0.4)' : 'var(--accent)'}`,
-                    background: published ? 'rgba(34,197,94,0.12)' : 'transparent',
-                    color: published ? 'var(--success)' : 'var(--accent)', fontWeight: 600,
-                  }}
-                >
-                  {published ? '✓ Published to client' : publishing ? 'Publishing…' : '↗ Publish to client'}
-                </button>
-              )}
-
               {genError && (
                 <p style={{ fontSize: 11, color: 'var(--danger)', marginTop: 8, lineHeight: 1.5 }}>{genError}</p>
               )}
             </>
           ) : (
             <p style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6 }}>
-              No comments yet on this image. Share the review link with the client to collect feedback first.
+              No comments yet on this image. Review it internally and add feedback, or publish it as-is.
             </p>
           )}
+        </div>
+
+        {/* Publish to client */}
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+          <button
+            onClick={handlePublish}
+            disabled={publishing || published}
+            style={{
+              width: '100%', fontSize: 13, padding: '9px 0', borderRadius: 8,
+              cursor: published ? 'default' : 'pointer',
+              border: `1px solid ${published ? 'rgba(34,197,94,0.4)' : 'var(--accent)'}`,
+              background: published ? 'rgba(34,197,94,0.12)' : 'transparent',
+              color: published ? 'var(--success)' : 'var(--accent)', fontWeight: 600,
+            }}
+          >
+            {published ? '✓ Live to client' : publishing ? 'Publishing…' : asset.client_visible ? '↗ Publish update to client' : '↗ Publish to client'}
+          </button>
+          <p style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 6, textAlign: 'center', lineHeight: 1.5 }}>
+            {published ? 'Visible on the client review link.' : 'Internal only until you publish.'}
+          </p>
         </div>
 
         {/* Comments list */}
