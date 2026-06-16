@@ -516,9 +516,9 @@ export async function approveAndPublishRevision(assetId: string, projectId: stri
 
   // Publish to client = make it client-visible + freeze the published image to
   // the current revision (or the original, if there's no revision — publish as-is).
-  const update: { client_visible: boolean; status: string; published_url?: string } = {
+  // Do NOT touch status: "approved" is the CLIENT's action on the review link.
+  const update: { client_visible: boolean; published_url?: string } = {
     client_visible: true,
-    status: 'approved',
   }
   if (asset?.revision_url) update.published_url = asset.revision_url
 
