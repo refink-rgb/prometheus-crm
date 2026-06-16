@@ -5,6 +5,13 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { canEdit } from '@/lib/permissions'
 import type { Stage } from '@/lib/types'
+import {
+  ensureDeleteSubfolder,
+  extractDriveFolderId,
+  hasDriveServiceAccount,
+  listDriveFolder,
+  moveDriveFile,
+} from '@/lib/drive'
 
 export async function createBrand(formData: FormData) {
   const supabase = await createClient()
@@ -292,13 +299,8 @@ export async function syncDriveImages(projectId: string, brandId: string, folder
   if (!user) redirect('/login')
   if (!canEdit(user.email)) throw new Error('Not authorized.')
 
-  const apiKey = process.env.GOOGLE_DRIVE_API_KEY
-  if (!apiKey) throw new Error('GOOGLE_DRIVE_API_KEY is not set in environment variables. Add it in Vercel → Settings → Environment Variables.')
-
-  // Extract folder ID from various Drive URL formats
-  const match = folderUrl.match(/\/folders\/([a-zA-Z0-9_-]+)/)
-  if (!match) throw new Error('Invalid Google Drive folder URL. Expected format: https://drive.google.com/drive/folders/...')
-  const folderId = match[1]
+  // Auth is now handled inside listDriveFolder (prefers SA, falls back to API key).
+  const folderId = extractDriveFolderId(folderUrl)
 
   // First, save the folder URL on the project
   await supabase
@@ -306,34 +308,24 @@ export async function syncDriveImages(projectId: string, brandId: string, folder
     .update({ drive_folder_url: folderUrl })
     .eq('id', projectId)
 
-  // Fetch folder contents from Drive API
-  const driveRes = await fetch(
-    `https://www.googleapis.com/drive/v3/files?q='${folderId}'+in+parents+and+trashed=false&key=${apiKey}&fields=files(id,name,mimeType)&orderBy=name&pageSize=200`
-  )
-
-  if (!driveRes.ok) {
-    const err = await driveRes.json()
-    throw new Error(`Drive API error: ${err.error?.message ?? driveRes.statusText}`)
-  }
-
-  const driveData = await driveRes.json()
-  const imageFiles = ((driveData.files ?? []) as Array<{ id: string; name: string; mimeType: string }>)
-    .filter(f => f.mimeType.startsWith('image/'))
+  const imageFiles = await listDriveFolder(folderId)
 
   const driveFileIds = imageFiles.map(f => f.id)
 
-  // Remove assets no longer in Drive
+  // Soft-hide assets no longer in the root Drive folder. We DON'T hard-delete:
+  // (1) the file may have been moved into Delete/ via the Drive helper here,
+  // (2) preserving the row keeps comments, revisions, and publish history intact.
   const { data: existing } = await supabase
     .from('creative_assets')
     .select('id, drive_file_id')
     .eq('project_id', projectId)
 
-  const toDelete = (existing ?? []).filter(a => !driveFileIds.includes(a.drive_file_id))
-  if (toDelete.length > 0) {
+  const toHide = (existing ?? []).filter(a => !driveFileIds.includes(a.drive_file_id))
+  if (toHide.length > 0) {
     await supabase
       .from('creative_assets')
-      .delete()
-      .in('id', toDelete.map(a => a.id))
+      .update({ is_hidden: true })
+      .in('id', toHide.map(a => a.id))
   }
 
   if (imageFiles.length === 0) {
@@ -532,6 +524,192 @@ export async function approveAndPublishRevision(assetId: string, projectId: stri
   revalidatePath(`/review`, 'layout')
 }
 
+// Internal helper: move a single asset's Drive file into the project's Delete
+// subfolder and set is_hidden=true. Does NOT do auth — callers gate access.
+// Throws on Drive failure; callers decide whether to swallow that error.
+async function _archiveAssetCore(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  assetId: string,
+  projectId: string
+): Promise<void> {
+  const { data: asset } = await supabase
+    .from('creative_assets')
+    .select('drive_file_id')
+    .eq('id', assetId)
+    .eq('project_id', projectId)
+    .single()
+  if (!asset) throw new Error('Asset not found.')
+
+  const { data: project } = await supabase
+    .from('projects')
+    .select('drive_folder_url')
+    .eq('id', projectId)
+    .single()
+  if (!project?.drive_folder_url) {
+    throw new Error('Project has no Drive folder configured — cannot move file to Delete.')
+  }
+
+  const parentFolderId = extractDriveFolderId(project.drive_folder_url)
+  const deleteFolderId = await ensureDeleteSubfolder(parentFolderId)
+  await moveDriveFile(asset.drive_file_id, parentFolderId, deleteFolderId)
+
+  await supabase
+    .from('creative_assets')
+    .update({ is_hidden: true })
+    .eq('id', assetId)
+}
+
+// Internal helper: restore an asset from Delete back to the project's root
+// Drive folder, and set is_hidden=false.
+async function _restoreAssetCore(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  assetId: string,
+  projectId: string
+): Promise<void> {
+  const { data: asset } = await supabase
+    .from('creative_assets')
+    .select('drive_file_id')
+    .eq('id', assetId)
+    .eq('project_id', projectId)
+    .single()
+  if (!asset) throw new Error('Asset not found.')
+
+  const { data: project } = await supabase
+    .from('projects')
+    .select('drive_folder_url')
+    .eq('id', projectId)
+    .single()
+  if (!project?.drive_folder_url) {
+    throw new Error('Project has no Drive folder configured — cannot restore file.')
+  }
+
+  const parentFolderId = extractDriveFolderId(project.drive_folder_url)
+  const deleteFolderId = await ensureDeleteSubfolder(parentFolderId)
+  // Reverse the move: from Delete → back to root.
+  await moveDriveFile(asset.drive_file_id, deleteFolderId, parentFolderId)
+
+  await supabase
+    .from('creative_assets')
+    .update({ is_hidden: false })
+    .eq('id', assetId)
+}
+
+/**
+ * Move a creative's Drive file into the project's "Delete" subfolder and
+ * soft-hide it in the CRM. Authed; gated by canEdit.
+ */
+export async function archiveAssetToDeleteFolder(
+  assetId: string,
+  projectId: string,
+  brandId: string
+): Promise<void> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
+
+  await _archiveAssetCore(supabase, assetId, projectId)
+
+  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+  revalidatePath(`/brands/${brandId}/projects/${projectId}/internal-review`)
+  revalidatePath('/review', 'layout')
+}
+
+/**
+ * Restore a previously-archived asset: move its file from Delete/ back to the
+ * project's root Drive folder and un-hide it in the CRM. Authed.
+ */
+export async function restoreAssetFromDeleteFolder(
+  assetId: string,
+  projectId: string,
+  brandId: string
+): Promise<void> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
+
+  await _restoreAssetCore(supabase, assetId, projectId)
+
+  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+  revalidatePath(`/brands/${brandId}/projects/${projectId}/internal-review`)
+  revalidatePath('/review', 'layout')
+}
+
+/**
+ * Count of "stale" assets eligible for purge: hidden OR rejected. Authed.
+ * Used by the UI to enable/disable the button and show a count.
+ */
+export async function countStaleAssets(
+  projectId: string
+): Promise<number> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
+
+  const { data } = await supabase
+    .from('creative_assets')
+    .select('id, is_hidden, status')
+    .eq('project_id', projectId)
+
+  return (data ?? []).filter(a => a.is_hidden || a.status === 'rejected').length
+}
+
+/**
+ * Batch-purge stale assets (is_hidden=true OR status='rejected') by moving
+ * each to the project's Delete subfolder. Idempotent: already-moved files
+ * are skipped. Authed.
+ *
+ * If `assetIds` is provided, only those IDs are touched. Otherwise every
+ * stale asset on the project is purged.
+ *
+ * Returns the count of assets the action processed (i.e. for which the
+ * Drive move + hide succeeded). Failed assets are logged but do not abort
+ * the batch.
+ */
+export async function purgeStaleAssets(
+  projectId: string,
+  brandId: string,
+  assetIds?: string[]
+): Promise<number> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
+
+  let query = supabase
+    .from('creative_assets')
+    .select('id, is_hidden, status')
+    .eq('project_id', projectId)
+
+  if (assetIds && assetIds.length > 0) {
+    query = query.in('id', assetIds)
+  }
+
+  const { data: rows, error } = await query
+  if (error) throw new Error(error.message)
+
+  const targets = (rows ?? []).filter(a =>
+    assetIds && assetIds.length > 0 ? true : a.is_hidden || a.status === 'rejected'
+  )
+
+  let purged = 0
+  for (const row of targets) {
+    try {
+      await _archiveAssetCore(supabase, row.id, projectId)
+      purged += 1
+    } catch (err) {
+      console.error(`[purgeStaleAssets] failed for asset ${row.id}:`, err)
+    }
+  }
+
+  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+  revalidatePath(`/brands/${brandId}/projects/${projectId}/internal-review`)
+  revalidatePath('/review', 'layout')
+  return purged
+}
+
 // Called from public review page via share token
 export async function updateAssetStatus(token: string, assetId: string, status: 'pending' | 'approved' | 'needs_revision' | 'rejected') {
   const supabase = await createClient()
@@ -551,6 +729,33 @@ export async function updateAssetStatus(token: string, assetId: string, status: 
     .eq('project_id', project.id)
 
   if (error) throw new Error(error.message)
+
+  // Side-effect: keep the Drive layout in sync with the client's decision.
+  //   - reject → move file to Delete/ + soft-hide (best-effort).
+  //   - un-reject (back to pending) → move it back + un-hide (best-effort).
+  // Drive failures (no SA configured yet, no drive_folder_url on project, etc.)
+  // are swallowed so the status update itself always succeeds — the team can
+  // run the manual "Purge stale" button later.
+  if (hasDriveServiceAccount()) {
+    try {
+      if (status === 'rejected') {
+        await _archiveAssetCore(supabase, assetId, project.id)
+      } else if (status === 'pending') {
+        // Only attempt restore if it was previously archived.
+        const { data: a } = await supabase
+          .from('creative_assets')
+          .select('is_hidden')
+          .eq('id', assetId)
+          .single()
+        if (a?.is_hidden) {
+          await _restoreAssetCore(supabase, assetId, project.id)
+        }
+      }
+    } catch (err) {
+      console.error('[updateAssetStatus] Drive sync failed (status update kept):', err)
+    }
+  }
+
   revalidatePath(`/review/${token}`)
 }
 
@@ -575,6 +780,27 @@ export async function updateAssetStatusInternal(
     .eq('project_id', projectId)
 
   if (error) throw new Error(error.message)
+
+  // Mirror the client-side reject behaviour from updateAssetStatus: keep Drive
+  // in sync best-effort. Internal users get the same auto-archive on reject.
+  if (hasDriveServiceAccount()) {
+    try {
+      if (status === 'rejected') {
+        await _archiveAssetCore(supabase, assetId, projectId)
+      } else if (status === 'pending') {
+        const { data: a } = await supabase
+          .from('creative_assets')
+          .select('is_hidden')
+          .eq('id', assetId)
+          .single()
+        if (a?.is_hidden) {
+          await _restoreAssetCore(supabase, assetId, projectId)
+        }
+      }
+    } catch (err) {
+      console.error('[updateAssetStatusInternal] Drive sync failed (status update kept):', err)
+    }
+  }
 
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)
   revalidatePath(`/brands/${brandId}/projects/${projectId}/internal-review`)

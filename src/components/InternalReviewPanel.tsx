@@ -9,6 +9,8 @@ import {
   applyDirectPrompt,
   approveAndPublishRevision,
   uploadInternalReference,
+  archiveAssetToDeleteFolder,
+  purgeStaleAssets,
 } from '@/lib/actions'
 import type { CreativeAsset, ProjectComment } from '@/lib/types'
 
@@ -92,6 +94,40 @@ export default function InternalReviewPanel({
     setComments(prev => [...prev, c])
   }, [])
 
+  // Remove an asset from the local list (used after archiving/purging it to the
+  // Delete folder — the row is now hidden, no point keeping it in view).
+  const handleAssetRemoved = useCallback((assetId: string) => {
+    setAssets(prev => prev.filter(a => a.id !== assetId))
+  }, [])
+
+  // "Stale" = either soft-hidden OR client-rejected. The internal panel may be
+  // showing rejected assets the team hasn't yet purged; this drives the button.
+  const staleCount = useMemo(
+    () => assets.filter(a => a.is_hidden || a.status === 'rejected').length,
+    [assets]
+  )
+
+  const [purging, setPurging] = useState(false)
+
+  async function handlePurgeStale() {
+    if (staleCount === 0) return
+    if (!confirm(
+      `Move ${staleCount} stale asset${staleCount !== 1 ? 's' : ''} into the project's "Delete" folder on Drive?\n\nThis keeps the comments + revisions in the CRM and is reversible (the file is moved, not deleted).`
+    )) return
+    setPurging(true)
+    try {
+      const purged = await purgeStaleAssets(projectId, brandId)
+      // Drop purged assets from the local view — they're now hidden.
+      setAssets(prev => prev.filter(a => !(a.is_hidden || a.status === 'rejected')))
+      alert(`Moved ${purged} asset${purged !== 1 ? 's' : ''} to Delete folder.`)
+    } catch (err) {
+      console.error(err)
+      alert(err instanceof Error ? err.message : 'Purge failed')
+    } finally {
+      setPurging(false)
+    }
+  }
+
   if (assets.length === 0) {
     return (
       <div className="card">
@@ -128,6 +164,21 @@ export default function InternalReviewPanel({
         <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
           <strong style={{ color: 'var(--text-secondary)' }}>{activeIdx + 1}</strong> / {assets.length}
         </div>
+        <button
+          onClick={handlePurgeStale}
+          disabled={purging || staleCount === 0}
+          title={staleCount === 0 ? 'No stale assets' : `Move ${staleCount} stale asset${staleCount !== 1 ? 's' : ''} to the project's Delete folder on Drive`}
+          style={{
+            fontSize: 11, padding: '6px 10px', borderRadius: 6, fontWeight: 600,
+            cursor: staleCount === 0 ? 'not-allowed' : 'pointer',
+            border: '1px solid rgba(127,29,29,0.5)',
+            background: staleCount === 0 ? 'transparent' : 'rgba(127,29,29,0.12)',
+            color: staleCount === 0 ? 'var(--text-muted)' : '#fca5a5',
+            opacity: staleCount === 0 ? 0.5 : 1,
+          }}
+        >
+          {purging ? 'Purging…' : `Purge to Delete folder${staleCount > 0 ? ` (${staleCount})` : ''}`}
+        </button>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-muted)' }}>
           <kbd style={kbdStyle}>←</kbd> <kbd style={kbdStyle}>→</kbd>
           <span>navigate</span>
@@ -179,6 +230,7 @@ export default function InternalReviewPanel({
           onRevisionApplied={handleRevisionApplied}
           onPublished={handlePublished}
           onCommentAdded={handleCommentAdded}
+          onAssetRemoved={handleAssetRemoved}
         />
       )}
     </div>
@@ -207,6 +259,7 @@ function AssetView({
   onRevisionApplied,
   onPublished,
   onCommentAdded,
+  onAssetRemoved,
 }: {
   asset: AssetLocal
   projectId: string
@@ -217,7 +270,9 @@ function AssetView({
   onRevisionApplied: (assetId: string, revisionUrl: string) => void
   onPublished: (assetId: string, publishedUrl: string | null) => void
   onCommentAdded: (c: ProjectComment) => void
+  onAssetRemoved: (assetId: string) => void
 }) {
+  const [archiving, setArchiving] = useState(false)
   // Pin / comment composer state
   const [pinMode, setPinMode] = useState(false)
   const [pendingPin, setPendingPin] = useState<{ x: number; y: number } | null>(null)
@@ -397,6 +452,20 @@ function AssetView({
     }
   }
 
+  async function handleArchive() {
+    if (!confirm('Move this creative\'s file into the project\'s "Delete" folder on Drive?\n\nThe CRM row stays so comments + revisions are preserved. Reversible by restoring the file.')) return
+    setArchiving(true)
+    try {
+      await archiveAssetToDeleteFolder(asset.id, projectId, brandId)
+      onAssetRemoved(asset.id)
+    } catch (err) {
+      console.error(err)
+      alert(err instanceof Error ? err.message : 'Archive failed')
+    } finally {
+      setArchiving(false)
+    }
+  }
+
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: 16, alignItems: 'start' }}>
       {/* ── LEFT: image with pin overlay ── */}
@@ -532,6 +601,26 @@ function AssetView({
             style={statusBtnStyle(statusLocal === 'rejected', 'rgba(127,29,29,0.18)', 'rgba(127,29,29,0.6)', '#fca5a5')}
           >
             ✕ {statusLocal === 'rejected' ? 'Rejected' : 'Reject'}
+          </button>
+        </div>
+
+        {/* "Move to Delete folder" — a more deliberate action than reject. Use
+            when the team wants the file out of the way regardless of client
+            decision. Reject already auto-archives, but this works on any
+            status (e.g. low-quality drafts the client never needed to see). */}
+        <div style={{ padding: '6px 14px 10px', borderBottom: '1px solid var(--border)' }}>
+          <button
+            onClick={handleArchive}
+            disabled={archiving}
+            style={{
+              width: '100%', fontSize: 11, padding: '6px 10px', borderRadius: 6, fontWeight: 500,
+              cursor: archiving ? 'default' : 'pointer',
+              border: '1px solid rgba(127,29,29,0.5)',
+              background: 'transparent',
+              color: '#fca5a5',
+            }}
+          >
+            {archiving ? 'Moving…' : '🗑 Move to Delete folder'}
           </button>
         </div>
 
