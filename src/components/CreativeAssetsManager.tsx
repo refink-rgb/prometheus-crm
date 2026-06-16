@@ -33,7 +33,7 @@ function InternalLightbox({
   const [genError, setGenError] = useState('')
   const [activePin, setActivePin] = useState<string | null>(null)
   const [publishing, setPublishing] = useState(false)
-  const [published, setPublished] = useState(asset.status === 'approved')
+  const [published, setPublished] = useState(!!asset.published_url && asset.published_url === asset.revision_url)
 
   async function handlePublish() {
     if (!confirm('Publish this revision to the client? They will see the revised image on the review link.')) return
@@ -64,6 +64,7 @@ function InternalLightbox({
     try {
       const { revisionUrl } = await applyAiEdits(asset.id, projectId, brandId, quality)
       onRevisionApplied(asset.id, revisionUrl)
+      setPublished(false) // a fresh edit is internal until you publish it
     } catch (err: unknown) {
       setGenError(err instanceof Error ? err.message : 'Generation failed')
     } finally {
