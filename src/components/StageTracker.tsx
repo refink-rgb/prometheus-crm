@@ -1,5 +1,7 @@
 'use client'
 
+import { useOptimistic, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
 import { updateProjectStage } from '@/lib/actions'
 import { STAGE_ORDER, STAGE_LABELS, type Stage } from '@/lib/types'
 
@@ -20,16 +22,32 @@ export default function StageTracker({
   label,
   disabled = false,
 }: StageTrackerProps) {
-  const currentIndex = STAGE_ORDER.indexOf(currentStage)
+  const router = useRouter()
+  const [isPending, startTransition] = useTransition()
+  const [optimisticStage, setOptimisticStage] = useOptimistic(
+    currentStage,
+    (_current: Stage, newStage: Stage) => newStage
+  )
+  const optimisticIndex = STAGE_ORDER.indexOf(optimisticStage)
 
-  async function advance() {
-    if (disabled || currentIndex >= STAGE_ORDER.length - 1) return
-    await updateProjectStage(projectId, brandId, track, STAGE_ORDER[currentIndex + 1])
+  function advance() {
+    if (disabled || optimisticIndex >= STAGE_ORDER.length - 1) return
+    const next = STAGE_ORDER[optimisticIndex + 1]
+    startTransition(async () => {
+      setOptimisticStage(next)
+      await updateProjectStage(projectId, brandId, track, next)
+      router.refresh()
+    })
   }
 
-  async function retreat() {
-    if (disabled || currentIndex <= 0) return
-    await updateProjectStage(projectId, brandId, track, STAGE_ORDER[currentIndex - 1])
+  function retreat() {
+    if (disabled || optimisticIndex <= 0) return
+    const prev = STAGE_ORDER[optimisticIndex - 1]
+    startTransition(async () => {
+      setOptimisticStage(prev)
+      await updateProjectStage(projectId, brandId, track, prev)
+      router.refresh()
+    })
   }
 
   return (
@@ -38,13 +56,15 @@ export default function StageTracker({
       border: '1px solid var(--border)',
       borderRadius: 10,
       padding: '16px 20px',
+      opacity: isPending ? 0.7 : 1,
+      transition: 'opacity 0.15s',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
         <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
           {label}
         </span>
-        <span className={`badge badge-${currentStage}`}>
-          {STAGE_LABELS[currentStage]}
+        <span className={`badge badge-${optimisticStage}`}>
+          {STAGE_LABELS[optimisticStage]}
         </span>
       </div>
 
@@ -57,8 +77,8 @@ export default function StageTracker({
               flex: 1,
               height: 4,
               borderRadius: 2,
-              background: i <= currentIndex
-                ? (currentStage === 'done' ? 'var(--success)' : 'var(--accent)')
+              background: i <= optimisticIndex
+                ? (optimisticStage === 'done' ? 'var(--success)' : 'var(--accent)')
                 : 'var(--border)',
               transition: 'background 0.2s ease',
             }}
@@ -71,8 +91,8 @@ export default function StageTracker({
         {STAGE_ORDER.map((stage, i) => (
           <span key={stage} style={{
             fontSize: 10,
-            color: i <= currentIndex ? 'var(--text-secondary)' : 'var(--text-muted)',
-            fontWeight: i === currentIndex ? 600 : 400,
+            color: i <= optimisticIndex ? 'var(--text-secondary)' : 'var(--text-muted)',
+            fontWeight: i === optimisticIndex ? 600 : 400,
           }}>
             {STAGE_LABELS[stage]}
           </span>
@@ -83,7 +103,7 @@ export default function StageTracker({
         <div style={{ display: 'flex', gap: 8 }}>
           <button
             onClick={retreat}
-            disabled={currentIndex === 0}
+            disabled={optimisticIndex === 0 || isPending}
             className="btn-secondary"
             style={{ flex: 1, justifyContent: 'center', padding: '8px 12px', fontSize: 13 }}
           >
@@ -91,11 +111,11 @@ export default function StageTracker({
           </button>
           <button
             onClick={advance}
-            disabled={currentIndex === STAGE_ORDER.length - 1}
+            disabled={optimisticIndex === STAGE_ORDER.length - 1 || isPending}
             className="btn-primary"
             style={{ flex: 2, justifyContent: 'center', padding: '8px 12px', fontSize: 13 }}
           >
-            {currentStage === 'review' ? 'Mark Done ✓' : 'Advance →'}
+            {optimisticStage === 'review' ? 'Mark Done ✓' : 'Advance →'}
           </button>
         </div>
       )}

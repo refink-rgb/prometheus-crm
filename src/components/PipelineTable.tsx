@@ -182,7 +182,7 @@ function TrackProgress({ stage, approved }: { stage: Stage; approved: boolean })
   const idx = STAGES.indexOf(stage)
   const waitingReview = stage === 'review' && !approved
   return (
-    <div>
+    <div style={{ minWidth: 90 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 5 }}>
         <span style={{ fontSize: 10, fontWeight: 600, color: STAGE_COLORS[stage], letterSpacing: '0.04em' }}>
           {STAGE_LABELS[stage]}

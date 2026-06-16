@@ -179,8 +179,17 @@ export default function ProjectEditForm({ projectId, brandId, journeys, initial 
     )
   }
 
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault()
+      save()
+    } else if (e.key === 'Escape') {
+      cancel()
+    }
+  }
+
   return (
-    <div ref={formRef} className="card" style={{ marginBottom: 24 }}>
+    <div ref={formRef} className="card" style={{ marginBottom: 24 }} onKeyDown={handleKeyDown}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
         <h3 style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>Edit Project</h3>
         <div style={{ display: 'flex', gap: 8 }}>

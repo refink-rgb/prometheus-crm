@@ -21,12 +21,11 @@ export default function DashboardTabs({ active }: { active: string }) {
 
   return (
     <div style={{
+      position: 'relative',
       display: 'flex',
       gap: 0,
       borderBottom: '1px solid var(--border)',
       marginBottom: 32,
-      opacity: isPending ? 0.7 : 1,
-      transition: 'opacity 0.15s',
     }}>
       {TABS.map(tab => {
         const isActive = active === tab.id
@@ -54,6 +53,7 @@ export default function DashboardTabs({ active }: { active: string }) {
           </button>
         )
       })}
+      {isPending && <div className="tab-loading-bar" />}
     </div>
   )
 }
