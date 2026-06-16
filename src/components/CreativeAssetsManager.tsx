@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { syncDriveImages, toggleAssetVisibility, applyAiEdits, approveAndPublishRevision } from '@/lib/actions'
+import { useState, useEffect, useCallback } from 'react'
+import { syncDriveImages, toggleAssetVisibility, applyAiEdits, approveAndPublishRevision, updateAssetStatusInternal } from '@/lib/actions'
 import { useRouter } from 'next/navigation'
 import type { CreativeAsset, ProjectComment } from '@/lib/types'
 
@@ -14,26 +14,68 @@ const QUALITY_OPTIONS: Array<{ value: 'low' | 'medium' | 'high'; label: string; 
 // ─── Internal lightbox ───────────────────────────────────────────────────────
 
 function InternalLightbox({
-  asset,
-  comments,
+  assets,
+  index,
+  allComments,
   projectId,
   brandId,
   onClose,
   onRevisionApplied,
+  onStatusChange,
+  onNavigate,
 }: {
-  asset: CreativeAsset
-  comments: ProjectComment[]
+  assets: CreativeAsset[]
+  index: number
+  allComments: ProjectComment[]
   projectId: string
   brandId: string
   onClose: () => void
   onRevisionApplied: (assetId: string, revisionUrl: string) => void
+  onStatusChange: (assetId: string, status: CreativeAsset['status']) => void
+  onNavigate: (newIndex: number) => void
 }) {
+  const asset = assets[index]
+  const comments = allComments.filter(c => c.asset_id === asset.id)
+
   const [quality, setQuality] = useState<'low' | 'medium' | 'high'>('low')
   const [generating, setGenerating] = useState(false)
   const [genError, setGenError] = useState('')
   const [activePin, setActivePin] = useState<string | null>(null)
   const [publishing, setPublishing] = useState(false)
   const [published, setPublished] = useState(asset.status === 'approved')
+  const [assetStatus, setAssetStatus] = useState<CreativeAsset['status']>(asset.status ?? 'pending')
+  const [updatingStatus, setUpdatingStatus] = useState(false)
+
+  // Reset state when navigating to a different asset
+  useEffect(() => {
+    setPublished(asset.status === 'approved')
+    setAssetStatus(asset.status ?? 'pending')
+    setActivePin(null)
+    setGenError('')
+  }, [asset.id, asset.status])
+
+  // Keyboard navigation
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === 'ArrowLeft' && index > 0) onNavigate(index - 1)
+      if (e.key === 'ArrowRight' && index < assets.length - 1) onNavigate(index + 1)
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
+  }, [index, assets.length, onNavigate, onClose])
+
+  async function handleStatus(newStatus: CreativeAsset['status']) {
+    if (newStatus === assetStatus) return
+    setUpdatingStatus(true)
+    try {
+      await updateAssetStatusInternal(asset.id, newStatus, projectId, brandId)
+      setAssetStatus(newStatus)
+      onStatusChange(asset.id, newStatus)
+    } finally {
+      setUpdatingStatus(false)
+    }
+  }
 
   async function handlePublish() {
     if (!confirm('Publish this revision to the client? They will see the revised image on the review link.')) return
@@ -86,13 +128,14 @@ function InternalLightbox({
         }}>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'white', fontSize: 18, cursor: 'pointer' }}>←</button>
           <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)', flex: 1 }}>
-            {asset.name ?? 'Creative asset'}
+            {asset.name ?? `Creative ${index + 1}`}
             {hasRevision && (
               <span style={{ marginLeft: 10, fontSize: 11, fontWeight: 600, color: 'var(--accent)', background: 'var(--accent-muted)', padding: '2px 8px', borderRadius: 4 }}>
                 ✦ AI Revised
               </span>
             )}
           </span>
+          <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)' }}>{index + 1} / {assets.length}</span>
           <a
             href={`https://drive.google.com/uc?export=view&id=${asset.drive_file_id}`}
             target="_blank"
@@ -105,6 +148,36 @@ function InternalLightbox({
 
         {/* Image display */}
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px 24px 24px 24px', position: 'relative' }}>
+          {/* Prev arrow */}
+          {index > 0 && (
+            <button
+              onClick={() => onNavigate(index - 1)}
+              style={{
+                position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
+                background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.15)',
+                color: 'white', width: 40, height: 40, borderRadius: '50%',
+                fontSize: 18, cursor: 'pointer', zIndex: 20,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}
+            >
+              ‹
+            </button>
+          )}
+          {/* Next arrow */}
+          {index < assets.length - 1 && (
+            <button
+              onClick={() => onNavigate(index + 1)}
+              style={{
+                position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)',
+                background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.15)',
+                color: 'white', width: 40, height: 40, borderRadius: '50%',
+                fontSize: 18, cursor: 'pointer', zIndex: 20,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}
+            >
+              ›
+            </button>
+          )}
           {/* Main image (revision or original) */}
           <div style={{ position: 'relative', maxWidth: '100%', maxHeight: '100%' }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -248,6 +321,55 @@ function InternalLightbox({
           )}
         </div>
 
+        {/* Status buttons */}
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>
+            Status
+          </div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button
+              onClick={() => handleStatus(assetStatus === 'approved' ? 'pending' : 'approved')}
+              disabled={updatingStatus}
+              style={{
+                flex: 1, padding: '7px 4px', borderRadius: 7, fontSize: 11, fontWeight: 600,
+                cursor: 'pointer', textAlign: 'center',
+                border: `1px solid ${assetStatus === 'approved' ? 'rgba(34,197,94,0.5)' : 'var(--border)'}`,
+                background: assetStatus === 'approved' ? 'rgba(34,197,94,0.12)' : 'transparent',
+                color: assetStatus === 'approved' ? 'var(--success)' : 'var(--text-secondary)',
+              }}
+            >
+              ✓ {assetStatus === 'approved' ? 'Approved' : 'Approve'}
+            </button>
+            <button
+              onClick={() => handleStatus(assetStatus === 'needs_revision' ? 'pending' : 'needs_revision')}
+              disabled={updatingStatus}
+              style={{
+                flex: 1, padding: '7px 4px', borderRadius: 7, fontSize: 11, fontWeight: 600,
+                cursor: 'pointer', textAlign: 'center',
+                border: `1px solid ${assetStatus === 'needs_revision' ? 'rgba(239,68,68,0.4)' : 'var(--border)'}`,
+                background: assetStatus === 'needs_revision' ? 'rgba(239,68,68,0.1)' : 'transparent',
+                color: assetStatus === 'needs_revision' ? 'var(--danger)' : 'var(--text-secondary)',
+              }}
+            >
+              ↩ Revision
+            </button>
+            <button
+              onClick={() => handleStatus(assetStatus === 'rejected' ? 'pending' : 'rejected')}
+              disabled={updatingStatus}
+              title="Do not use"
+              style={{
+                padding: '7px 10px', borderRadius: 7, fontSize: 11, fontWeight: 600,
+                cursor: 'pointer',
+                border: `1px solid ${assetStatus === 'rejected' ? 'rgba(113,113,122,0.5)' : 'var(--border)'}`,
+                background: assetStatus === 'rejected' ? 'rgba(113,113,122,0.12)' : 'transparent',
+                color: assetStatus === 'rejected' ? 'var(--text-muted)' : 'var(--text-secondary)',
+              }}
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+
         {/* Comments list */}
         <div style={{ padding: '12px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
           <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
@@ -325,7 +447,7 @@ export default function CreativeAssetsManager({
   const [syncing, setSyncing] = useState(false)
   const [syncMsg, setSyncMsg] = useState('')
   const [togglingId, setTogglingId] = useState<string | null>(null)
-  const [lightboxAsset, setLightboxAsset] = useState<CreativeAsset | null>(null)
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
 
   async function handleSync() {
     if (!folderUrl.trim()) return
@@ -347,10 +469,7 @@ export default function CreativeAssetsManager({
     try {
       await toggleAssetVisibility(asset.id, !asset.is_hidden, projectId, brandId)
       setAssets(prev => prev.map(a => a.id === asset.id ? { ...a, is_hidden: !a.is_hidden } : a))
-      // Update lightbox if this asset is open
-      if (lightboxAsset?.id === asset.id) {
-        setLightboxAsset(prev => prev ? { ...prev, is_hidden: !prev.is_hidden } : null)
-      }
+      // lightboxIndex stays valid — assets array updates via setAssets
     } finally {
       setTogglingId(null)
     }
@@ -358,10 +477,11 @@ export default function CreativeAssetsManager({
 
   function handleRevisionApplied(assetId: string, revisionUrl: string) {
     setAssets(prev => prev.map(a => a.id === assetId ? { ...a, revision_url: revisionUrl } : a))
-    setLightboxAsset(prev => prev?.id === assetId ? { ...prev, revision_url: revisionUrl } : prev)
   }
 
-  const assetComments = (assetId: string) => imageComments.filter(c => c.asset_id === assetId)
+  function handleStatusChange(assetId: string, status: CreativeAsset['status']) {
+    setAssets(prev => prev.map(a => a.id === assetId ? { ...a, status } : a))
+  }
 
   const visible = assets.filter(a => !a.is_hidden)
   const hidden = assets.filter(a => a.is_hidden)
@@ -369,14 +489,17 @@ export default function CreativeAssetsManager({
   return (
     <div>
       {/* Lightbox */}
-      {lightboxAsset && (
+      {lightboxIndex !== null && (
         <InternalLightbox
-          asset={lightboxAsset}
-          comments={assetComments(lightboxAsset.id)}
+          assets={assets}
+          index={lightboxIndex}
+          allComments={imageComments}
           projectId={projectId}
           brandId={brandId}
-          onClose={() => setLightboxAsset(null)}
+          onClose={() => setLightboxIndex(null)}
           onRevisionApplied={handleRevisionApplied}
+          onStatusChange={handleStatusChange}
+          onNavigate={setLightboxIndex}
         />
       )}
 
@@ -426,15 +549,15 @@ export default function CreativeAssetsManager({
               Visible to client ({visible.length})
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: 8 }}>
-              {visible.map((asset, i) => (
+              {visible.map((asset) => (
                 <AssetThumb
                   key={asset.id}
                   asset={asset}
-                  index={i}
+                  index={assets.indexOf(asset)}
                   toggling={togglingId === asset.id}
-                  commentCount={assetComments(asset.id).length}
+                  commentCount={imageComments.filter(c => c.asset_id === asset.id).length}
                   onToggle={() => handleToggle(asset)}
-                  onClick={() => setLightboxAsset(asset)}
+                  onClick={() => setLightboxIndex(assets.indexOf(asset))}
                 />
               ))}
             </div>
@@ -447,15 +570,15 @@ export default function CreativeAssetsManager({
                 Hidden from client ({hidden.length})
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: 8 }}>
-                {hidden.map((asset, i) => (
+                {hidden.map((asset) => (
                   <AssetThumb
                     key={asset.id}
                     asset={asset}
-                    index={i}
+                    index={assets.indexOf(asset)}
                     toggling={togglingId === asset.id}
-                    commentCount={assetComments(asset.id).length}
+                    commentCount={imageComments.filter(c => c.asset_id === asset.id).length}
                     onToggle={() => handleToggle(asset)}
-                    onClick={() => setLightboxAsset(asset)}
+                    onClick={() => setLightboxIndex(assets.indexOf(asset))}
                   />
                 ))}
               </div>

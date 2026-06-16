@@ -527,6 +527,27 @@ export async function updateAssetStatus(token: string, assetId: string, status: 
   revalidatePath(`/review/${token}`)
 }
 
+export async function updateAssetStatusInternal(
+  assetId: string,
+  status: 'pending' | 'approved' | 'needs_revision' | 'rejected',
+  projectId: string,
+  brandId: string,
+) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
+
+  const { error } = await supabase
+    .from('creative_assets')
+    .update({ status })
+    .eq('id', assetId)
+    .eq('project_id', projectId)
+
+  if (error) throw new Error(error.message)
+  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+}
+
 export async function toggleAssetVisibility(assetId: string, isHidden: boolean, projectId: string, brandId: string) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
