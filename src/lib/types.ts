@@ -133,6 +133,9 @@ export interface ProjectComment {
   pin_x: number | null
   pin_y: number | null
   section_tag: string | null
+  // 'client' = posted from the public review link; 'internal' = posted from
+  // the authed internal review page. Defaulted at the DB level to 'client'.
+  audience: 'internal' | 'client'
 }
 
 export interface CreativeAsset {
@@ -153,7 +156,7 @@ export interface CreativeAsset {
   published_url: string | null
   // false = internal-only (not yet on the client review link). Set true on publish.
   client_visible: boolean
-  status: 'pending' | 'approved' | 'needs_revision'
+  status: 'pending' | 'approved' | 'needs_revision' | 'rejected'
 }
 
 export const STAGE_LABELS: Record<Stage, string> = {

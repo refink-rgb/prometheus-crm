@@ -421,8 +421,22 @@ export default async function ProjectPage({
               {/* Creative assets (Drive images) */}
               {isAuthorized && (
                 <div style={{ marginTop: 24, paddingTop: 20, borderTop: '1px solid var(--border)' }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 14 }}>
-                    Creative Assets
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, gap: 12 }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                      Creative Assets
+                    </div>
+                    {creativeAssets.length > 0 && (
+                      <Link
+                        href={`/brands/${brandId}/projects/${projectId}/internal-review`}
+                        style={{
+                          fontSize: 12, fontWeight: 600, color: 'white',
+                          background: 'var(--accent)', padding: '6px 12px', borderRadius: 7,
+                          textDecoration: 'none', whiteSpace: 'nowrap',
+                        }}
+                      >
+                        Open internal review →
+                      </Link>
+                    )}
                   </div>
                   <CreativeAssetsManager
                     projectId={projectId}

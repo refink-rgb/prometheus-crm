@@ -533,7 +533,7 @@ export async function approveAndPublishRevision(assetId: string, projectId: stri
 }
 
 // Called from public review page via share token
-export async function updateAssetStatus(token: string, assetId: string, status: 'pending' | 'approved' | 'needs_revision') {
+export async function updateAssetStatus(token: string, assetId: string, status: 'pending' | 'approved' | 'needs_revision' | 'rejected') {
   const supabase = await createClient()
 
   // Verify the asset belongs to this token's project
@@ -552,6 +552,205 @@ export async function updateAssetStatus(token: string, assetId: string, status: 
 
   if (error) throw new Error(error.message)
   revalidatePath(`/review/${token}`)
+}
+
+// Authed internal version — accepts the wider status union (incl. 'rejected')
+// and revalidates BOTH the internal project page and the client review surface
+// (the client should see status changes the team makes from the internal page).
+export async function updateAssetStatusInternal(
+  assetId: string,
+  projectId: string,
+  brandId: string,
+  status: 'pending' | 'approved' | 'needs_revision' | 'rejected'
+) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
+
+  const { error } = await supabase
+    .from('creative_assets')
+    .update({ status })
+    .eq('id', assetId)
+    .eq('project_id', projectId)
+
+  if (error) throw new Error(error.message)
+
+  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+  revalidatePath(`/brands/${brandId}/projects/${projectId}/internal-review`)
+  // Client review link revalidate (token unknown here — invalidate the segment).
+  revalidatePath('/review', 'layout')
+}
+
+// Authed: post a comment from the internal review page. Always tagged
+// audience='internal' so the client never sees it on their review link, and
+// (importantly) so `applyAiEdits` can be scoped to internal-only feedback later.
+export async function addInternalAssetComment(input: {
+  projectId: string
+  brandId: string
+  assetId: string
+  content: string
+  displayName: string
+  pin_x?: number
+  pin_y?: number
+}) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
+
+  const name = input.displayName.trim() || user.email?.split('@')[0] || 'Team'
+
+  const { error } = await supabase.from('project_comments').insert({
+    project_id: input.projectId,
+    author_name: name,
+    content: input.content.trim(),
+    track: 'image',
+    asset_id: input.assetId,
+    pin_x: input.pin_x ?? null,
+    pin_y: input.pin_y ?? null,
+    section_tag: null,
+    audience: 'internal',
+  })
+  if (error) throw new Error(error.message)
+
+  revalidatePath(`/brands/${input.brandId}/projects/${input.projectId}`)
+  revalidatePath(`/brands/${input.brandId}/projects/${input.projectId}/internal-review`)
+}
+
+// Upload a reference image (used by "Ask Claude to edit") into Supabase storage.
+// Returns the storage path (used as a handle by applyDirectPrompt) and a public URL.
+export async function uploadInternalReference(formData: FormData): Promise<{ storagePath: string; publicUrl: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
+
+  const file = formData.get('file') as File | null
+  const assetId = (formData.get('asset_id') as string) || 'unknown'
+  if (!file) throw new Error('No file provided.')
+
+  const ext = (file.name.split('.').pop() || 'png').toLowerCase().replace(/[^a-z0-9]/g, '') || 'png'
+  const slug = file.name.replace(/\.[^.]+$/, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40) || 'ref'
+  const path = `internal-references/${assetId}-${Date.now()}-${slug}.${ext}`
+
+  const buffer = Buffer.from(await file.arrayBuffer())
+  const { error: uploadError } = await supabase.storage
+    .from('project-images')
+    .upload(path, buffer, { contentType: file.type || 'image/png', upsert: false })
+  if (uploadError) throw new Error(`Storage upload failed: ${uploadError.message}`)
+
+  const { data: { publicUrl } } = supabase.storage.from('project-images').getPublicUrl(path)
+  return { storagePath: path, publicUrl }
+}
+
+// Apply a freeform, literal prompt to the asset's current image. Parallel to
+// applyAiEdits but doesn't compile comments — the operator types the prompt.
+//
+// Reference-image trade-off (v1): `openai.images.edit` accepts a SINGLE image.
+// If exactly one reference image is uploaded, we treat IT as the source (so the
+// model sees "edit this reference"). Otherwise we keep the asset's current
+// image as the source and append a brief note to the prompt naming how many
+// references were uploaded for context. A future upgrade would use gpt-image-2's
+// multimodal input directly to pass multiple images.
+export async function applyDirectPrompt(input: {
+  assetId: string
+  projectId: string
+  brandId: string
+  prompt: string
+  quality: 'low' | 'medium' | 'high'
+  referenceImagePaths?: string[]
+}): Promise<{ revisionUrl: string; prompt: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
+
+  const openaiKey = process.env.OPENAI_API_KEY
+  if (!openaiKey) throw new Error('OPENAI_API_KEY is not set — add it in Vercel → Settings → Environment Variables.')
+
+  const trimmedPrompt = (input.prompt || '').trim()
+  if (!trimmedPrompt) throw new Error('Prompt is empty.')
+
+  const { data: asset } = await supabase
+    .from('creative_assets')
+    .select('*')
+    .eq('id', input.assetId)
+    .single()
+  if (!asset) throw new Error('Asset not found.')
+
+  const refs = input.referenceImagePaths ?? []
+
+  // Decide the source image: current asset's display image (revision_url ??
+  // drive original) is the default; if exactly one reference was uploaded, USE
+  // that as the source so the model edits it directly. (See trade-off note above.)
+  let sourceBuffer: Buffer
+  let sourceName = 'creative.jpg'
+  let sourceType = 'image/jpeg'
+
+  if (refs.length === 1) {
+    const { data: blob, error: dlError } = await supabase.storage.from('project-images').download(refs[0])
+    if (dlError || !blob) throw new Error(`Failed to download reference image: ${dlError?.message ?? 'unknown'}`)
+    sourceBuffer = Buffer.from(await blob.arrayBuffer())
+    sourceName = refs[0].split('/').pop() ?? 'reference.png'
+    sourceType = blob.type || 'image/png'
+  } else if (asset.revision_url) {
+    const res = await fetch(asset.revision_url, { redirect: 'follow' })
+    if (!res.ok) throw new Error(`Failed to fetch current revision (HTTP ${res.status}).`)
+    sourceBuffer = Buffer.from(await res.arrayBuffer())
+    sourceType = res.headers.get('content-type') || 'image/png'
+    sourceName = 'revision.png'
+  } else {
+    const driveUrl = `https://drive.google.com/uc?export=download&id=${asset.drive_file_id}`
+    const res = await fetch(driveUrl, { redirect: 'follow' })
+    if (!res.ok) throw new Error(`Failed to download image from Drive (HTTP ${res.status}). Make sure the file is publicly shared.`)
+    sourceBuffer = Buffer.from(await res.arrayBuffer())
+  }
+
+  let finalPrompt = trimmedPrompt
+  if (refs.length > 1) {
+    finalPrompt = `${trimmedPrompt}\n\n(Reference images uploaded by the team for context: ${refs.length} images. v1 limitation: only the source image is passed to the edit call — describe how to use the references in the prompt above.)`
+  }
+
+  const { default: OpenAI, toFile } = await import('openai')
+  const openai = new OpenAI({ apiKey: openaiKey })
+  const imageFile = await toFile(sourceBuffer, sourceName, { type: sourceType })
+
+  const response = await (openai.images as unknown as {
+    edit: (params: unknown) => Promise<{ data: Array<{ b64_json?: string }> }>
+  }).edit({
+    model: 'gpt-image-2',
+    image: imageFile,
+    prompt: finalPrompt,
+    n: 1,
+    size: 'auto',
+    quality: input.quality,
+  })
+
+  const b64 = response.data[0]?.b64_json
+  if (!b64) throw new Error('OpenAI returned no image data. Try again.')
+
+  const revisionBuffer = Buffer.from(b64, 'base64')
+  const revisionPath = `revisions/${input.assetId}-${Date.now()}.png`
+  const { error: uploadError } = await supabase.storage
+    .from('project-images')
+    .upload(revisionPath, revisionBuffer, { contentType: 'image/png', upsert: true })
+  if (uploadError) throw new Error(`Storage upload failed: ${uploadError.message}`)
+
+  const { data: { publicUrl } } = supabase.storage.from('project-images').getPublicUrl(revisionPath)
+
+  await supabase
+    .from('creative_assets')
+    .update({
+      revision_url: publicUrl,
+      revision_prompt: finalPrompt,
+      revision_created_at: new Date().toISOString(),
+    })
+    .eq('id', input.assetId)
+
+  revalidatePath(`/brands/${input.brandId}/projects/${input.projectId}`)
+  revalidatePath(`/brands/${input.brandId}/projects/${input.projectId}/internal-review`)
+  return { revisionUrl: publicUrl, prompt: finalPrompt }
 }
 
 export async function toggleAssetVisibility(assetId: string, isHidden: boolean, projectId: string, brandId: string) {

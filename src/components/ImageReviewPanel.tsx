@@ -56,6 +56,7 @@ function AssetRow({
       pin_x: pendingPin?.x ?? null,
       pin_y: pendingPin?.y ?? null,
       section_tag: null,
+      audience: 'client',
     }
     setComments(prev => [...prev, optimistic])
     try {
@@ -95,6 +96,13 @@ function AssetRow({
     pending:       { bg: 'transparent',           color: 'var(--text-muted)',    border: 'var(--border)' },
     approved:      { bg: 'rgba(34,197,94,0.12)',   color: 'var(--success)',       border: 'rgba(34,197,94,0.3)' },
     needs_revision:{ bg: 'rgba(239,68,68,0.1)',    color: 'var(--danger)',        border: 'rgba(239,68,68,0.3)' },
+    rejected:      { bg: 'rgba(127,29,29,0.18)',   color: '#fca5a5',              border: 'rgba(127,29,29,0.5)' },
+  }
+  const statusLabel = (s: CreativeAsset['status']): string => {
+    if (s === 'approved') return '✓ Approved'
+    if (s === 'needs_revision') return '↩ Revision requested'
+    if (s === 'rejected') return '✕ Rejected'
+    return ''
   }
 
   return (
@@ -180,8 +188,8 @@ function AssetRow({
           <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
             {comments.length} comment{comments.length !== 1 ? 's' : ''}
             {status !== 'pending' && (
-              <span style={{ marginLeft: 8, fontWeight: 600, color: status === 'approved' ? 'var(--success)' : 'var(--danger)' }}>
-                · {status === 'approved' ? '✓ Approved' : '↩ Revision requested'}
+              <span style={{ marginLeft: 8, fontWeight: 600, color: statusColors[status].color }}>
+                · {statusLabel(status)}
               </span>
             )}
           </div>
@@ -304,6 +312,23 @@ function AssetRow({
               }}
             >
               ↩ {status === 'needs_revision' ? 'Revision requested' : 'Needs revision'}
+            </button>
+
+            {/* Reject concept — stronger than "needs revision": scrap it entirely */}
+            <button
+              onClick={() => handleStatus(status === 'rejected' ? 'pending' : 'rejected')}
+              disabled={updatingStatus}
+              title="Scrap this concept entirely — different from 'needs revision'"
+              style={{
+                flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                padding: '8px 10px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                cursor: 'pointer', transition: 'all 0.15s',
+                border: `1px solid ${status === 'rejected' ? 'rgba(127,29,29,0.6)' : 'var(--border)'}`,
+                background: status === 'rejected' ? 'rgba(127,29,29,0.18)' : 'var(--surface-raised)',
+                color: status === 'rejected' ? '#fca5a5' : 'var(--text-secondary)',
+              }}
+            >
+              ✕ {status === 'rejected' ? 'Rejected' : 'Reject concept'}
             </button>
           </div>
 

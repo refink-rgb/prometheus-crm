@@ -71,6 +71,7 @@ export default function LpReviewPanel({
       pin_x: pendingPin?.x ?? null,
       pin_y: pendingPin?.y ?? null,
       section_tag: pendingPin ? null : sectionTag,
+      audience: 'client',
     }
     setComments(prev => [optimistic, ...prev])
 
