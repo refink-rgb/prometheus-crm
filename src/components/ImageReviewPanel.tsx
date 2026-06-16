@@ -92,9 +92,10 @@ function AssetRow({
     ? asset.revision_url
     : `https://drive.google.com/thumbnail?id=${asset.drive_file_id}&sz=w2048`
   const statusColors: Record<CreativeAsset['status'], { bg: string; color: string; border: string }> = {
-    pending:       { bg: 'transparent',           color: 'var(--text-muted)',    border: 'var(--border)' },
-    approved:      { bg: 'rgba(34,197,94,0.12)',   color: 'var(--success)',       border: 'rgba(34,197,94,0.3)' },
-    needs_revision:{ bg: 'rgba(239,68,68,0.1)',    color: 'var(--danger)',        border: 'rgba(239,68,68,0.3)' },
+    pending:       { bg: 'transparent',             color: 'var(--text-muted)',    border: 'var(--border)' },
+    approved:      { bg: 'rgba(34,197,94,0.12)',     color: 'var(--success)',       border: 'rgba(34,197,94,0.3)' },
+    needs_revision:{ bg: 'rgba(239,68,68,0.1)',      color: 'var(--danger)',        border: 'rgba(239,68,68,0.3)' },
+    rejected:      { bg: 'rgba(113,113,122,0.12)',   color: 'var(--text-muted)',    border: 'rgba(113,113,122,0.3)' },
   }
 
   return (
@@ -180,8 +181,11 @@ function AssetRow({
           <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
             {comments.length} comment{comments.length !== 1 ? 's' : ''}
             {status !== 'pending' && (
-              <span style={{ marginLeft: 8, fontWeight: 600, color: status === 'approved' ? 'var(--success)' : 'var(--danger)' }}>
-                · {status === 'approved' ? '✓ Approved' : '↩ Revision requested'}
+              <span style={{
+                marginLeft: 8, fontWeight: 600,
+                color: status === 'approved' ? 'var(--success)' : status === 'rejected' ? 'var(--text-muted)' : 'var(--danger)',
+              }}>
+                · {status === 'approved' ? '✓ Approved' : status === 'rejected' ? '✕ Rejected' : '↩ Revision requested'}
               </span>
             )}
           </div>
@@ -305,6 +309,23 @@ function AssetRow({
             >
               ↩ {status === 'needs_revision' ? 'Revision requested' : 'Needs revision'}
             </button>
+
+            {/* Reject — do not use */}
+            <button
+              onClick={() => handleStatus(status === 'rejected' ? 'pending' : 'rejected')}
+              disabled={updatingStatus}
+              title="Do not use — permanently discard this creative"
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                padding: '8px 10px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                cursor: 'pointer', transition: 'all 0.15s',
+                border: `1px solid ${status === 'rejected' ? 'rgba(113,113,122,0.5)' : 'var(--border)'}`,
+                background: status === 'rejected' ? 'rgba(113,113,122,0.12)' : 'var(--surface-raised)',
+                color: status === 'rejected' ? 'var(--text-muted)' : 'var(--text-secondary)',
+              }}
+            >
+              ✕
+            </button>
           </div>
 
           {/* Pin toggle */}
@@ -362,6 +383,7 @@ export default function ImageReviewPanel({
 
   const approvedCount = Object.values(assetStatuses).filter(s => s === 'approved').length
   const revisionCount = Object.values(assetStatuses).filter(s => s === 'needs_revision').length
+  const rejectedCount = Object.values(assetStatuses).filter(s => s === 'rejected').length
 
   if (assets.length === 0) {
     return (
@@ -384,6 +406,9 @@ export default function ImageReviewPanel({
           )}
           {revisionCount > 0 && (
             <span style={{ fontSize: 13, color: 'var(--danger)' }}>↩ {revisionCount} need revision</span>
+          )}
+          {rejectedCount > 0 && (
+            <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>✕ {rejectedCount} rejected</span>
           )}
         </div>
         {creativesApproved ? (
