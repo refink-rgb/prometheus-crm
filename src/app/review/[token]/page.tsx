@@ -33,7 +33,7 @@ export default async function ReviewPage({
     supabase.from('brands').select('*').eq('id', p.brand_id).single(),
     supabase.from('project_images').select('*').eq('project_id', p.id).order('created_at'),
     supabase.from('project_comments').select('*').eq('project_id', p.id).order('created_at'),
-    supabase.from('creative_assets').select('*').eq('project_id', p.id).eq('is_hidden', false).order('sort_order'),
+    supabase.from('creative_assets').select('*').eq('project_id', p.id).eq('is_hidden', false).eq('client_visible', true).order('sort_order'),
   ])
 
   const brand = brandRaw as Brand | null
