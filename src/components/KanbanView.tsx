@@ -129,9 +129,9 @@ export default function KanbanView({ pipeline }: { pipeline: PipelineProject[] }
   }
 
   return (
-    <section>
+    <section style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 320px)' }}>
       {/* Filter bar */}
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', flexShrink: 0 }}>
         <input
           type="text"
           placeholder="Search by brand…"
@@ -188,46 +188,48 @@ export default function KanbanView({ pipeline }: { pipeline: PipelineProject[] }
         </button>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16, flexShrink: 0 }}>
         <h2 style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
           Active Pipeline — {displayed.length}{displayed.length !== localProjects.length ? ` of ${localProjects.length}` : ''} project{displayed.length !== 1 ? 's' : ''}
         </h2>
       </div>
 
-      <DndContext
-        sensors={sensors}
-        onDragStart={handleDragStart}
-        onDragOver={handleDragOver}
-        onDragEnd={handleDragEnd}
-      >
-        {/* Board */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(4, minmax(220px, 1fr))',
-          gap: 12,
-          overflowX: 'auto',
-          alignItems: 'start',
-        }}>
-          {columns.map(({ stage, cards }) => (
-            <KanbanColumn
-              key={stage}
-              stage={stage}
-              cards={cards}
-              isOver={overId === stage}
-              isDragging={activeId !== null}
-              draggedCardId={activeId}
-            />
-          ))}
-        </div>
+      <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+        <DndContext
+          sensors={sensors}
+          onDragStart={handleDragStart}
+          onDragOver={handleDragOver}
+          onDragEnd={handleDragEnd}
+        >
+          {/* Board */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(4, minmax(220px, 1fr))',
+            gap: 12,
+            height: '100%',
+            overflowX: 'auto',
+          }}>
+            {columns.map(({ stage, cards }) => (
+              <KanbanColumn
+                key={stage}
+                stage={stage}
+                cards={cards}
+                isOver={overId === stage}
+                isDragging={activeId !== null}
+                draggedCardId={activeId}
+              />
+            ))}
+          </div>
 
-        <DragOverlay dropAnimation={null}>
-          {activeCard ? (
-            <div style={{ transform: 'rotate(1.5deg)', filter: 'drop-shadow(0 8px 24px rgba(0,0,0,0.5))' }}>
-              <KanbanCard p={activeCard} isGhost />
-            </div>
-          ) : null}
-        </DragOverlay>
-      </DndContext>
+          <DragOverlay dropAnimation={null}>
+            {activeCard ? (
+              <div style={{ transform: 'rotate(1.5deg)', filter: 'drop-shadow(0 8px 24px rgba(0,0,0,0.5))' }}>
+                <KanbanCard p={activeCard} isGhost />
+              </div>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
+      </div>
     </section>
   )
 }
@@ -249,7 +251,7 @@ function KanbanColumn({
   const { setNodeRef } = useDroppable({ id: stage })
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, height: '100%' }}>
       {/* Column header */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -258,7 +260,7 @@ function KanbanColumn({
         border: '1px solid var(--border)',
         borderTop: `2px solid ${color}`,
         borderRadius: 8,
-        position: 'sticky', top: 0, zIndex: 1,
+        flexShrink: 0,
       }}>
         <span style={{
           fontSize: 11, fontWeight: 700, color,
@@ -280,15 +282,15 @@ function KanbanColumn({
         ref={setNodeRef}
         style={{
           display: 'flex', flexDirection: 'column', gap: 8,
-          maxHeight: 'calc(100vh - 340px)',
+          flex: 1,
+          minHeight: 0,
           overflowY: 'auto',
-          paddingBottom: 4,
           borderRadius: 8,
           background: isOver
             ? 'color-mix(in srgb, var(--accent) 4%, transparent)'
             : 'transparent',
           transition: 'background 0.15s',
-          padding: isOver ? '6px' : '0',
+          padding: isOver ? '6px' : '0 0 4px',
         }}
       >
         {/* Placeholder when dragging over this column */}

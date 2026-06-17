@@ -33,7 +33,7 @@ export default function KanbanCard({ p, isGhost = false }: KanbanCardProps) {
   const now = Date.now()
   const due = p.due_date ? new Date(p.due_date) : null
   const daysLeft = due ? Math.ceil((due.getTime() - now) / (1000 * 60 * 60 * 24)) : null
-  const isOverdue = daysLeft !== null && daysLeft < 0
+  const isOverdue = daysLeft !== null && daysLeft < 0 && !p.is_complete
   const isUrgent = daysLeft !== null && daysLeft >= 0 && daysLeft <= 7
 
   const progress = Math.round(((lpIdx + crIdx) / (3 * 2)) * 100)
