@@ -124,21 +124,24 @@ export default function ImageUploader({ onChange, value }: ImageUploaderProps) {
               <button
                 type="button"
                 onClick={e => { e.stopPropagation(); removeImage(i) }}
+                aria-label={`Remove image ${i + 1}`}
+                title="Remove image"
                 style={{
                   position: 'absolute',
                   top: 4,
                   right: 4,
-                  width: 22,
-                  height: 22,
+                  width: 26,
+                  height: 26,
                   borderRadius: '50%',
                   background: 'rgba(0,0,0,0.7)',
                   border: 'none',
                   color: 'white',
-                  fontSize: 12,
+                  fontSize: 14,
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
+                  lineHeight: 1,
                 }}
               >
                 ×

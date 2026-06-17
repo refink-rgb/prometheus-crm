@@ -40,7 +40,7 @@ export default async function NewBrandPage() {
 
             <div style={{ marginBottom: 20 }}>
               <label htmlFor="website">Website URL *</label>
-              <input id="website" name="website" type="text" placeholder="eyemuse.my or https://eyemuse.my" required />
+              <input id="website" name="website" type="text" inputMode="url" autoComplete="url" placeholder="eyemuse.my or https://eyemuse.my" required />
             </div>
 
             <div style={{ marginBottom: 28 }}>

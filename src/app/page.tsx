@@ -84,7 +84,7 @@ export default async function DashboardPage({
   // Project stats for Tab 1
   const now = new Date()
   const inReview = pipeline.filter(p => p.lp_stage === 'review' || p.creatives_stage === 'review').length
-  const overdue = pipeline.filter(p => p.due_date && new Date(p.due_date) < now).length
+  const overdue = pipeline.filter(p => !p.is_complete && p.due_date && new Date(p.due_date) < now).length
 
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
   type ProjectWithUpdatedAt = Project & { updated_at?: string }

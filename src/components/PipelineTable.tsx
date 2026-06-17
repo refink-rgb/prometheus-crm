@@ -41,7 +41,7 @@ export default function PipelineTable({ pipeline }: { pipeline: PipelineProject[
     const now = Date.now()
     return pipeline.filter(p => {
       if (q && !p.brands.name.toLowerCase().includes(q)) return false
-      if (status === 'overdue' && !(p.due_date && new Date(p.due_date).getTime() < now)) return false
+      if (status === 'overdue' && !(p.due_date && new Date(p.due_date).getTime() < now && !p.is_complete)) return false
       if (status === 'in_review' && !(p.lp_stage === 'review' || p.creatives_stage === 'review')) return false
       if (filterWaiting && !isWaitingOnClient(p)) return false
       return true
@@ -121,7 +121,9 @@ export default function PipelineTable({ pipeline }: { pipeline: PipelineProject[
 
       {displayed.length === 0 ? (
         <div style={{ padding: '32px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, color: 'var(--text-muted)', fontSize: 14, textAlign: 'center' }}>
-          No projects waiting on client review.
+          {pipeline.length === 0
+            ? 'No active projects yet.'
+            : 'No projects match your current filters.'}
         </div>
       ) : (
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>

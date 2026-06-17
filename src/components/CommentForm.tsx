@@ -28,7 +28,16 @@ export default function CommentForm({ token }: { token: string }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <form
+      onSubmit={handleSubmit}
+      onKeyDown={e => {
+        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+          e.preventDefault()
+          e.currentTarget.requestSubmit()
+        }
+      }}
+      style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
+    >
       {done && (
         <div style={{ padding: '10px 14px', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)', borderRadius: 8, fontSize: 13, color: 'var(--success)' }}>
           ✓ Comment submitted — thank you!

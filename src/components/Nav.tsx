@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { signOut } from '@/lib/actions'
+import SignOutButton from './SignOutButton'
 
 interface NavProps {
   email?: string | null
@@ -38,9 +39,7 @@ export default function Nav({ email }: NavProps) {
           <>
             <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{email}</span>
             <form action={signOut}>
-              <button type="submit" className="btn-secondary" style={{ padding: '6px 14px', fontSize: 13 }}>
-                Sign out
-              </button>
+              <SignOutButton />
             </form>
           </>
         ) : (

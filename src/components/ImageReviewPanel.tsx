@@ -154,6 +154,8 @@ function AssetRow({
               <button
                 key={c.id}
                 onClick={e => { e.stopPropagation(); setActivePin(isActive ? null : c.id) }}
+                aria-label={`Pin ${idx} — ${c.author_name}`}
+                title={`Pin ${idx}: ${c.content.slice(0, 80)}${c.content.length > 80 ? '…' : ''}`}
                 style={{
                   position: 'absolute',
                   left: `${c.pin_x}%`, top: `${c.pin_y}%`,
@@ -205,7 +207,7 @@ function AssetRow({
                 fontSize: 9, fontWeight: 700, color: 'white', flexShrink: 0,
               }}>{pinnedComments.length + 1}</span>
               <span style={{ fontSize: 11, color: 'var(--text-muted)', flex: 1 }}>Pinned</span>
-              <button type="button" onClick={() => setPendingPin(null)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 16, padding: 0 }}>×</button>
+              <button type="button" onClick={() => setPendingPin(null)} aria-label="Cancel pin" title="Cancel pin" style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 16, padding: 0 }}>×</button>
             </div>
           ) : null}
           <input
@@ -289,13 +291,13 @@ function AssetRow({
               style={{
                 flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
                 padding: '8px 10px', borderRadius: 8, fontSize: 12, fontWeight: 600,
-                cursor: 'pointer', transition: 'all 0.15s',
+                cursor: updatingStatus ? 'wait' : 'pointer', transition: 'all 0.15s',
                 border: `1px solid ${status === 'approved' ? 'rgba(34,197,94,0.5)' : 'var(--border)'}`,
                 background: status === 'approved' ? 'rgba(34,197,94,0.12)' : 'var(--surface-raised)',
                 color: status === 'approved' ? 'var(--success)' : 'var(--text-secondary)',
               }}
             >
-              ✓ {status === 'approved' ? 'Approved' : 'Approve'}
+              {updatingStatus ? 'Saving…' : <>✓ {status === 'approved' ? 'Approved' : 'Approve'}</>}
             </button>
 
             {/* Needs revision */}
@@ -305,13 +307,13 @@ function AssetRow({
               style={{
                 flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
                 padding: '8px 10px', borderRadius: 8, fontSize: 12, fontWeight: 600,
-                cursor: 'pointer', transition: 'all 0.15s',
+                cursor: updatingStatus ? 'wait' : 'pointer', transition: 'all 0.15s',
                 border: `1px solid ${status === 'needs_revision' ? 'rgba(239,68,68,0.4)' : 'var(--border)'}`,
                 background: status === 'needs_revision' ? 'rgba(239,68,68,0.1)' : 'var(--surface-raised)',
                 color: status === 'needs_revision' ? 'var(--danger)' : 'var(--text-secondary)',
               }}
             >
-              ↩ {status === 'needs_revision' ? 'Revision requested' : 'Needs revision'}
+              {updatingStatus ? 'Saving…' : <>↩ {status === 'needs_revision' ? 'Revision requested' : 'Needs revision'}</>}
             </button>
 
             {/* Reject concept — stronger than "needs revision": scrap it entirely */}
@@ -322,13 +324,13 @@ function AssetRow({
               style={{
                 flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
                 padding: '8px 10px', borderRadius: 8, fontSize: 12, fontWeight: 600,
-                cursor: 'pointer', transition: 'all 0.15s',
+                cursor: updatingStatus ? 'wait' : 'pointer', transition: 'all 0.15s',
                 border: `1px solid ${status === 'rejected' ? 'rgba(127,29,29,0.6)' : 'var(--border)'}`,
                 background: status === 'rejected' ? 'rgba(127,29,29,0.18)' : 'var(--surface-raised)',
                 color: status === 'rejected' ? '#fca5a5' : 'var(--text-secondary)',
               }}
             >
-              ✕ {status === 'rejected' ? 'Rejected' : 'Reject concept'}
+              {updatingStatus ? 'Saving…' : <>✕ {status === 'rejected' ? 'Rejected' : 'Reject concept'}</>}
             </button>
           </div>
 

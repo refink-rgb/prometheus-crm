@@ -78,7 +78,16 @@ export default function NotesThread({
         )}
       </div>
 
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 8, borderTop: '1px solid var(--border)', paddingTop: 14 }}>
+      <form
+        onSubmit={handleSubmit}
+        onKeyDown={e => {
+          if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+            e.preventDefault()
+            e.currentTarget.requestSubmit()
+          }
+        }}
+        style={{ display: 'flex', flexDirection: 'column', gap: 8, borderTop: '1px solid var(--border)', paddingTop: 14 }}
+      >
         {mode === 'client' && (
           <input
             value={authorName}

@@ -130,7 +130,16 @@ export default function NewProjectForm({
       </div>
 
       <main style={{ maxWidth: 720, margin: '0 auto', padding: '32px 24px 80px' }}>
-        <form id="project-form" onSubmit={handleSubmit}>
+        <form
+          id="project-form"
+          onSubmit={handleSubmit}
+          onKeyDown={e => {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+              e.preventDefault()
+              e.currentTarget.requestSubmit()
+            }
+          }}
+        >
 
           {/* Basics */}
           <Section title="Basics">

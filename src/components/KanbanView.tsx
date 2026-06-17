@@ -66,7 +66,7 @@ export default function KanbanView({ pipeline }: { pipeline: PipelineProject[] }
     const now = Date.now()
     return localProjects.filter(p => {
       if (q && !p.brands.name.toLowerCase().includes(q)) return false
-      if (status === 'overdue' && !(p.due_date && new Date(p.due_date).getTime() < now)) return false
+      if (status === 'overdue' && !(p.due_date && new Date(p.due_date).getTime() < now && !p.is_complete)) return false
       if (status === 'in_review' && !(p.lp_stage === 'review' || p.creatives_stage === 'review')) return false
       if (filterWaiting && !isWaitingOnClient(p)) return false
       return true
@@ -310,7 +310,7 @@ function KanbanColumn({
             padding: '28px 12px', textAlign: 'center',
             color: 'var(--text-muted)', fontSize: 12,
           }}>
-            No projects
+            No projects in {STAGE_LABELS[stage]}
           </div>
         ) : (
           cards
