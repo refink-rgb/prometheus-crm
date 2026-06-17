@@ -156,7 +156,11 @@ export interface CreativeAsset {
   published_url: string | null
   // false = internal-only (not yet on the client review link). Set true on publish.
   client_visible: boolean
+  // CLIENT approval — set ONLY via the client review link. Never by internal QC.
   status: 'pending' | 'approved' | 'needs_revision' | 'rejected'
+  // INTERNAL QC approval — set ONLY by the internal review tool. Kept separate
+  // from `status` so an internal approve never shows as approved to the client.
+  internal_status: 'pending' | 'approved' | 'needs_revision' | 'rejected'
 }
 
 export const STAGE_LABELS: Record<Stage, string> = {

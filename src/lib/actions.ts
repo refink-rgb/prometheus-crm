@@ -288,6 +288,8 @@ export async function addProjectComment(
       pin_x: extras?.pin_x ?? null,
       pin_y: extras?.pin_y ?? null,
       section_tag: extras?.section_tag ?? null,
+      // Comments from the public review link are always client-facing.
+      audience: 'client',
     })
 
   revalidatePath(`/review/${token}`)
@@ -524,6 +526,55 @@ export async function approveAndPublishRevision(assetId: string, projectId: stri
   revalidatePath(`/review`, 'layout')
 }
 
+/**
+ * Bulk "Publish to client" — same semantics as approveAndPublishRevision but for
+ * many assets at once. For each: client_visible=true and published_url frozen to
+ * its current revision (or left as-is/original if no revision). Never touches
+ * `status` — client approval stays the client's action. Returns the count published.
+ *
+ * If `assetIds` is omitted, publishes every not-yet-visible asset on the project
+ * (the "publish all internal" path).
+ */
+export async function publishAssets(
+  projectId: string,
+  brandId: string,
+  assetIds?: string[]
+): Promise<number> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
+
+  let query = supabase
+    .from('creative_assets')
+    .select('id, revision_url, client_visible, published_url')
+    .eq('project_id', projectId)
+    .eq('is_hidden', false)
+  if (assetIds && assetIds.length > 0) {
+    query = query.in('id', assetIds)
+  } else {
+    // "Publish all internal": only those not already live on the client.
+    query = query.eq('client_visible', false)
+  }
+
+  const { data: rows, error: selErr } = await query
+  if (selErr) throw new Error(selErr.message)
+
+  let published = 0
+  for (const row of rows ?? []) {
+    const update: { client_visible: boolean; published_url?: string } = { client_visible: true }
+    if (row.revision_url) update.published_url = row.revision_url
+    const { error } = await supabase.from('creative_assets').update(update).eq('id', row.id)
+    if (error) { console.error(`[publishAssets] failed for ${row.id}:`, error.message); continue }
+    published += 1
+  }
+
+  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+  revalidatePath(`/brands/${brandId}/projects/${projectId}/internal-review`)
+  revalidatePath(`/review`, 'layout')
+  return published
+}
+
 // Internal helper: move a single asset's Drive file into the project's Delete
 // subfolder and set is_hidden=true. Does NOT do auth — callers gate access.
 // Throws on Drive failure; callers decide whether to swallow that error.
@@ -650,10 +701,10 @@ export async function countStaleAssets(
 
   const { data } = await supabase
     .from('creative_assets')
-    .select('id, is_hidden, status')
+    .select('id, is_hidden, status, internal_status')
     .eq('project_id', projectId)
 
-  return (data ?? []).filter(a => a.is_hidden || a.status === 'rejected').length
+  return (data ?? []).filter(a => a.is_hidden || a.status === 'rejected' || a.internal_status === 'rejected').length
 }
 
 /**
@@ -680,7 +731,7 @@ export async function purgeStaleAssets(
 
   let query = supabase
     .from('creative_assets')
-    .select('id, is_hidden, status')
+    .select('id, is_hidden, status, internal_status')
     .eq('project_id', projectId)
 
   if (assetIds && assetIds.length > 0) {
@@ -691,7 +742,7 @@ export async function purgeStaleAssets(
   if (error) throw new Error(error.message)
 
   const targets = (rows ?? []).filter(a =>
-    assetIds && assetIds.length > 0 ? true : a.is_hidden || a.status === 'rejected'
+    assetIds && assetIds.length > 0 ? true : a.is_hidden || a.status === 'rejected' || a.internal_status === 'rejected'
   )
 
   let purged = 0
@@ -773,9 +824,11 @@ export async function updateAssetStatusInternal(
   if (!user) redirect('/login')
   if (!canEdit(user.email)) throw new Error('Not authorized.')
 
+  // INTERNAL QC writes its OWN column — never the client-facing `status`. This
+  // keeps an internal approve/reject from showing up on the client review link.
   const { error } = await supabase
     .from('creative_assets')
-    .update({ status })
+    .update({ internal_status: status })
     .eq('id', assetId)
     .eq('project_id', projectId)
 

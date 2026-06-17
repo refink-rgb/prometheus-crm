@@ -8,6 +8,7 @@ import {
   applyAiEdits,
   applyDirectPrompt,
   approveAndPublishRevision,
+  publishAssets,
   uploadInternalReference,
   archiveAssetToDeleteFolder,
   purgeStaleAssets,
@@ -27,7 +28,7 @@ const STATUS_COLORS: Record<CreativeAsset['status'], { bg: string; color: string
   rejected:       { bg: 'rgba(127,29,29,0.18)',color: '#fca5a5',           border: 'rgba(127,29,29,0.5)',    label: '✕ Rejected' },
 }
 
-type AssetLocal = CreativeAsset & { status: CreativeAsset['status'] }
+type AssetLocal = CreativeAsset & { internal_status: CreativeAsset['internal_status'] }
 
 export default function InternalReviewPanel({
   projectId,
@@ -45,7 +46,7 @@ export default function InternalReviewPanel({
   currentUserName: string
 }) {
   const [assets, setAssets] = useState<AssetLocal[]>(
-    initialAssets.map(a => ({ ...a, status: a.status ?? 'pending' }))
+    initialAssets.map(a => ({ ...a, internal_status: a.internal_status ?? 'pending' }))
   )
   const [comments, setComments] = useState<ProjectComment[]>(initialComments)
   const [activeIdx, setActiveIdx] = useState(0)
@@ -76,7 +77,7 @@ export default function InternalReviewPanel({
   }, [assets.length])
 
   const handleStatusChange = useCallback((assetId: string, status: CreativeAsset['status']) => {
-    setAssets(prev => prev.map(a => a.id === assetId ? { ...a, status } : a))
+    setAssets(prev => prev.map(a => a.id === assetId ? { ...a, internal_status: status } : a))
   }, [])
 
   const handleRevisionApplied = useCallback((assetId: string, revisionUrl: string) => {
@@ -103,11 +104,33 @@ export default function InternalReviewPanel({
   // "Stale" = either soft-hidden OR client-rejected. The internal panel may be
   // showing rejected assets the team hasn't yet purged; this drives the button.
   const staleCount = useMemo(
-    () => assets.filter(a => a.is_hidden || a.status === 'rejected').length,
+    () => assets.filter(a => a.is_hidden || a.internal_status === 'rejected').length,
     [assets]
   )
 
   const [purging, setPurging] = useState(false)
+
+  // Client visibility = client_visible (what the client review link filters on).
+  const liveCount = useMemo(() => assets.filter(a => a.client_visible).length, [assets])
+  const internalCount = assets.length - liveCount
+
+  const [bulkPublishing, setBulkPublishing] = useState(false)
+  async function handlePublishAllInternal() {
+    if (internalCount === 0) return
+    if (!confirm(
+      `Publish all ${internalCount} internal-only image${internalCount !== 1 ? 's' : ''} to the client?\n\nThey'll appear on the client review link (current revision, or the original where there's no revision).`
+    )) return
+    setBulkPublishing(true)
+    try {
+      const n = await publishAssets(projectId, brandId)
+      setAssets(prev => prev.map(a => a.client_visible ? a : { ...a, client_visible: true, published_url: a.published_url ?? a.revision_url ?? null }))
+      alert(`Published ${n} image${n !== 1 ? 's' : ''} to the client.`)
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Bulk publish failed')
+    } finally {
+      setBulkPublishing(false)
+    }
+  }
 
   async function handlePurgeStale() {
     if (staleCount === 0) return
@@ -118,7 +141,7 @@ export default function InternalReviewPanel({
     try {
       const purged = await purgeStaleAssets(projectId, brandId)
       // Drop purged assets from the local view — they're now hidden.
-      setAssets(prev => prev.filter(a => !(a.is_hidden || a.status === 'rejected')))
+      setAssets(prev => prev.filter(a => !(a.is_hidden || a.internal_status === 'rejected')))
       alert(`Moved ${purged} asset${purged !== 1 ? 's' : ''} to Delete folder.`)
     } catch (err) {
       console.error(err)
@@ -179,6 +202,26 @@ export default function InternalReviewPanel({
         >
           {purging ? 'Purging…' : `Purge to Delete folder${staleCount > 0 ? ` (${staleCount})` : ''}`}
         </button>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ color: 'var(--success)', fontWeight: 600 }}>● {liveCount} live</span>
+          <span>·</span>
+          <span>○ {internalCount} internal</span>
+        </div>
+        <button
+          onClick={handlePublishAllInternal}
+          disabled={bulkPublishing || internalCount === 0}
+          title={internalCount === 0 ? 'All images are already live to the client' : `Publish all ${internalCount} internal-only images to the client`}
+          style={{
+            fontSize: 11, padding: '6px 10px', borderRadius: 6, fontWeight: 600,
+            cursor: internalCount === 0 ? 'not-allowed' : 'pointer',
+            border: `1px solid ${internalCount === 0 ? 'var(--border)' : 'var(--accent)'}`,
+            background: internalCount === 0 ? 'transparent' : 'var(--accent-muted)',
+            color: internalCount === 0 ? 'var(--text-muted)' : 'var(--accent)',
+            opacity: internalCount === 0 ? 0.5 : 1,
+          }}
+        >
+          {bulkPublishing ? 'Publishing…' : `↗ Publish all internal${internalCount > 0 ? ` (${internalCount})` : ''}`}
+        </button>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-muted)' }}>
           <kbd style={kbdStyle}>←</kbd> <kbd style={kbdStyle}>→</kbd>
           <span>navigate</span>
@@ -208,10 +251,17 @@ export default function InternalReviewPanel({
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={thumb} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+              {/* Client-visibility dot: filled green = live to client, hollow = internal only */}
+              <div title={a.client_visible ? 'Live to client' : 'Internal only'} style={{
+                position: 'absolute', top: 3, right: 3, width: 10, height: 10, borderRadius: '50%',
+                background: a.client_visible ? 'var(--success)' : 'rgba(0,0,0,0.35)',
+                border: `1.5px solid ${a.client_visible ? 'var(--success)' : 'rgba(255,255,255,0.7)'}`,
+                boxShadow: '0 0 0 1px rgba(0,0,0,0.45)',
+              }} />
               <div style={{
                 position: 'absolute', bottom: 0, left: 0, right: 0,
-                height: 4, background: STATUS_COLORS[a.status].color,
-                opacity: a.status === 'pending' ? 0 : 1,
+                height: 4, background: STATUS_COLORS[a.internal_status].color,
+                opacity: a.internal_status === 'pending' ? 0 : 1,
               }} />
             </button>
           )
@@ -301,8 +351,8 @@ function AssetView({
   )
 
   // Status local mirror (parent already tracks it but we want instant toggles)
-  const [statusLocal, setStatusLocal] = useState<CreativeAsset['status']>(asset.status)
-  useEffect(() => { setStatusLocal(asset.status) }, [asset.status])
+  const [statusLocal, setStatusLocal] = useState<CreativeAsset['status']>(asset.internal_status)
+  useEffect(() => { setStatusLocal(asset.internal_status) }, [asset.internal_status])
 
   // Reset transient UI when the asset changes (key change in parent handles this,
   // but keep belt-and-suspenders on published flag).
