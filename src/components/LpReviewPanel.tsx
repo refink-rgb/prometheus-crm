@@ -47,34 +47,39 @@ export default function LpReviewPanel({
   const [posting, setPosting] = useState(false)
   const [approving, setApproving] = useState(false)
 
-  // If the iframe never fires onLoad within 10s, the LP is almost certainly
-  // blocking embedding (X-Frame-Options / CSP frame-ancestors). Switch to the
-  // fallback so the client never sees a broken-frame icon.
+  // Same-origin proxy: fetches the live URL server-side, strips scripts/CSP,
+  // fixes lazy-loaded images, and serves the cleaned HTML from our origin so
+  // the iframe can't be blocked by X-Frame-Options / frame-ancestors.
+  const previewSrc = lpUrl ? `/api/preview?token=${encodeURIComponent(token)}` : null
+
+  // Headless fetch can take a while on slow/large pages; give the proxy room
+  // before falling back. The proxy returns a friendly card on upstream
+  // failure, so this timeout is just a network-stall safety net.
   useEffect(() => {
     if (!lpUrl || loadState !== 'loading') return
     const t = setTimeout(() => {
       setLoadState(prev => (prev === 'loading' ? 'error' : prev))
-    }, 10_000)
+    }, 20_000)
     return () => clearTimeout(t)
   }, [lpUrl, loadState])
 
   const handleIframeLoad = useCallback(() => {
-    // Detect silent X-Frame-Options blocks: Chromium fires `load` for blocked
-    // frames, but the contentDocument is an accessible-and-empty about:blank.
-    // A genuine cross-origin success throws SecurityError on contentDocument
-    // access — so an exception here is actually the good outcome.
+    // The proxy is same-origin, so we can read the doc directly. It injects a
+    // <meta name="__preview_status"> marker — "ok" means real cleaned content,
+    // "fallback" means upstream blocked/failed and the proxy returned an
+    // error card. In the fallback case, surface our own polished error UI
+    // instead of the embedded card.
     try {
       const doc = iframeRef.current?.contentDocument
-      if (doc) {
-        const isBlank = doc.location?.href === 'about:blank'
-        const isEmpty = !doc.body || doc.body.children.length === 0
-        if (isBlank || isEmpty) {
-          setLoadState('error')
-          return
-        }
+      const status = doc
+        ?.querySelector('meta[name="__preview_status"]')
+        ?.getAttribute('content')
+      if (status === 'fallback') {
+        setLoadState('error')
+        return
       }
     } catch {
-      // Cross-origin access denied => successful load. Fall through.
+      /* same-origin so this shouldn't throw; fall through to 'loaded' */
     }
     setLoadState('loaded')
   }, [])
@@ -288,11 +293,12 @@ export default function LpReviewPanel({
                 }}>
                   <iframe
                     ref={iframeRef}
-                    src={lpUrl}
+                    src={previewSrc ?? undefined}
                     onLoad={handleIframeLoad}
                     onError={handleIframeError}
                     style={{ width: '100%', height: '100%', border: 'none', display: 'block', background: '#f5f5f5' }}
                     title="Landing page preview"
+                    sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
                   />
                 </div>
 
