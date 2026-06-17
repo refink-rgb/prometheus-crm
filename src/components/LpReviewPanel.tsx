@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { addProjectComment, approveProject } from '@/lib/actions'
 import { LP_SECTIONS } from '@/lib/types'
@@ -30,18 +30,58 @@ export default function LpReviewPanel({
 }) {
   const router = useRouter()
   const overlayRef = useRef<HTMLDivElement>(null)
+  const iframeRef = useRef<HTMLIFrameElement>(null)
 
   const [comments, setComments] = useState<ProjectComment[]>(initialComments)
   const [device, setDevice] = useState<'desktop' | 'mobile'>('desktop')
   const [pinMode, setPinMode] = useState(false)
   const [pendingPin, setPendingPin] = useState<{ x: number; y: number } | null>(null)
   const [activePin, setActivePin] = useState<string | null>(null)
+  const [loadState, setLoadState] = useState<'loading' | 'loaded' | 'error'>(
+    lpUrl ? 'loading' : 'loaded'
+  )
 
   const [authorName, setAuthorName] = useState('')
   const [commentText, setCommentText] = useState('')
   const [sectionTag, setSectionTag] = useState('General')
   const [posting, setPosting] = useState(false)
   const [approving, setApproving] = useState(false)
+
+  // If the iframe never fires onLoad within 10s, the LP is almost certainly
+  // blocking embedding (X-Frame-Options / CSP frame-ancestors). Switch to the
+  // fallback so the client never sees a broken-frame icon.
+  useEffect(() => {
+    if (!lpUrl || loadState !== 'loading') return
+    const t = setTimeout(() => {
+      setLoadState(prev => (prev === 'loading' ? 'error' : prev))
+    }, 10_000)
+    return () => clearTimeout(t)
+  }, [lpUrl, loadState])
+
+  const handleIframeLoad = useCallback(() => {
+    // Detect silent X-Frame-Options blocks: Chromium fires `load` for blocked
+    // frames, but the contentDocument is an accessible-and-empty about:blank.
+    // A genuine cross-origin success throws SecurityError on contentDocument
+    // access — so an exception here is actually the good outcome.
+    try {
+      const doc = iframeRef.current?.contentDocument
+      if (doc) {
+        const isBlank = doc.location?.href === 'about:blank'
+        const isEmpty = !doc.body || doc.body.children.length === 0
+        if (isBlank || isEmpty) {
+          setLoadState('error')
+          return
+        }
+      }
+    } catch {
+      // Cross-origin access denied => successful load. Fall through.
+    }
+    setLoadState('loaded')
+  }, [])
+
+  const handleIframeError = useCallback(() => {
+    setLoadState('error')
+  }, [])
 
   const pinnedComments = comments.filter(c => c.pin_x != null)
   const pinIndex = (c: ProjectComment) => pinnedComments.findIndex(p => p.id === c.id) + 1
@@ -135,29 +175,31 @@ export default function LpReviewPanel({
           borderBottom: '1px solid var(--border)',
           flexShrink: 0,
         }}>
-          {/* Device toggle */}
-          <div style={{ display: 'flex', gap: 2, background: 'var(--surface-raised)', borderRadius: 7, padding: 2 }}>
-            {(['desktop', 'mobile'] as const).map(d => (
-              <button
-                key={d}
-                onClick={() => setDevice(d)}
-                style={{
-                  padding: '4px 10px', borderRadius: 5, fontSize: 12, fontWeight: 500,
-                  cursor: 'pointer', border: 'none',
-                  background: device === d ? 'var(--surface)' : 'transparent',
-                  color: device === d ? 'var(--text-primary)' : 'var(--text-muted)',
-                  boxShadow: device === d ? '0 1px 3px rgba(0,0,0,0.15)' : 'none',
-                }}
-              >
-                {d === 'desktop' ? '🖥 Desktop' : '📱 Mobile'}
-              </button>
-            ))}
-          </div>
+          {/* Device toggle — hidden when preview can't render */}
+          {loadState !== 'error' && (
+            <div style={{ display: 'flex', gap: 2, background: 'var(--surface-raised)', borderRadius: 7, padding: 2 }}>
+              {(['desktop', 'mobile'] as const).map(d => (
+                <button
+                  key={d}
+                  onClick={() => setDevice(d)}
+                  style={{
+                    padding: '4px 10px', borderRadius: 5, fontSize: 12, fontWeight: 500,
+                    cursor: 'pointer', border: 'none',
+                    background: device === d ? 'var(--surface)' : 'transparent',
+                    color: device === d ? 'var(--text-primary)' : 'var(--text-muted)',
+                    boxShadow: device === d ? '0 1px 3px rgba(0,0,0,0.15)' : 'none',
+                  }}
+                >
+                  {d === 'desktop' ? '🖥 Desktop' : '📱 Mobile'}
+                </button>
+              ))}
+            </div>
+          )}
 
           <div style={{ flex: 1 }} />
 
-          {/* Comment on the page */}
-          {lpUrl && !lpApproved && (
+          {/* Comment on the page — only available when the iframe is actually visible */}
+          {lpUrl && !lpApproved && loadState === 'loaded' && (
             <button
               onClick={() => { setPinMode(m => !m); setPendingPin(null) }}
               style={{
@@ -193,94 +235,159 @@ export default function LpReviewPanel({
         {/* LP embed area */}
         <div style={{ flex: 1, overflow: 'hidden', position: 'relative', background: lpUrl ? '#f5f5f5' : 'var(--surface)' }}>
           {lpUrl ? (
-            <>
-              {/* Mobile wrapper */}
+            loadState === 'error' ? (
+              // Polished fallback — replaces the iframe entirely when the LP
+              // refuses framing (or fails to load within the timeout window).
               <div style={{
-                width: device === 'mobile' ? 390 : '100%',
-                height: '100%',
-                margin: device === 'mobile' ? '0 auto' : '0',
-                position: 'relative',
-                overflow: 'hidden',
+                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                height: '100%', padding: '40px 24px', textAlign: 'center', gap: 16,
+                background: '#f5f5f5',
               }}>
-                <iframe
-                  src={lpUrl}
-                  style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
-                  title="Landing page preview"
-                />
+                <div style={{
+                  width: 64, height: 64, borderRadius: '50%',
+                  background: 'var(--surface)', border: '1px solid var(--border)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 28,
+                }}>
+                  🔒
+                </div>
+                <div style={{ maxWidth: 420 }}>
+                  <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 8px' }}>
+                    This page can&apos;t be previewed inline
+                  </h3>
+                  <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0 }}>
+                    Many landing pages block embedding for security. Open it in a new tab to review —
+                    your comments on the right will still save here.
+                  </p>
+                </div>
+                <a
+                  href={lpUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                    padding: '10px 18px', borderRadius: 8,
+                    fontSize: 13, fontWeight: 600,
+                    background: 'var(--text-primary)', color: 'var(--background)',
+                    textDecoration: 'none',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
+                  }}
+                >
+                  Open page in new tab ↗
+                </a>
               </div>
+            ) : (
+              <>
+                {/* Mobile wrapper */}
+                <div style={{
+                  width: device === 'mobile' ? 390 : '100%',
+                  height: '100%',
+                  margin: device === 'mobile' ? '0 auto' : '0',
+                  position: 'relative',
+                  overflow: 'hidden',
+                }}>
+                  <iframe
+                    ref={iframeRef}
+                    src={lpUrl}
+                    onLoad={handleIframeLoad}
+                    onError={handleIframeError}
+                    style={{ width: '100%', height: '100%', border: 'none', display: 'block', background: '#f5f5f5' }}
+                    title="Landing page preview"
+                  />
+                </div>
 
-              {/* Pin overlay */}
-              <div
-                ref={overlayRef}
-                onClick={handleOverlayClick}
-                style={{
-                  position: 'absolute', inset: 0,
-                  cursor: pinMode ? 'crosshair' : 'default',
-                  pointerEvents: pinMode ? 'all' : 'none',
-                  zIndex: 10,
-                }}
-              >
-                {/* Pending pin */}
-                {pendingPin && (
+                {/* Loading overlay — covers the iframe so the broken-content flash is never visible */}
+                {loadState === 'loading' && (
                   <div style={{
-                    position: 'absolute',
-                    left: `${pendingPin.x}%`, top: `${pendingPin.y}%`,
-                    transform: 'translate(-50%, -50%)',
-                    width: 28, height: 28, borderRadius: '50%',
-                    background: '#111', border: '2px solid white',
+                    position: 'absolute', inset: 0, zIndex: 15,
+                    background: '#f5f5f5',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 11, fontWeight: 700, color: 'white',
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.4)', zIndex: 20, pointerEvents: 'none',
+                    flexDirection: 'column', gap: 12,
                   }}>
-                    {pinnedComments.length + 1}
+                    <div style={{ position: 'relative', width: 140, height: 2, background: 'var(--border)', borderRadius: 2, overflow: 'hidden' }}>
+                      <div className="tab-loading-bar" />
+                    </div>
+                    <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: 0 }}>Loading preview…</p>
                   </div>
                 )}
 
-                {/* Existing pins */}
-                {pinnedComments.map(c => {
-                  const idx = pinIndex(c)
-                  const isActive = activePin === c.id
-                  return (
-                    <button
-                      key={c.id}
-                      onClick={e => { e.stopPropagation(); setActivePin(isActive ? null : c.id) }}
-                      style={{
+                {/* Pin overlay — only meaningful while the iframe is visible */}
+                {loadState === 'loaded' && (
+                  <div
+                    ref={overlayRef}
+                    onClick={handleOverlayClick}
+                    style={{
+                      position: 'absolute', inset: 0,
+                      cursor: pinMode ? 'crosshair' : 'default',
+                      pointerEvents: pinMode ? 'all' : 'none',
+                      zIndex: 10,
+                    }}
+                  >
+                    {/* Pending pin */}
+                    {pendingPin && (
+                      <div style={{
                         position: 'absolute',
-                        left: `${c.pin_x}%`, top: `${c.pin_y}%`,
+                        left: `${pendingPin.x}%`, top: `${pendingPin.y}%`,
                         transform: 'translate(-50%, -50%)',
-                        width: 26, height: 26, borderRadius: '50%',
-                        background: isActive ? 'white' : '#111',
-                        border: `2px solid ${isActive ? '#f97316' : 'white'}`,
+                        width: 28, height: 28, borderRadius: '50%',
+                        background: '#111', border: '2px solid white',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontSize: 10, fontWeight: 700,
-                        color: isActive ? '#f97316' : 'white',
-                        cursor: 'pointer', zIndex: 20,
-                        boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
-                        pointerEvents: 'all',
-                      }}
-                    >
-                      {idx}
-                    </button>
-                  )
-                })}
-              </div>
+                        fontSize: 11, fontWeight: 700, color: 'white',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.4)', zIndex: 20, pointerEvents: 'none',
+                      }}>
+                        {pinnedComments.length + 1}
+                      </div>
+                    )}
 
-              {/* Iframe fallback notice */}
-              <div style={{
-                position: 'absolute', bottom: 0, left: 0, right: 0,
-                padding: '8px 14px',
-                background: 'rgba(0,0,0,0.6)',
-                display: 'flex', alignItems: 'center', gap: 8,
-                fontSize: 12, color: 'rgba(255,255,255,0.7)',
-                backdropFilter: 'blur(4px)',
-              }}>
-                <span>Preview not loading?</span>
-                <a href={lpUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'none', fontWeight: 600 }}>
-                  Open in new tab ↗
-                </a>
-                <span style={{ color: 'rgba(255,255,255,0.4)' }}>— you can still leave comments on the right</span>
-              </div>
-            </>
+                    {/* Existing pins */}
+                    {pinnedComments.map(c => {
+                      const idx = pinIndex(c)
+                      const isActive = activePin === c.id
+                      return (
+                        <button
+                          key={c.id}
+                          onClick={e => { e.stopPropagation(); setActivePin(isActive ? null : c.id) }}
+                          style={{
+                            position: 'absolute',
+                            left: `${c.pin_x}%`, top: `${c.pin_y}%`,
+                            transform: 'translate(-50%, -50%)',
+                            width: 26, height: 26, borderRadius: '50%',
+                            background: isActive ? 'white' : '#111',
+                            border: `2px solid ${isActive ? '#f97316' : 'white'}`,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: 10, fontWeight: 700,
+                            color: isActive ? '#f97316' : 'white',
+                            cursor: 'pointer', zIndex: 20,
+                            boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
+                            pointerEvents: 'all',
+                          }}
+                        >
+                          {idx}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+
+                {/* Persistent escape hatch — catches the case where onLoad fires
+                    but the iframe is silently blank (some browsers/embeds). */}
+                {loadState === 'loaded' && (
+                  <div style={{
+                    position: 'absolute', bottom: 0, left: 0, right: 0,
+                    padding: '8px 14px',
+                    background: 'rgba(0,0,0,0.6)',
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    fontSize: 12, color: 'rgba(255,255,255,0.7)',
+                    backdropFilter: 'blur(4px)',
+                  }}>
+                    <span>Page not visible?</span>
+                    <a href={lpUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'none', fontWeight: 600 }}>
+                      Open in new tab ↗
+                    </a>
+                  </div>
+                )}
+              </>
+            )
           ) : (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', flexDirection: 'column', gap: 8 }}>
               <div style={{ fontSize: 32 }}>🔗</div>
