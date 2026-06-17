@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { syncDriveImages, toggleAssetVisibility, applyAiEdits, approveAndPublishRevision } from '@/lib/actions'
+import { syncDriveImages, toggleAssetVisibility, applyAiEdits, approveAndPublishRevision, publishAssets } from '@/lib/actions'
 import { useRouter } from 'next/navigation'
 import type { CreativeAsset, ProjectComment } from '@/lib/types'
 
@@ -331,6 +331,7 @@ export default function CreativeAssetsManager({
   const [syncMsg, setSyncMsg] = useState('')
   const [togglingId, setTogglingId] = useState<string | null>(null)
   const [lightboxAsset, setLightboxAsset] = useState<CreativeAsset | null>(null)
+  const [bulkPublishing, setBulkPublishing] = useState(false)
 
   async function handleSync() {
     if (!folderUrl.trim()) return
@@ -370,6 +371,30 @@ export default function CreativeAssetsManager({
 
   const visible = assets.filter(a => !a.is_hidden)
   const hidden = assets.filter(a => a.is_hidden)
+
+  // Client-publish state (client_visible) — distinct from is_hidden.
+  const liveCount = assets.filter(a => !a.is_hidden && a.client_visible).length
+  const internalCount = assets.filter(a => !a.is_hidden && !a.client_visible).length
+
+  async function handlePublishAllInternal() {
+    if (internalCount === 0) return
+    if (!confirm(
+      `Publish all ${internalCount} internal-only image${internalCount !== 1 ? 's' : ''} to the client?\n\nThey'll appear on the client review link (current revision, or original where there's no revision).`
+    )) return
+    setBulkPublishing(true)
+    setSyncMsg('')
+    try {
+      const n = await publishAssets(projectId, brandId)
+      setAssets(prev => prev.map(a =>
+        (a.is_hidden || a.client_visible) ? a : { ...a, client_visible: true, published_url: a.published_url ?? a.revision_url ?? null }
+      ))
+      setSyncMsg(`Published ${n} image${n !== 1 ? 's' : ''} to the client.`)
+    } catch (err) {
+      setSyncMsg(err instanceof Error ? `Error: ${err.message}` : 'Error: bulk publish failed')
+    } finally {
+      setBulkPublishing(false)
+    }
+  }
 
   return (
     <div>
@@ -425,10 +450,38 @@ export default function CreativeAssetsManager({
 
       {assets.length > 0 && (
         <>
-          {/* Visible assets */}
+          {/* Client-publish summary + bulk publish */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16,
+            padding: '10px 14px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10,
+          }}>
+            <div style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ color: 'var(--success)', fontWeight: 600 }}>● {liveCount} live to client</span>
+              <span style={{ color: 'var(--text-muted)' }}>·</span>
+              <span style={{ color: 'var(--text-muted)' }}>○ {internalCount} internal only</span>
+            </div>
+            <div style={{ flex: 1 }} />
+            <button
+              onClick={handlePublishAllInternal}
+              disabled={bulkPublishing || internalCount === 0}
+              title={internalCount === 0 ? 'All synced images are already live to the client' : `Publish all ${internalCount} internal-only images to the client`}
+              style={{
+                fontSize: 12, padding: '7px 12px', borderRadius: 7, fontWeight: 600,
+                cursor: internalCount === 0 ? 'not-allowed' : 'pointer',
+                border: `1px solid ${internalCount === 0 ? 'var(--border)' : 'var(--accent)'}`,
+                background: internalCount === 0 ? 'transparent' : 'var(--accent-muted)',
+                color: internalCount === 0 ? 'var(--text-muted)' : 'var(--accent)',
+                opacity: internalCount === 0 ? 0.5 : 1,
+              }}
+            >
+              {bulkPublishing ? 'Publishing…' : `↗ Publish all internal${internalCount > 0 ? ` (${internalCount})` : ''}`}
+            </button>
+          </div>
+
+          {/* Synced (not hidden) assets — green dot = live to client, hollow = internal only */}
           <div style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>
-              Visible to client ({visible.length})
+              Synced ({visible.length}) — {liveCount} live · {internalCount} internal
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: 8 }}>
               {visible.map((asset, i) => (
@@ -521,6 +574,24 @@ function AssetThumb({
           borderRadius: 4, letterSpacing: '0.03em',
         }}>
           ✦ AI
+        </div>
+      )}
+
+      {/* Client-publish status: green = live to client, hollow = internal only */}
+      {!asset.is_hidden && (
+        <div title={asset.client_visible ? 'Live to client' : 'Internal only'} style={{
+          position: 'absolute', bottom: 6, left: 6,
+          display: 'flex', alignItems: 'center', gap: 4,
+          background: 'rgba(0,0,0,0.6)', padding: '2px 6px', borderRadius: 10,
+          fontSize: 9, fontWeight: 700,
+          color: asset.client_visible ? 'var(--success)' : 'rgba(255,255,255,0.85)',
+        }}>
+          <span style={{
+            width: 7, height: 7, borderRadius: '50%',
+            background: asset.client_visible ? 'var(--success)' : 'transparent',
+            border: `1.5px solid ${asset.client_visible ? 'var(--success)' : 'rgba(255,255,255,0.8)'}`,
+          }} />
+          {asset.client_visible ? 'Live' : 'Internal'}
         </div>
       )}
 
