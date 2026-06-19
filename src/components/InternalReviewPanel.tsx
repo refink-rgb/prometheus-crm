@@ -113,6 +113,7 @@ export default function InternalReviewPanel({
   // Client visibility = client_visible (what the client review link filters on).
   const liveCount = useMemo(() => assets.filter(a => a.client_visible).length, [assets])
   const internalCount = assets.length - liveCount
+  const approvedCount = useMemo(() => assets.filter(a => a.status === 'approved' && !a.is_hidden).length, [assets])
 
   const [bulkPublishing, setBulkPublishing] = useState(false)
   async function handlePublishAllInternal() {
@@ -222,6 +223,29 @@ export default function InternalReviewPanel({
         >
           {bulkPublishing ? 'Publishing…' : `↗ Publish all internal${internalCount > 0 ? ` (${internalCount})` : ''}`}
         </button>
+        {approvedCount > 0 ? (
+          <a
+            href={`/api/projects/${projectId}/download-approved`}
+            download
+            title={`Download the ${approvedCount} client-approved image${approvedCount !== 1 ? 's' : ''} as a zip`}
+            style={{
+              fontSize: 11, padding: '6px 10px', borderRadius: 6, fontWeight: 600, textDecoration: 'none',
+              border: '1px solid var(--success)', background: 'rgba(34,197,94,0.12)', color: 'var(--success)',
+            }}
+          >
+            ⬇ Download approved ({approvedCount})
+          </a>
+        ) : (
+          <span
+            title="No client-approved images yet"
+            style={{
+              fontSize: 11, padding: '6px 10px', borderRadius: 6, fontWeight: 600,
+              border: '1px solid var(--border)', color: 'var(--text-muted)', opacity: 0.5,
+            }}
+          >
+            ⬇ Download approved (0)
+          </span>
+        )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-muted)' }}>
           <kbd style={kbdStyle}>←</kbd> <kbd style={kbdStyle}>→</kbd>
           <span>navigate</span>

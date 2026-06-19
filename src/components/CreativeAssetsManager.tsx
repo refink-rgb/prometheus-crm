@@ -375,6 +375,7 @@ export default function CreativeAssetsManager({
   // Client-publish state (client_visible) — distinct from is_hidden.
   const liveCount = assets.filter(a => !a.is_hidden && a.client_visible).length
   const internalCount = assets.filter(a => !a.is_hidden && !a.client_visible).length
+  const approvedCount = assets.filter(a => !a.is_hidden && a.status === 'approved').length
 
   async function handlePublishAllInternal() {
     if (internalCount === 0) return
@@ -476,6 +477,29 @@ export default function CreativeAssetsManager({
             >
               {bulkPublishing ? 'Publishing…' : `↗ Publish all internal${internalCount > 0 ? ` (${internalCount})` : ''}`}
             </button>
+            {approvedCount > 0 ? (
+              <a
+                href={`/api/projects/${projectId}/download-approved`}
+                download
+                title={`Download the ${approvedCount} client-approved image${approvedCount !== 1 ? 's' : ''} as a zip`}
+                style={{
+                  fontSize: 12, padding: '7px 12px', borderRadius: 7, fontWeight: 600, textDecoration: 'none',
+                  border: '1px solid var(--success)', background: 'rgba(34,197,94,0.12)', color: 'var(--success)',
+                }}
+              >
+                ⬇ Download approved ({approvedCount})
+              </a>
+            ) : (
+              <span
+                title="No client-approved images yet"
+                style={{
+                  fontSize: 12, padding: '7px 12px', borderRadius: 7, fontWeight: 600,
+                  border: '1px solid var(--border)', color: 'var(--text-muted)', opacity: 0.5,
+                }}
+              >
+                ⬇ Download approved (0)
+              </span>
+            )}
           </div>
 
           {/* Synced (not hidden) assets — green dot = live to client, hollow = internal only */}
