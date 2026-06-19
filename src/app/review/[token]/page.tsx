@@ -108,9 +108,24 @@ export default async function ReviewPage({
 
         {/* Creatives track */}
         <section style={{ marginBottom: 32 }}>
-          <SectionTitle>
-            Creatives {assets.length > 0 ? `(${assets.length})` : ''}
-          </SectionTitle>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <SectionTitle>
+              Creatives {assets.length > 0 ? `(${assets.length})` : ''}
+            </SectionTitle>
+            {assets.length > 0 && (
+              <a
+                href={`/api/review/${token}/download`}
+                download
+                title={`Download all ${assets.length} creatives as a zip`}
+                style={{
+                  fontSize: 13, fontWeight: 600, textDecoration: 'none', padding: '8px 14px', borderRadius: 8,
+                  border: '1px solid var(--accent)', background: 'var(--accent-muted)', color: 'var(--accent)',
+                }}
+              >
+                ⬇ Download all ({assets.length})
+              </a>
+            )}
+          </div>
 
           {assets.length > 0 ? (
             <ImageReviewPanel

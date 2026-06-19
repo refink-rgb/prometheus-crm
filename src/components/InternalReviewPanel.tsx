@@ -223,9 +223,29 @@ export default function InternalReviewPanel({
         >
           {bulkPublishing ? 'Publishing…' : `↗ Publish all internal${internalCount > 0 ? ` (${internalCount})` : ''}`}
         </button>
+        {liveCount > 0 ? (
+          <a
+            href={`/api/projects/${projectId}/download?set=live`}
+            download
+            title={`Download all ${liveCount} client-facing image${liveCount !== 1 ? 's' : ''} as a zip`}
+            style={{
+              fontSize: 11, padding: '6px 10px', borderRadius: 6, fontWeight: 600, textDecoration: 'none',
+              border: '1px solid var(--accent)', background: 'var(--accent-muted)', color: 'var(--accent)',
+            }}
+          >
+            ⬇ Download client-facing ({liveCount})
+          </a>
+        ) : (
+          <span title="No client-facing images yet" style={{
+            fontSize: 11, padding: '6px 10px', borderRadius: 6, fontWeight: 600,
+            border: '1px solid var(--border)', color: 'var(--text-muted)', opacity: 0.5,
+          }}>
+            ⬇ Download client-facing (0)
+          </span>
+        )}
         {approvedCount > 0 ? (
           <a
-            href={`/api/projects/${projectId}/download-approved`}
+            href={`/api/projects/${projectId}/download?set=approved`}
             download
             title={`Download the ${approvedCount} client-approved image${approvedCount !== 1 ? 's' : ''} as a zip`}
             style={{
