@@ -29,14 +29,10 @@ export default function LpReviewPanel({
   initialComments: ProjectComment[]
 }) {
   const router = useRouter()
-  const overlayRef = useRef<HTMLDivElement>(null)
   const iframeRef = useRef<HTMLIFrameElement>(null)
 
   const [comments, setComments] = useState<ProjectComment[]>(initialComments)
   const [device, setDevice] = useState<'desktop' | 'mobile'>('desktop')
-  const [pinMode, setPinMode] = useState(false)
-  const [pendingPin, setPendingPin] = useState<{ x: number; y: number } | null>(null)
-  const [activePin, setActivePin] = useState<string | null>(null)
   const [loadState, setLoadState] = useState<'loading' | 'loaded' | 'error'>(
     lpUrl ? 'loading' : 'loaded'
   )
@@ -88,18 +84,6 @@ export default function LpReviewPanel({
     setLoadState('error')
   }, [])
 
-  const pinnedComments = comments.filter(c => c.pin_x != null)
-  const pinIndex = (c: ProjectComment) => pinnedComments.findIndex(p => p.id === c.id) + 1
-
-  const handleOverlayClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (!pinMode) return
-    const rect = e.currentTarget.getBoundingClientRect()
-    const x = ((e.clientX - rect.left) / rect.width) * 100
-    const y = ((e.clientY - rect.top) / rect.height) * 100
-    setPendingPin({ x, y })
-    setPinMode(false)
-  }, [pinMode])
-
   async function handlePost(e: React.FormEvent) {
     e.preventDefault()
     if (!commentText.trim()) return
@@ -113,9 +97,9 @@ export default function LpReviewPanel({
       created_at: new Date().toISOString(),
       track: 'lp',
       asset_id: null,
-      pin_x: pendingPin?.x ?? null,
-      pin_y: pendingPin?.y ?? null,
-      section_tag: pendingPin ? null : sectionTag,
+      pin_x: null,
+      pin_y: null,
+      section_tag: sectionTag,
       audience: 'client',
     }
     setComments(prev => [optimistic, ...prev])
@@ -123,12 +107,9 @@ export default function LpReviewPanel({
     try {
       await addProjectComment(token, authorName.trim() || 'Anonymous', commentText.trim(), {
         track: 'lp',
-        pin_x: pendingPin?.x,
-        pin_y: pendingPin?.y,
-        section_tag: pendingPin ? undefined : sectionTag,
+        section_tag: sectionTag,
       })
       setCommentText('')
-      setPendingPin(null)
     } catch {
       setComments(prev => prev.filter(c => c.id !== optimistic.id))
     } finally {
@@ -202,23 +183,6 @@ export default function LpReviewPanel({
           )}
 
           <div style={{ flex: 1 }} />
-
-          {/* Comment on the page — only available when the iframe is actually visible */}
-          {lpUrl && !lpApproved && loadState === 'loaded' && (
-            <button
-              onClick={() => { setPinMode(m => !m); setPendingPin(null) }}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 6,
-                padding: '6px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600,
-                cursor: 'pointer', transition: 'all 0.15s',
-                border: `1px solid ${pinMode ? 'var(--accent)' : 'var(--border)'}`,
-                background: pinMode ? 'var(--accent-muted)' : 'var(--surface-raised)',
-                color: pinMode ? 'var(--accent)' : 'var(--text-secondary)',
-              }}
-            >
-              📍 {pinMode ? 'Click on page to pin…' : 'Comment on page'}
-            </button>
-          )}
 
           {lpUrl && (
             <a
@@ -317,64 +281,6 @@ export default function LpReviewPanel({
                   </div>
                 )}
 
-                {/* Pin overlay — only meaningful while the iframe is visible */}
-                {loadState === 'loaded' && (
-                  <div
-                    ref={overlayRef}
-                    onClick={handleOverlayClick}
-                    style={{
-                      position: 'absolute', inset: 0,
-                      cursor: pinMode ? 'crosshair' : 'default',
-                      pointerEvents: pinMode ? 'all' : 'none',
-                      zIndex: 10,
-                    }}
-                  >
-                    {/* Pending pin */}
-                    {pendingPin && (
-                      <div style={{
-                        position: 'absolute',
-                        left: `${pendingPin.x}%`, top: `${pendingPin.y}%`,
-                        transform: 'translate(-50%, -50%)',
-                        width: 28, height: 28, borderRadius: '50%',
-                        background: '#111', border: '2px solid white',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontSize: 11, fontWeight: 700, color: 'white',
-                        boxShadow: '0 2px 8px rgba(0,0,0,0.4)', zIndex: 20, pointerEvents: 'none',
-                      }}>
-                        {pinnedComments.length + 1}
-                      </div>
-                    )}
-
-                    {/* Existing pins */}
-                    {pinnedComments.map(c => {
-                      const idx = pinIndex(c)
-                      const isActive = activePin === c.id
-                      return (
-                        <button
-                          key={c.id}
-                          onClick={e => { e.stopPropagation(); setActivePin(isActive ? null : c.id) }}
-                          style={{
-                            position: 'absolute',
-                            left: `${c.pin_x}%`, top: `${c.pin_y}%`,
-                            transform: 'translate(-50%, -50%)',
-                            width: 26, height: 26, borderRadius: '50%',
-                            background: isActive ? 'white' : '#111',
-                            border: `2px solid ${isActive ? '#f97316' : 'white'}`,
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            fontSize: 10, fontWeight: 700,
-                            color: isActive ? '#f97316' : 'white',
-                            cursor: 'pointer', zIndex: 20,
-                            boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
-                            pointerEvents: 'all',
-                          }}
-                        >
-                          {idx}
-                        </button>
-                      )
-                    })}
-                  </div>
-                )}
-
                 {/* Persistent escape hatch — catches the case where onLoad fires
                     but the iframe is silently blank (some browsers/embeds). */}
                 {loadState === 'loaded' && (
@@ -456,28 +362,13 @@ export default function LpReviewPanel({
 
         {/* Comment form — FIRST (like Lucas's tool) */}
         <form onSubmit={handlePost} style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
-          {pendingPin ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-              <span style={{
-                width: 22, height: 22, borderRadius: '50%',
-                background: '#111', border: '2px solid var(--border)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 9, fontWeight: 700, color: 'white', flexShrink: 0,
-              }}>
-                {pinnedComments.length + 1}
-              </span>
-              <span style={{ fontSize: 12, color: 'var(--text-muted)', flex: 1 }}>Pinned to page</span>
-              <button type="button" onClick={() => setPendingPin(null)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 16, padding: 0 }}>×</button>
-            </div>
-          ) : (
-            <select
-              value={sectionTag}
-              onChange={e => setSectionTag(e.target.value)}
-              style={{ width: '100%', marginBottom: 8, fontSize: 12 }}
-            >
-              {LP_SECTIONS.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-          )}
+          <select
+            value={sectionTag}
+            onChange={e => setSectionTag(e.target.value)}
+            style={{ width: '100%', marginBottom: 8, fontSize: 12 }}
+          >
+            {LP_SECTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
 
           <input
             type="text"
@@ -487,9 +378,7 @@ export default function LpReviewPanel({
             style={{ marginBottom: 6, fontSize: 12 }}
           />
           <textarea
-            placeholder={pendingPin
-              ? 'What about this spot?'
-              : 'Leave general feedback (or use "Comment on page" to pin to a specific spot)'}
+            placeholder="Leave feedback on the landing page"
             value={commentText}
             onChange={e => setCommentText(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -523,40 +412,23 @@ export default function LpReviewPanel({
             </div>
           )}
           {comments.map(c => {
-            const isPinned = c.pin_x != null
-            const pIdx = isPinned ? pinIndex(c) : null
-            const isActive = activePin === c.id
-            const sColor = (!isPinned && c.section_tag) ? (SECTION_COLORS[c.section_tag] ?? 'var(--text-muted)') : undefined
+            const sColor = c.section_tag ? (SECTION_COLORS[c.section_tag] ?? 'var(--text-muted)') : undefined
 
             return (
               <div
                 key={c.id}
-                onClick={() => isPinned ? setActivePin(isActive ? null : c.id) : undefined}
                 style={{
                   padding: '12px 16px',
                   borderBottom: '1px solid var(--border)',
-                  cursor: isPinned ? 'pointer' : 'default',
-                  background: isActive ? 'rgba(249,115,22,0.05)' : 'transparent',
-                  transition: 'background 0.1s',
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 6 }}>
-                  {isPinned ? (
-                    <span style={{
-                      width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
-                      background: isActive ? 'var(--accent)' : '#111',
-                      border: `2px solid ${isActive ? 'var(--accent)' : 'var(--border)'}`,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: 9, fontWeight: 700, color: 'white',
-                    }}>{pIdx}</span>
-                  ) : (
-                    <span style={{
-                      width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
-                      background: 'var(--surface-raised)',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: 12,
-                    }}>💬</span>
-                  )}
+                  <span style={{
+                    width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
+                    background: 'var(--surface-raised)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 12,
+                  }}>💬</span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
                       <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{c.author_name}</span>
@@ -564,7 +436,7 @@ export default function LpReviewPanel({
                         {new Date(c.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                       </span>
                     </div>
-                    {!isPinned && c.section_tag && c.section_tag !== 'General' && (
+                    {c.section_tag && c.section_tag !== 'General' && (
                       <span style={{
                         display: 'inline-block', marginBottom: 4,
                         fontSize: 10, fontWeight: 600, color: sColor,
