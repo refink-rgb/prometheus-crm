@@ -29,6 +29,7 @@ interface Props {
     product_featured: string | null
     lp_url: string | null
     creatives_notes: string | null
+    shopify_coupon_code: string | null
   }
 }
 
@@ -96,6 +97,7 @@ export default function ProjectEditForm({ projectId, brandId, journeys, initial 
 
   const [lpUrl, setLpUrl] = useState(initial.lp_url ?? '')
   const [creativesNotes, setCreativesNotes] = useState(initial.creatives_notes ?? '')
+  const [shopifyCouponCode, setShopifyCouponCode] = useState(initial.shopify_coupon_code ?? '')
 
   function cancel() {
     setName(initial.name)
@@ -116,6 +118,7 @@ export default function ProjectEditForm({ projectId, brandId, journeys, initial 
     setSupportingMessage(initial.supporting_message ?? '')
     setLpUrl(initial.lp_url ?? '')
     setCreativesNotes(initial.creatives_notes ?? '')
+    setShopifyCouponCode(initial.shopify_coupon_code ?? '')
     setError('')
     setEditing(false)
   }
@@ -147,6 +150,7 @@ export default function ProjectEditForm({ projectId, brandId, journeys, initial 
         product_featured: productFeatured.trim() || null,
         lp_url: lpUrl.trim() || null,
         creatives_notes: creativesNotes.trim() || null,
+        shopify_coupon_code: shopifyCouponCode.trim() || null,
       })
       setEditing(false)
       router.refresh()
@@ -327,6 +331,15 @@ export default function ProjectEditForm({ projectId, brandId, journeys, initial 
       <Section title="Deliverables">
         <Field label="Landing page URL" optional>
           <input type="url" value={lpUrl} onChange={e => setLpUrl(e.target.value)} placeholder="https://…" />
+        </Field>
+        <Field label="Shopify coupon code" optional>
+          <input
+            type="text"
+            value={shopifyCouponCode}
+            onChange={e => setShopifyCouponCode(e.target.value)}
+            placeholder="e.g. SUMMER20"
+            style={{ textTransform: 'uppercase' }}
+          />
         </Field>
         <Field label="Creatives link / notes" optional>
           <textarea value={creativesNotes} onChange={e => setCreativesNotes(e.target.value)} rows={2} style={{ resize: 'vertical' }} placeholder="Drive link, Figma link, or delivery notes…" />

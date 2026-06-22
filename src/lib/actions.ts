@@ -176,6 +176,7 @@ export async function updateProjectDeliverable(formData: FormData) {
     .update({
       lp_url: formData.get('lp_url') as string || null,
       creatives_notes: formData.get('creatives_notes') as string || null,
+      shopify_coupon_code: (formData.get('shopify_coupon_code') as string)?.trim() || null,
     })
     .eq('id', projectId)
 
@@ -1245,6 +1246,7 @@ export async function updateProjectDetails(
     product_featured: string | null
     lp_url: string | null
     creatives_notes: string | null
+    shopify_coupon_code: string | null
   }
 ) {
   const supabase = await createClient()

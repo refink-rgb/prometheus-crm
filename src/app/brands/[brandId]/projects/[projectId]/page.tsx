@@ -171,6 +171,7 @@ export default async function ProjectPage({
               product_featured: p.product_featured,
               lp_url: p.lp_url,
               creatives_notes: p.creatives_notes,
+              shopify_coupon_code: p.shopify_coupon_code,
             }}
           />
         )}
@@ -403,6 +404,23 @@ export default async function ProjectPage({
                       Open landing page ↗
                     </a>
                   )}
+                </div>
+                <div style={{ marginBottom: 16 }}>
+                  <label htmlFor="shopify_coupon_code">
+                    Shopify coupon code{' '}
+                    <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>
+                      added before LP goes live
+                    </span>
+                  </label>
+                  <input
+                    id="shopify_coupon_code"
+                    name="shopify_coupon_code"
+                    type="text"
+                    defaultValue={p.shopify_coupon_code ?? ''}
+                    placeholder="e.g. SUMMER20"
+                    disabled={!isAuthorized}
+                    style={{ textTransform: 'uppercase' }}
+                  />
                 </div>
                 <div style={{ marginBottom: 16 }}>
                   <label htmlFor="creatives_notes">Creatives link / notes</label>

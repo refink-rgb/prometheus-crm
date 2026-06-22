@@ -93,6 +93,7 @@ export interface Project {
   creatives_stage: Stage
   lp_url: string | null
   creatives_notes: string | null
+  shopify_coupon_code: string | null
   is_complete: boolean
   created_at: string
   created_by: string

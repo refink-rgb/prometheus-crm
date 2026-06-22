@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS projects (
   creatives_stage TEXT DEFAULT 'brief' CHECK (creatives_stage IN ('brief','in_progress','review','done')),
   lp_url TEXT,
   creatives_notes TEXT,
+  shopify_coupon_code TEXT,
   is_complete BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL
