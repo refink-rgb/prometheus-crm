@@ -5,6 +5,11 @@ import Nav from '@/components/Nav'
 import InternalReviewPanel from '@/components/InternalReviewPanel'
 import type { Project, CreativeAsset, ProjectComment } from '@/lib/types'
 
+// AI revision/edit Server Actions (gpt-image-2) run ~60-90s. Without this they hit
+// Vercel's default function timeout and the client gets "unexpected response from
+// the server". Page-level maxDuration covers all Server Actions used on this page.
+export const maxDuration = 300
+
 export default async function InternalReviewPage({
   params,
 }: {
