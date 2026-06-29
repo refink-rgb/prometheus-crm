@@ -38,7 +38,7 @@ export default function BrandsView({
       }
       if (status === 'in_review') {
         const hasInReview = brand.projects.some(
-          p => !p.is_complete && (p.lp_stage === 'review' || p.creatives_stage === 'review')
+          p => !p.is_complete && (p.lp_stage === 'client_review' || p.creatives_stage === 'client_review')
         )
         if (!hasInReview) return false
       }
@@ -199,7 +199,13 @@ function MiniProjectRow({ project }: { project: Project }) {
 }
 
 function MiniDot({ label, stage }: { label: string; stage: string }) {
-  const color = stage === 'done' ? 'var(--success)' : stage === 'review' ? 'var(--warning)' : stage === 'in_progress' ? 'var(--accent)' : 'var(--text-muted)'
+  const color =
+    stage === 'done'            ? 'var(--success)'  :
+    stage === 'live'            ? '#14b8a6'          :
+    stage === 'client_review'   ? 'var(--warning)'  :
+    stage === 'internal_review' ? '#a855f7'          :
+    stage === 'in_progress'     ? 'var(--accent)'   :
+    'var(--text-muted)'
   return (
     <span style={{ fontSize: 10, fontWeight: 600, color, background: `color-mix(in srgb, ${color} 15%, transparent)`, padding: '2px 5px', borderRadius: 4 }}>
       {label}

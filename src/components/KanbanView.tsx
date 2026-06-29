@@ -17,10 +17,12 @@ type PipelineProject = Project & { brands: { id: string; name: string } }
 type StatusFilter = 'all' | 'overdue' | 'in_review'
 
 const STAGE_COLORS: Record<Stage, string> = {
-  brief: 'var(--text-muted)',
-  in_progress: 'var(--accent)',
-  review: 'var(--warning)',
-  done: 'var(--success)',
+  brief:           'var(--text-muted)',
+  in_progress:     'var(--accent)',
+  internal_review: '#a855f7',
+  client_review:   'var(--warning)',
+  live:            '#14b8a6',
+  done:            'var(--success)',
 }
 
 function cardColumn(p: PipelineProject): Stage {
@@ -31,8 +33,8 @@ function cardColumn(p: PipelineProject): Stage {
 
 function isWaitingOnClient(p: PipelineProject): boolean {
   return (
-    (p.lp_stage === 'review' && !p.lp_approved) ||
-    (p.creatives_stage === 'review' && !p.creatives_approved)
+    (p.lp_stage === 'client_review' && !p.lp_approved) ||
+    (p.creatives_stage === 'client_review' && !p.creatives_approved)
   )
 }
 
@@ -67,7 +69,7 @@ export default function KanbanView({ pipeline }: { pipeline: PipelineProject[] }
     return localProjects.filter(p => {
       if (q && !p.brands.name.toLowerCase().includes(q)) return false
       if (status === 'overdue' && !(p.due_date && new Date(p.due_date).getTime() < now && !p.is_complete)) return false
-      if (status === 'in_review' && !(p.lp_stage === 'review' || p.creatives_stage === 'review')) return false
+      if (status === 'in_review' && !(p.lp_stage === 'client_review' || p.creatives_stage === 'client_review')) return false
       if (filterWaiting && !isWaitingOnClient(p)) return false
       return true
     })
@@ -204,7 +206,7 @@ export default function KanbanView({ pipeline }: { pipeline: PipelineProject[] }
           {/* Board */}
           <div style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(4, minmax(220px, 1fr))',
+            gridTemplateColumns: 'repeat(6, minmax(200px, 1fr))',
             gap: 12,
             height: '100%',
             overflowX: 'auto',

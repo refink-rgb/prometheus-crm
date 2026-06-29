@@ -76,7 +76,7 @@ export default async function ProjectPage({
 
   const bothDone = p.lp_stage === 'done' && p.creatives_stage === 'done'
 
-  const STAGE_PCT: Record<Stage, number> = { brief: 25, in_progress: 50, review: 75, done: 100 }
+  const STAGE_PCT: Record<Stage, number> = { brief: 17, in_progress: 33, internal_review: 50, client_review: 67, live: 83, done: 100 }
   const overallPct = Math.round((STAGE_PCT[p.lp_stage] + STAGE_PCT[p.creatives_stage]) / 2)
 
   return (
@@ -551,10 +551,12 @@ export default async function ProjectPage({
 // ─── TrackSteps ──────────────────────────────────────────────────────────────
 
 const TRACK_STEPS: Array<{ key: Stage; label: string }> = [
-  { key: 'brief',       label: 'Brief\nReceived'  },
-  { key: 'in_progress', label: 'In\nProduction'   },
-  { key: 'review',      label: 'Under\nReview'    },
-  { key: 'done',        label: 'Delivered'        },
+  { key: 'brief',           label: 'Brief\nReceived'    },
+  { key: 'in_progress',     label: 'In\nProduction'     },
+  { key: 'internal_review', label: 'Internal\nReview'   },
+  { key: 'client_review',   label: 'Client\nReview'     },
+  { key: 'live',            label: 'Live'               },
+  { key: 'done',            label: 'Done'               },
 ]
 
 function TrackSteps({ label, stage }: { label: string; stage: Stage }) {

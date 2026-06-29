@@ -402,12 +402,14 @@ export default async function BrandPage({ params }: { params: Promise<{ brandId:
   )
 }
 
-const STAGES = ['brief', 'in_progress', 'review', 'done'] as const
+const STAGES = ['brief', 'in_progress', 'internal_review', 'client_review', 'live', 'done'] as const
 const STAGE_COLORS: Record<string, string> = {
-  brief: 'var(--text-muted)',
-  in_progress: 'var(--accent)',
-  review: 'var(--warning)',
-  done: 'var(--success)',
+  brief:           'var(--text-muted)',
+  in_progress:     'var(--accent)',
+  internal_review: '#a855f7',
+  client_review:   'var(--warning)',
+  live:            '#14b8a6',
+  done:            'var(--success)',
 }
 
 function ProjectRow({ project, brandId }: { project: Project; brandId: string }) {

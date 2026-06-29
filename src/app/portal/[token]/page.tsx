@@ -144,7 +144,7 @@ function ProjectCard({ project: p, compact = false }: { project: Project; compac
 
   const overallStage = p.is_complete
     ? 'Complete'
-    : p.lp_stage === 'review' || p.creatives_stage === 'review'
+    : p.lp_stage === 'client_review' || p.creatives_stage === 'client_review'
     ? 'Needs Your Review'
     : p.lp_stage === 'in_progress' || p.creatives_stage === 'in_progress'
     ? 'In Production'

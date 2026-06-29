@@ -1,4 +1,4 @@
-export type Stage = 'brief' | 'in_progress' | 'review' | 'done'
+export type Stage = 'brief' | 'in_progress' | 'internal_review' | 'client_review' | 'live' | 'done'
 
 export type PipelineStatus = 'intro_contact' | 'discovery_call' | 'offer_prep' | 'active'
 
@@ -165,10 +165,12 @@ export interface CreativeAsset {
 }
 
 export const STAGE_LABELS: Record<Stage, string> = {
-  brief: 'Brief',
-  in_progress: 'In Progress',
-  review: 'Review',
-  done: 'Done',
+  brief:           'Brief',
+  in_progress:     'In Progress',
+  internal_review: 'Internal Review',
+  client_review:   'Client Review',
+  live:            'Live',
+  done:            'Done',
 }
 
-export const STAGE_ORDER: Stage[] = ['brief', 'in_progress', 'review', 'done']
+export const STAGE_ORDER: Stage[] = ['brief', 'in_progress', 'internal_review', 'client_review', 'live', 'done']

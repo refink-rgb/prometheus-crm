@@ -6,13 +6,15 @@ interface Props {
   crCounts: Record<Stage, number>
 }
 
-const STAGES: Stage[] = ['brief', 'in_progress', 'review', 'done']
+const STAGES: Stage[] = ['brief', 'in_progress', 'internal_review', 'client_review', 'live', 'done']
 
 const STAGE_COLORS: Record<Stage, string> = {
-  brief: 'var(--text-muted)',
-  in_progress: 'var(--accent)',
-  review: 'var(--warning)',
-  done: 'var(--success)',
+  brief:           'var(--text-muted)',
+  in_progress:     'var(--accent)',
+  internal_review: '#a855f7',
+  client_review:   'var(--warning)',
+  live:            '#14b8a6',
+  done:            'var(--success)',
 }
 
 export default function ProjectsByStage({ lpCounts, crCounts }: Props) {

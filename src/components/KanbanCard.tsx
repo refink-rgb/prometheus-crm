@@ -8,10 +8,12 @@ import { STAGE_LABELS, type Stage, type Project } from '@/lib/types'
 type PipelineProject = Project & { brands: { id: string; name: string } }
 
 const STAGE_COLORS: Record<Stage, string> = {
-  brief: 'var(--text-muted)',
-  in_progress: 'var(--accent)',
-  review: 'var(--warning)',
-  done: 'var(--success)',
+  brief:           'var(--text-muted)',
+  in_progress:     'var(--accent)',
+  internal_review: '#a855f7',
+  client_review:   'var(--warning)',
+  live:            '#14b8a6',
+  done:            'var(--success)',
 }
 
 interface KanbanCardProps {
@@ -25,8 +27,8 @@ export default function KanbanCard({ p, isGhost = false }: KanbanCardProps) {
     disabled: isGhost,
   })
 
-  const lpIdx = ['brief', 'in_progress', 'review', 'done'].indexOf(p.lp_stage)
-  const crIdx = ['brief', 'in_progress', 'review', 'done'].indexOf(p.creatives_stage)
+  const lpIdx = ['brief', 'in_progress', 'internal_review', 'client_review', 'live', 'done'].indexOf(p.lp_stage)
+  const crIdx = ['brief', 'in_progress', 'internal_review', 'client_review', 'live', 'done'].indexOf(p.creatives_stage)
   const cardIdx = Math.min(lpIdx, crIdx)
   const aligned = p.lp_stage === p.creatives_stage
 
@@ -36,9 +38,9 @@ export default function KanbanCard({ p, isGhost = false }: KanbanCardProps) {
   const isOverdue = daysLeft !== null && daysLeft < 0 && !p.is_complete
   const isUrgent = daysLeft !== null && daysLeft >= 0 && daysLeft <= 7
 
-  const progress = Math.round(((lpIdx + crIdx) / (3 * 2)) * 100)
+  const progress = Math.round(((lpIdx + crIdx) / (5 * 2)) * 100)
 
-  const stageKey = ['brief', 'in_progress', 'review', 'done'][cardIdx] as Stage
+  const stageKey = ['brief', 'in_progress', 'internal_review', 'client_review', 'live', 'done'][cardIdx] as Stage
   const leftBorderColor = isOverdue ? 'var(--danger)' : STAGE_COLORS[stageKey]
 
   const laggingMsg = !aligned
@@ -150,7 +152,7 @@ export default function KanbanCard({ p, isGhost = false }: KanbanCardProps) {
 
 function TrackBadge({ label, stage, approved }: { label: string; stage: Stage; approved: boolean }) {
   const color = STAGE_COLORS[stage]
-  const inReview = stage === 'review'
+  const inReview = stage === 'client_review'
   const icon = inReview ? (approved ? ' ✓' : ' ⏳') : ''
   return (
     <span style={{

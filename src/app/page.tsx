@@ -83,7 +83,7 @@ export default async function DashboardPage({
 
   // Project stats for Tab 1
   const now = new Date()
-  const inReview = pipeline.filter(p => p.lp_stage === 'review' || p.creatives_stage === 'review').length
+  const inReview = pipeline.filter(p => p.lp_stage === 'client_review' || p.creatives_stage === 'client_review').length
   const overdue = pipeline.filter(p => !p.is_complete && p.due_date && new Date(p.due_date) < now).length
 
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
@@ -96,7 +96,7 @@ export default async function DashboardPage({
   ).length
 
   // Stage breakdown counts
-  const STAGES: Stage[] = ['brief', 'in_progress', 'review', 'done']
+  const STAGES: Stage[] = ['brief', 'in_progress', 'internal_review', 'client_review', 'live', 'done']
   const lpCounts = Object.fromEntries(
     STAGES.map(s => [s, pipeline.filter(p => p.lp_stage === s).length])
   ) as Record<Stage, number>

@@ -7,19 +7,21 @@ import { STAGE_LABELS } from '@/lib/types'
 
 type PipelineProject = Project & { brands: { id: string; name: string } }
 
-const STAGES: Stage[] = ['brief', 'in_progress', 'review', 'done']
+const STAGES: Stage[] = ['brief', 'in_progress', 'internal_review', 'client_review', 'live', 'done']
 
 const STAGE_COLORS: Record<Stage, string> = {
-  brief: 'var(--text-muted)',
-  in_progress: 'var(--accent)',
-  review: 'var(--warning)',
-  done: 'var(--success)',
+  brief:           'var(--text-muted)',
+  in_progress:     'var(--accent)',
+  internal_review: '#a855f7',
+  client_review:   'var(--warning)',
+  live:            '#14b8a6',
+  done:            'var(--success)',
 }
 
 function isWaitingOnClient(p: PipelineProject): boolean {
   return (
-    (p.lp_stage === 'review' && !p.lp_approved) ||
-    (p.creatives_stage === 'review' && !p.creatives_approved)
+    (p.lp_stage === 'client_review' && !p.lp_approved) ||
+    (p.creatives_stage === 'client_review' && !p.creatives_approved)
   )
 }
 
@@ -42,7 +44,7 @@ export default function PipelineTable({ pipeline }: { pipeline: PipelineProject[
     return pipeline.filter(p => {
       if (q && !p.brands.name.toLowerCase().includes(q)) return false
       if (status === 'overdue' && !(p.due_date && new Date(p.due_date).getTime() < now && !p.is_complete)) return false
-      if (status === 'in_review' && !(p.lp_stage === 'review' || p.creatives_stage === 'review')) return false
+      if (status === 'in_review' && !(p.lp_stage === 'client_review' || p.creatives_stage === 'client_review')) return false
       if (filterWaiting && !isWaitingOnClient(p)) return false
       return true
     })
@@ -182,7 +184,7 @@ function DueBadge({ dueDate, isComplete }: { dueDate: string | null; isComplete:
 
 function TrackProgress({ stage, approved }: { stage: Stage; approved: boolean }) {
   const idx = STAGES.indexOf(stage)
-  const waitingReview = stage === 'review' && !approved
+  const waitingReview = stage === 'client_review' && !approved
   return (
     <div style={{ minWidth: 90 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 5 }}>
@@ -194,7 +196,7 @@ function TrackProgress({ stage, approved }: { stage: Stage; approved: boolean })
             PENDING
           </span>
         )}
-        {stage === 'review' && approved && (
+        {stage === 'client_review' && approved && (
           <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--success)', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)', borderRadius: 4, padding: '1px 4px' }}>
             ✓
           </span>
@@ -203,7 +205,7 @@ function TrackProgress({ stage, approved }: { stage: Stage; approved: boolean })
       <div style={{ display: 'flex', gap: 3 }}>
         {STAGES.map((s, i) => {
           const bg = i < idx ? 'var(--success)' : i === idx ? STAGE_COLORS[stage] : 'var(--border)'
-          return <div key={s} style={{ width: 26, height: 5, borderRadius: 3, background: bg, transition: 'background 0.2s' }} />
+          return <div key={s} style={{ width: 14, height: 5, borderRadius: 3, background: bg, transition: 'background 0.2s' }} />
         })}
       </div>
     </div>

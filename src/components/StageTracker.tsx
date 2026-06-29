@@ -115,7 +115,7 @@ export default function StageTracker({
             className="btn-primary"
             style={{ flex: 2, justifyContent: 'center', padding: '8px 12px', fontSize: 13 }}
           >
-            {optimisticStage === 'review' ? 'Mark Done ✓' : 'Advance →'}
+            {optimisticStage === 'live' ? 'Mark Done ✓' : 'Advance →'}
           </button>
         </div>
       )}
