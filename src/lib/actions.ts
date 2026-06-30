@@ -296,6 +296,42 @@ export async function addProjectComment(
   revalidatePath(`/review/${token}`)
 }
 
+// Authed-only: delete a comment from the client review page. Gated by the same
+// ALLOWED_EDITORS allowlist used everywhere else — anonymous client viewers
+// can't trigger this even if they discover the action.
+export async function deleteProjectComment(commentId: string, token: string) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authorized.')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
+
+  const { data: comment } = await supabase
+    .from('project_comments')
+    .select('project_id')
+    .eq('id', commentId)
+    .single()
+  if (!comment) throw new Error('Comment not found.')
+
+  const { data: project } = await supabase
+    .from('projects')
+    .select('id, brand_id')
+    .eq('share_token', token)
+    .single()
+  if (!project || project.id !== comment.project_id) {
+    throw new Error('Comment does not belong to this review link.')
+  }
+
+  const { error } = await supabase
+    .from('project_comments')
+    .delete()
+    .eq('id', commentId)
+  if (error) throw new Error(error.message)
+
+  revalidatePath(`/review/${token}`)
+  revalidatePath(`/brands/${project.brand_id}/projects/${project.id}`)
+  revalidatePath(`/brands/${project.brand_id}/projects/${project.id}/internal-review`)
+}
+
 export async function syncDriveImages(projectId: string, brandId: string, folderUrl: string): Promise<number> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()

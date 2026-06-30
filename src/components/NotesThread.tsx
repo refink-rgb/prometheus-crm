@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { addInternalNote, addProjectComment } from '@/lib/actions'
+import { addInternalNote, addProjectComment, deleteProjectComment } from '@/lib/actions'
 import type { ProjectComment } from '@/lib/types'
 
 export default function NotesThread({
@@ -12,6 +12,7 @@ export default function NotesThread({
   brandId,
   token,
   currentUserName,
+  canDelete = false,
 }: {
   notes: ProjectComment[]
   mode: 'internal' | 'client'
@@ -19,11 +20,23 @@ export default function NotesThread({
   brandId?: string
   token?: string
   currentUserName?: string
+  canDelete?: boolean
 }) {
   const [content, setContent] = useState('')
   const [authorName, setAuthorName] = useState(currentUserName ?? '')
   const [saving, setSaving] = useState(false)
   const router = useRouter()
+
+  async function handleDelete(id: string) {
+    if (!token) return
+    if (!confirm('Delete this note? This cannot be undone.')) return
+    try {
+      await deleteProjectComment(id, token)
+      router.refresh()
+    } catch {
+      /* swallow — next refresh restores state */
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -68,6 +81,21 @@ export default function NotesThread({
                     {' '}
                     {new Date(note.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
                   </span>
+                  {canDelete && mode === 'client' && token && (
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(note.id)}
+                      aria-label="Delete note"
+                      title="Delete note"
+                      style={{
+                        marginLeft: 'auto', background: 'none', border: 'none',
+                        color: 'var(--text-muted)', cursor: 'pointer',
+                        fontSize: 14, padding: '0 4px', lineHeight: 1,
+                      }}
+                    >
+                      ×
+                    </button>
+                  )}
                 </div>
                 <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, wordBreak: 'break-word' }}>
                   {note.content}

@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { canEdit } from '@/lib/permissions'
 import LpReviewPanel from '@/components/LpReviewPanel'
 import ImageReviewPanel from '@/components/ImageReviewPanel'
 import NotesThread from '@/components/NotesThread'
@@ -23,6 +24,11 @@ export default async function ReviewPage({
   if (!projectRaw) notFound()
 
   const p = projectRaw as Project
+
+  // Only authenticated editors (agency staff) can delete comments — anonymous
+  // clients viewing this link cannot. The flag is passed down to the panels.
+  const { data: { user } } = await supabase.auth.getUser()
+  const canDeleteComments = canEdit(user?.email)
 
   const [
     { data: brandRaw },
@@ -103,6 +109,7 @@ export default async function ReviewPage({
             lpUrl={p.lp_url}
             lpApproved={p.lp_approved}
             initialComments={lpComments}
+            canDelete={canDeleteComments}
           />
         </section>
 
@@ -133,6 +140,7 @@ export default async function ReviewPage({
               assets={assets}
               creativesApproved={p.creatives_approved}
               initialComments={imageComments}
+              canDelete={canDeleteComments}
             />
           ) : (
             <div className="card">
@@ -262,6 +270,7 @@ export default async function ReviewPage({
               notes={notes}
               mode="client"
               token={token}
+              canDelete={canDeleteComments}
             />
           </div>
         </section>

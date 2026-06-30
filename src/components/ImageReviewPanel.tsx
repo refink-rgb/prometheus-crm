@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useCallback } from 'react'
-import { addProjectComment, approveProject, updateAssetStatus } from '@/lib/actions'
+import { addProjectComment, approveProject, deleteProjectComment, updateAssetStatus } from '@/lib/actions'
 import type { CreativeAsset, ProjectComment } from '@/lib/types'
 
 // ─── Single asset row ────────────────────────────────────────────────────────
@@ -12,12 +12,14 @@ function AssetRow({
   token,
   initialComments,
   onStatusChange,
+  canDelete,
 }: {
   asset: CreativeAsset
   index: number
   token: string
   initialComments: ProjectComment[]
   onStatusChange: (assetId: string, status: CreativeAsset['status']) => void
+  canDelete: boolean
 }) {
   const [comments, setComments] = useState<ProjectComment[]>(initialComments)
   const [pinMode, setPinMode] = useState(false)
@@ -72,6 +74,19 @@ function AssetRow({
       setComments(prev => prev.filter(c => c.id !== optimistic.id))
     } finally {
       setPosting(false)
+    }
+  }
+
+  async function handleDelete(id: string) {
+    if (id.startsWith('temp-')) return
+    if (!confirm('Delete this comment? This cannot be undone.')) return
+    const prev = comments
+    setComments(cs => cs.filter(c => c.id !== id))
+    if (activePin === id) setActivePin(null)
+    try {
+      await deleteProjectComment(id, token)
+    } catch {
+      setComments(prev)
     }
   }
 
@@ -269,6 +284,20 @@ function AssetRow({
                   <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
                     {new Date(c.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                   </span>
+                  {canDelete && (
+                    <button
+                      type="button"
+                      onClick={e => { e.stopPropagation(); handleDelete(c.id) }}
+                      aria-label="Delete comment"
+                      title="Delete comment"
+                      style={{
+                        background: 'none', border: 'none', color: 'var(--text-muted)',
+                        cursor: 'pointer', fontSize: 14, padding: '0 4px', lineHeight: 1,
+                      }}
+                    >
+                      ×
+                    </button>
+                  )}
                 </div>
                 <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0, whiteSpace: 'pre-wrap' }}>{c.content}</p>
               </div>
@@ -360,11 +389,13 @@ export default function ImageReviewPanel({
   assets,
   creativesApproved,
   initialComments,
+  canDelete = false,
 }: {
   token: string
   assets: CreativeAsset[]
   creativesApproved: boolean
   initialComments: ProjectComment[]
+  canDelete?: boolean
 }) {
   const [assetStatuses, setAssetStatuses] = useState<Record<string, CreativeAsset['status']>>(
     Object.fromEntries(assets.map(a => [a.id, a.status ?? 'pending']))
@@ -434,6 +465,7 @@ export default function ImageReviewPanel({
             token={token}
             initialComments={initialComments.filter(c => c.asset_id === asset.id)}
             onStatusChange={handleStatusChange}
+            canDelete={canDelete}
           />
         ))}
       </div>
