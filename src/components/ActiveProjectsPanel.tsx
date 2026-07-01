@@ -1,5 +1,5 @@
 import type { Project } from '@/lib/types'
-import { calcDaysUntil } from '@/lib/stageColors'
+import { calcDaysUntil, isProjectOverdue } from '@/lib/stageColors'
 import ProjectCard from './ProjectCard'
 
 type ProjectWithBrand = Project & { brand_name: string }
@@ -39,7 +39,7 @@ const GROUP_ORDER: GroupKey[] = [
 
 function classify(p: ProjectWithBrand): GroupKey | null {
   const days = calcDaysUntil(p.due_date)
-  if (days !== null && days < 0 && !p.is_complete) return 'overdue'
+  if (isProjectOverdue(p.due_date, p.is_complete, p.lp_stage, p.creatives_stage)) return 'overdue'
   if (days !== null && days >= 0 && days <= 7 && !p.is_complete) return 'due_this_week'
   if ((p.lp_approved && p.lp_stage !== 'done') || (p.creatives_approved && p.creatives_stage !== 'done')) {
     return 'client_waiting_on_us'

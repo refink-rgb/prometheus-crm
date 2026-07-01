@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import type { Brand, Project, Journey } from '@/lib/types'
 import { STAGE_LABELS } from '@/lib/types'
+import { isProjectOverdue } from '@/lib/stageColors'
 
 export default async function ClientPortalPage({
   params,
@@ -140,7 +141,7 @@ export default async function ClientPortalPage({
 function ProjectCard({ project: p, compact = false }: { project: Project; compact?: boolean }) {
   const due = p.due_date ? new Date(p.due_date) : null
   const dueStr = due?.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-  const isOverdue = due && due < new Date() && !p.is_complete
+  const isOverdue = isProjectOverdue(p.due_date, p.is_complete, p.lp_stage, p.creatives_stage)
 
   const overallStage = p.is_complete
     ? 'Complete'

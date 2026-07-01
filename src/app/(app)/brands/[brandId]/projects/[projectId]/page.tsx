@@ -1,7 +1,6 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
-import Nav from '@/components/Nav'
 import StageTracker from '@/components/StageTracker'
 import { markProjectComplete, updateProjectDeliverable, deleteProject, lockProjectOffer, unlockProjectOffer } from '@/lib/actions'
 import CreativeAssetsManager from '@/components/CreativeAssetsManager'
@@ -11,7 +10,7 @@ import ShareButton from '@/components/ShareButton'
 import RevisionsToggle from '@/components/RevisionsToggle'
 import NotesThread from '@/components/NotesThread'
 import type { Project, Brand, ProjectImage, Journey, CreativeAsset, ProjectComment } from '@/lib/types'
-import { calcDaysUntil, overallProgress } from '@/lib/stageColors'
+import { calcDaysUntil, isProjectOverdue, overallProgress } from '@/lib/stageColors'
 import ProjectEditForm from '@/components/ProjectEditForm'
 import OpenEditFormButton from '@/components/OpenEditFormButton'
 
@@ -73,7 +72,7 @@ export default async function ProjectPage({
 
   const due = p.due_date ? new Date(p.due_date) : null
   const daysUntil = calcDaysUntil(p.due_date)
-  const isOverdue = daysUntil !== null && daysUntil < 0 && !p.is_complete
+  const isOverdue = isProjectOverdue(p.due_date, p.is_complete, p.lp_stage, p.creatives_stage)
   const dueStr = due ? due.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '—'
 
   const bothDone = p.lp_stage === 'done' && p.creatives_stage === 'done'
@@ -81,15 +80,17 @@ export default async function ProjectPage({
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--background)' }}>
-      <Nav email={user?.email} />
-      <main style={{ maxWidth: 1080, margin: '0 auto', padding: '32px 24px' }}>
+      <main style={{ maxWidth: 1080, margin: '0 auto', padding: '28px 32px 40px' }}>
         {/* Breadcrumb */}
-        <Link
-          href={`/brands/${brandId}`}
-          style={{ fontSize: 12, color: 'var(--text-muted)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4, marginBottom: 20 }}
-        >
-          ← {b?.name ?? 'Brand'}
-        </Link>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-muted)', marginBottom: 20, flexWrap: 'wrap' }}>
+          <Link href="/brands" style={{ color: 'var(--text-muted)', textDecoration: 'none' }}>← Brands</Link>
+          <span style={{ opacity: 0.5 }}>/</span>
+          <Link href={`/brands/${brandId}`} style={{ color: 'var(--text-muted)', textDecoration: 'none' }}>
+            {b?.name ?? 'Brand'}
+          </Link>
+          <span style={{ opacity: 0.5 }}>/</span>
+          <span style={{ color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+        </div>
 
         {/* ── HERO: Project Status ── */}
         <div style={{

@@ -36,7 +36,8 @@ export function cardBorderColor(
   creativesStage: Stage | null,
 ): string {
   if (isOverdue) return '#EF4444'
-  if (daysUntil !== null && daysUntil <= 4) return '#F97316'
+  const shipped = isProjectLive(lpStage, creativesStage)
+  if (!shipped && daysUntil !== null && daysUntil <= 4) return '#F97316'
   if (lpStage === 'client_review' || creativesStage === 'client_review') return '#F59E0B'
   const lp  = lpStage        ? STAGE_ORDER.indexOf(lpStage)        : 0
   const cre = creativesStage ? STAGE_ORDER.indexOf(creativesStage) : 0
@@ -47,4 +48,21 @@ export function cardBorderColor(
 export function calcDaysUntil(dueDateStr: string | null | undefined): number | null {
   if (!dueDateStr) return null
   return Math.ceil((new Date(dueDateStr).getTime() - Date.now()) / 86_400_000)
+}
+
+export function isProjectLive(lpStage: Stage | null, creativesStage: Stage | null): boolean {
+  const shipped = (s: Stage | null) => s === 'live' || s === 'done'
+  return shipped(lpStage) && shipped(creativesStage)
+}
+
+export function isProjectOverdue(
+  dueDate: string | null | undefined,
+  isComplete: boolean,
+  lpStage: Stage | null,
+  creativesStage: Stage | null,
+): boolean {
+  if (isComplete) return false
+  if (isProjectLive(lpStage, creativesStage)) return false
+  const d = calcDaysUntil(dueDate)
+  return d !== null && d < 0
 }

@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useDraggable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
 import { STAGE_LABELS, type Stage, type Project } from '@/lib/types'
+import { isProjectOverdue } from '@/lib/stageColors'
 
 type PipelineProject = Project & { brands: { id: string; name: string } }
 
@@ -35,8 +36,8 @@ export default function KanbanCard({ p, isGhost = false }: KanbanCardProps) {
   const now = Date.now()
   const due = p.due_date ? new Date(p.due_date) : null
   const daysLeft = due ? Math.ceil((due.getTime() - now) / (1000 * 60 * 60 * 24)) : null
-  const isOverdue = daysLeft !== null && daysLeft < 0 && !p.is_complete
-  const isUrgent = daysLeft !== null && daysLeft >= 0 && daysLeft <= 7
+  const isOverdue = isProjectOverdue(p.due_date, p.is_complete, p.lp_stage, p.creatives_stage)
+  const isUrgent = !isOverdue && daysLeft !== null && daysLeft >= 0 && daysLeft <= 7
 
   const progress = Math.round(((lpIdx + crIdx) / (5 * 2)) * 100)
 

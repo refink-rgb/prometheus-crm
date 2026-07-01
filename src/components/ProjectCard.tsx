@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import type { Project } from '@/lib/types'
-import { calcDaysUntil, cardBorderColor } from '@/lib/stageColors'
+import { calcDaysUntil, cardBorderColor, isProjectLive, isProjectOverdue } from '@/lib/stageColors'
 import DualStageBar from './DualStageBar'
 
 interface ProjectCardProps {
@@ -21,7 +21,8 @@ export default function ProjectCard({
   flaggedAssetCount = 0,
 }: ProjectCardProps) {
   const daysUntil = calcDaysUntil(project.due_date)
-  const isOverdue = daysUntil !== null && daysUntil < 0 && !project.is_complete
+  const isOverdue = isProjectOverdue(project.due_date, project.is_complete, project.lp_stage, project.creatives_stage)
+  const isShipped = isProjectLive(project.lp_stage, project.creatives_stage)
   const borderColor = cardBorderColor(isOverdue, daysUntil, project.lp_stage, project.creatives_stage)
 
   const showClientRow = !!project.share_token && !compact
@@ -64,6 +65,7 @@ export default function ProjectCard({
             daysUntil={daysUntil}
             isOverdue={isOverdue}
             isComplete={project.is_complete}
+            isShipped={isShipped}
             dueDateStr={dueDateStr}
           />
         </div>
@@ -110,11 +112,13 @@ function UrgencyBadge({
   daysUntil,
   isOverdue,
   isComplete,
+  isShipped,
   dueDateStr,
 }: {
   daysUntil: number | null
   isOverdue: boolean
   isComplete: boolean
+  isShipped: boolean
   dueDateStr: string | null
 }) {
   const base: React.CSSProperties = {
@@ -136,6 +140,19 @@ function UrgencyBadge({
         border: '1px solid color-mix(in srgb, #10B981 30%, transparent)',
       }}>
         ✓ Complete
+      </span>
+    )
+  }
+
+  if (isShipped) {
+    return (
+      <span style={{
+        ...base,
+        background: 'var(--stage-live-bg)',
+        color: 'var(--stage-live-text)',
+        border: '1px solid color-mix(in srgb, #65A30D 30%, transparent)',
+      }}>
+        ✓ Live
       </span>
     )
   }

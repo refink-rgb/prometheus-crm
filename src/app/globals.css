@@ -67,6 +67,10 @@
   --client-approved:    #10B981;
   --client-flagged:     #EF4444;
   --client-pending:     #94A3B8;
+
+  /* ── Sidebar ── */
+  --sidebar-bg:         #0a0a0a;
+  --sidebar-border:     rgba(255, 255, 255, 0.08);
 }
 
 * {
@@ -212,6 +216,18 @@ label {
   background: var(--surface-2);
 }
 
+/* Brand grid card — elevated hover */
+.brand-grid-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255,255,255,0.2) !important;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+}
+
+/* Overdue row hover */
+.overdue-row:hover {
+  background: var(--surface-2);
+}
+
 /* Responsive: dashboard grid stacks under 900px, KPI strip becomes 2×2 under 768px */
 @media (max-width: 900px) {
   .dashboard-grid { grid-template-columns: 1fr !important; }
@@ -219,6 +235,9 @@ label {
 @media (max-width: 768px) {
   .kpi-strip { grid-template-columns: repeat(2, 1fr) !important; }
   .bd-kanban-grid { grid-template-columns: repeat(4, minmax(180px, 1fr)) !important; }
+  .app-sidebar { display: none !important; }
+  .app-mobile-nav { display: flex !important; }
+  .app-main { margin-left: 0 !important; padding-bottom: 64px !important; }
 }
 
 /* Tab loading sweep bar */

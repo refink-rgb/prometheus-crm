@@ -239,6 +239,25 @@ export async function updateBrandDetails(formData: FormData) {
   revalidatePath(`/brands/${brandId}`)
 }
 
+export async function updateBrandPipelineStatus(
+  brandId: string,
+  newStatus: 'intro_contact' | 'discovery_call' | 'offer_prep' | 'active',
+) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
+
+  await supabase
+    .from('brands')
+    .update({ pipeline_status: newStatus })
+    .eq('id', brandId)
+
+  revalidatePath('/pipeline')
+  revalidatePath('/')
+  revalidatePath(`/brands/${brandId}`)
+}
+
 export async function generateShareToken(projectId: string): Promise<string> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()

@@ -11,6 +11,7 @@ import {
 } from '@dnd-kit/core'
 import { STAGE_ORDER, STAGE_LABELS, type Stage, type Project } from '@/lib/types'
 import { updateProjectStage } from '@/lib/actions'
+import { isProjectOverdue } from '@/lib/stageColors'
 import KanbanCard from './KanbanCard'
 
 type PipelineProject = Project & { brands: { id: string; name: string } }
@@ -65,10 +66,9 @@ export default function KanbanView({ pipeline }: { pipeline: PipelineProject[] }
 
   const displayed = useMemo(() => {
     const q = deferredSearch.trim().toLowerCase()
-    const now = Date.now()
     return localProjects.filter(p => {
       if (q && !p.brands.name.toLowerCase().includes(q)) return false
-      if (status === 'overdue' && !(p.due_date && new Date(p.due_date).getTime() < now && !p.is_complete)) return false
+      if (status === 'overdue' && !isProjectOverdue(p.due_date, p.is_complete, p.lp_stage, p.creatives_stage)) return false
       if (status === 'in_review' && !(p.lp_stage === 'client_review' || p.creatives_stage === 'client_review')) return false
       if (filterWaiting && !isWaitingOnClient(p)) return false
       return true
