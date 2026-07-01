@@ -255,10 +255,21 @@ export async function updateBrandDetails(formData: FormData) {
   const brand_notes = (formData.get('brand_notes') as string)?.trim() || null
   const onboarding_transcript = (formData.get('onboarding_transcript') as string)?.trim() || null
 
-  await supabase
+  const core = { monthly_retainer, start_date, growth_strategist, is_active, is_trial, profit_engineer, pipeline_status, brand_notes }
+
+  // Try with onboarding_transcript. If the column doesn't exist yet (migration
+  // 20260701_add_onboarding_transcript.sql not applied), fall back to a save
+  // without it so the rest of the account details still persist.
+  const { error } = await supabase
     .from('brands')
-    .update({ monthly_retainer, start_date, growth_strategist, is_active, is_trial, profit_engineer, pipeline_status, brand_notes, onboarding_transcript })
+    .update({ ...core, onboarding_transcript })
     .eq('id', brandId)
+
+  if (error) {
+    const missingColumn = error.code === '42703' || /onboarding_transcript/.test(error.message ?? '')
+    if (!missingColumn) throw new Error(error.message)
+    await supabase.from('brands').update(core).eq('id', brandId)
+  }
 
   revalidatePath(`/brands/${brandId}`)
 }
