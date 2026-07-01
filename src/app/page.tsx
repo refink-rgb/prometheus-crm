@@ -2,16 +2,16 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import Nav from '@/components/Nav'
 import { canEdit } from '@/lib/permissions'
-import type { Brand, Project, Stage } from '@/lib/types'
+import type { Brand, Project } from '@/lib/types'
 import DashboardTabs from '@/components/DashboardTabs'
-import ProjectStatsCards from '@/components/ProjectStatsCards'
-import ProjectsByStage from '@/components/ProjectsByStage'
 import PipelineView from '@/components/PipelineView'
 import BrandsView from '@/components/BrandsView'
+import ActiveProjectsPanel from '@/components/ActiveProjectsPanel'
+import BDPipelineKanban from '@/components/BDPipelineKanban'
+import { calcDaysUntil } from '@/lib/stageColors'
 
 type BrandWithProjects = Brand & { projects: Project[] }
 type PipelineProject = Project & { brands: { id: string; name: string } }
-
 
 function calcMonths(startDate: string): number {
   const start = new Date(startDate)
@@ -58,7 +58,6 @@ export default async function DashboardPage({
   const pipeline = (pipelineRaw ?? []) as PipelineProject[]
   const isAuthorized = canEdit(user?.email)
 
-  // Group brands by profit engineer, "Unassigned" last
   const peGroups: Array<{ pe: string; brands: BrandWithProjects[] }> = [
     ...allPEs.map(pe => ({
       pe,
@@ -70,7 +69,6 @@ export default async function DashboardPage({
     },
   ].filter(g => g.brands.length > 0)
 
-  // Revenue calculations (authorized users only)
   const billableClients = allBrands
     .filter(b => (b.monthly_retainer ?? 0) > 0)
     .sort((a, b) => (b.monthly_retainer ?? 0) - (a.monthly_retainer ?? 0))
@@ -81,90 +79,109 @@ export default async function DashboardPage({
     return sum + calcMonths(b.start_date) * (b.monthly_retainer ?? 0)
   }, 0)
 
-  // Project stats for Tab 1
-  const now = new Date()
-  const inReview = pipeline.filter(p => p.lp_stage === 'client_review' || p.creatives_stage === 'client_review').length
-  const overdue = pipeline.filter(p => !p.is_complete && p.due_date && new Date(p.due_date) < now).length
-
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
-  type ProjectWithUpdatedAt = Project & { updated_at?: string }
-  const allProjects = allBrands.flatMap(b => b.projects as ProjectWithUpdatedAt[])
-  const completedThisMonth = allProjects.filter(p =>
-    p.is_complete &&
-    p.updated_at &&
-    new Date(p.updated_at) >= startOfMonth
+  // KPI counts (using unified calcDaysUntil — no more inconsistencies)
+  const activeProjectsCount = pipeline.length
+  const inClientReview = pipeline.filter(
+    p => p.lp_stage === 'client_review' || p.creatives_stage === 'client_review'
   ).length
+  const overdue = pipeline.filter(p => {
+    const d = calcDaysUntil(p.due_date)
+    return d !== null && d < 0 && !p.is_complete
+  }).length
 
-  // Stage breakdown counts
-  const STAGES: Stage[] = ['brief', 'in_progress', 'internal_review', 'client_review', 'live', 'done']
-  const lpCounts = Object.fromEntries(
-    STAGES.map(s => [s, pipeline.filter(p => p.lp_stage === s).length])
-  ) as Record<Stage, number>
-  const crCounts = Object.fromEntries(
-    STAGES.map(s => [s, pipeline.filter(p => p.creatives_stage === s).length])
-  ) as Record<Stage, number>
+  // Prepare projects with brand_name for the ActiveProjectsPanel
+  const projectsWithBrand = pipeline.map(p => ({
+    ...p,
+    brand_name: p.brands.name,
+  }))
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--background)' }}>
       <Nav email={user?.email} />
 
-      <main style={{ maxWidth: 1200, margin: '0 auto', padding: '32px 24px' }}>
+      <main style={{ maxWidth: 1280, margin: '0 auto', padding: '28px 24px' }}>
 
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20, gap: 16, flexWrap: 'wrap' }}>
           <div>
-            <h1 style={{ fontSize: 28, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.03em', marginBottom: 6 }}>
+            <h1 style={{ fontSize: 24, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.03em', marginBottom: 4 }}>
               Prometheus Studio
             </h1>
-            <p style={{ color: 'var(--text-secondary)', fontSize: 14 }}>
-              {allBrands.length} brand{allBrands.length !== 1 ? 's' : ''} · {pipeline.length} active project{pipeline.length !== 1 ? 's' : ''}
+            <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>
+              {allBrands.length} brand{allBrands.length !== 1 ? 's' : ''} · {activeProjectsCount} active project{activeProjectsCount !== 1 ? 's' : ''}
             </p>
           </div>
           <Link href="/brands/new" className="btn-primary">+ New Brand</Link>
         </div>
 
-        {/* Tab navigation */}
         <DashboardTabs active={tab} />
 
         {/* ── Tab 1: Dashboard ── */}
         {tab === 'dashboard' && (
           <>
-            <ProjectStatsCards
-              totalActive={pipeline.length}
-              inReview={inReview}
-              overdue={overdue}
-              completedThisMonth={completedThisMonth}
-            />
+            {/* KPI strip */}
+            <div className="kpi-strip" style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(4, 1fr)',
+              gap: 12,
+              marginBottom: 24,
+            }}>
+              {isAuthorized && (
+                <KPICard label="MRR" value={fmtCurrency(mrr)} tone="accent" />
+              )}
+              {!isAuthorized && (
+                <KPICard label="Brands" value={String(allBrands.length)} />
+              )}
+              <KPICard label="Active Projects" value={String(activeProjectsCount)} />
+              <KPICard
+                label="In Client Review"
+                value={String(inClientReview)}
+                tone={inClientReview > 0 ? 'amber' : 'default'}
+              />
+              <KPICard
+                label="Overdue"
+                value={String(overdue)}
+                tone={overdue > 0 ? 'red' : 'default'}
+              />
+            </div>
 
-            <ProjectsByStage lpCounts={lpCounts} crCounts={crCounts} />
-
-            {isAuthorized && (
+            {/* Main grid: 60/40 */}
+            <div className="dashboard-grid" style={{
+              display: 'grid',
+              gridTemplateColumns: 'minmax(0, 3fr) minmax(0, 2fr)',
+              gap: 24,
+              marginBottom: 32,
+            }}>
               <section>
-                <h2 style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 16 }}>
+                <h2 style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 16 }}>
+                  Active Projects
+                </h2>
+                <ActiveProjectsPanel projects={projectsWithBrand} />
+              </section>
+
+              <section>
+                <h2 style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 16 }}>
+                  BD Pipeline
+                </h2>
+                <BDPipelineKanban brands={allBrands} canEdit={isAuthorized} />
+              </section>
+            </div>
+
+            {/* Revenue table — moved below main grid, staff only */}
+            {isAuthorized && (
+              <section style={{ marginBottom: 32 }}>
+                <h2 style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 16 }}>
                   Revenue
                 </h2>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 20 }}>
-                  <StatCard
-                    label="Monthly Recurring Revenue"
-                    value={fmtCurrency(mrr)}
-                    sub={`${activeClients.length} active client${activeClients.length !== 1 ? 's' : ''}`}
-                    accent
-                  />
-                  <StatCard
-                    label="Revenue to Date"
-                    value={fmtCurrency(revenueToDate)}
-                    sub={revenueToDate > 0 ? 'based on retainer start dates' : 'set start dates on each brand'}
-                  />
-                  <StatCard
-                    label="Next Month Forecast"
-                    value={fmtCurrency(mrr)}
-                    sub="based on current retainers"
-                  />
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 16 }}>
+                  <KPICard label="Monthly Recurring Revenue" value={fmtCurrency(mrr)} sub={`${activeClients.length} active client${activeClients.length !== 1 ? 's' : ''}`} tone="accent" />
+                  <KPICard label="Revenue to Date" value={fmtCurrency(revenueToDate)} sub={revenueToDate > 0 ? 'based on retainer start dates' : 'set start dates on each brand'} />
+                  <KPICard label="Next Month Forecast" value={fmtCurrency(mrr)} sub="based on current retainers" />
                 </div>
 
                 {billableClients.length > 0 ? (
-                  <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
+                  <div style={{ background: 'var(--surface-1)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 200px 110px 120px 140px', gap: 16, padding: '10px 20px', borderBottom: '1px solid var(--border)', background: 'var(--surface-raised)' }}>
                       {['Brand', 'Profit Engineer', 'Started', 'Monthly', 'To Date'].map(col => (
                         <span key={col} style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>{col}</span>
@@ -179,7 +196,7 @@ export default async function DashboardPage({
                             display: 'grid',
                             gridTemplateColumns: '1fr 200px 110px 120px 140px',
                             gap: 16,
-                            padding: '13px 20px',
+                            padding: '12px 20px',
                             borderBottom: i < billableClients.length - 1 ? '1px solid var(--border)' : 'none',
                             alignItems: 'center',
                             opacity: brand.is_active ? 1 : 0.45,
@@ -239,7 +256,7 @@ export default async function DashboardPage({
 
         {tab === 'pipeline' && !isAuthorized && (
           <div style={{ padding: '64px 24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 }}>
-            You don't have access to the pipeline view.
+            You don&apos;t have access to the pipeline view.
           </div>
         )}
 
@@ -264,25 +281,71 @@ export default async function DashboardPage({
   )
 }
 
-// ─── Components ──────────────────────────────────────────────────────────────
+// ─── KPICard ─────────────────────────────────────────────────────────────────
 
-function StatCard({ label, value, sub, accent }: { label: string; value: string; sub: string; accent?: boolean }) {
+function KPICard({
+  label,
+  value,
+  sub,
+  tone = 'default',
+}: {
+  label: string
+  value: string
+  sub?: string
+  tone?: 'default' | 'accent' | 'amber' | 'red'
+}) {
+  const toneStyles: Record<string, { bg: string; border: string; color: string }> = {
+    default: {
+      bg: 'var(--surface-1)',
+      border: 'var(--border)',
+      color: 'var(--text-primary)',
+    },
+    accent: {
+      bg: 'color-mix(in srgb, var(--accent) 8%, var(--surface-1))',
+      border: 'color-mix(in srgb, var(--accent) 30%, var(--border))',
+      color: 'var(--accent)',
+    },
+    amber: {
+      bg: 'var(--stage-client-bg)',
+      border: 'color-mix(in srgb, #F59E0B 35%, transparent)',
+      color: 'var(--stage-client-text)',
+    },
+    red: {
+      bg: 'var(--urgent-overdue-bg)',
+      border: 'color-mix(in srgb, #EF4444 35%, transparent)',
+      color: 'var(--urgent-overdue)',
+    },
+  }
+  const s = toneStyles[tone]
   return (
     <div style={{
-      background: accent ? 'color-mix(in srgb, var(--accent) 8%, var(--surface))' : 'var(--surface)',
-      border: `1px solid ${accent ? 'rgba(249,115,22,0.3)' : 'var(--border)'}`,
-      borderRadius: 12,
-      padding: '22px 24px',
+      background: s.bg,
+      border: `1px solid ${s.border}`,
+      borderRadius: 8,
+      padding: '14px 18px',
     }}>
-      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10 }}>
+      <div style={{
+        fontSize: 12,
+        fontWeight: 600,
+        color: 'var(--text-muted)',
+        textTransform: 'uppercase',
+        letterSpacing: '0.07em',
+        marginBottom: 6,
+      }}>
         {label}
       </div>
-      <div style={{ fontSize: 30, fontWeight: 800, color: accent ? 'var(--accent)' : 'var(--text-primary)', letterSpacing: '-0.03em', marginBottom: 6 }}>
+      <div style={{
+        fontSize: 22,
+        fontWeight: 700,
+        color: s.color,
+        letterSpacing: '-0.02em',
+        lineHeight: 1.1,
+      }}>
         {value}
       </div>
-      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{sub}</div>
+      {sub && (
+        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>{sub}</div>
+      )}
     </div>
   )
 }
-
-

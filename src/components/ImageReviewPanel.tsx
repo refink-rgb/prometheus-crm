@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { addProjectComment, approveProject, deleteProjectComment, updateAssetStatus } from '@/lib/actions'
 import type { CreativeAsset, ProjectComment } from '@/lib/types'
 
@@ -397,6 +398,7 @@ export default function ImageReviewPanel({
   initialComments: ProjectComment[]
   canDelete?: boolean
 }) {
+  const router = useRouter()
   const [assetStatuses, setAssetStatuses] = useState<Record<string, CreativeAsset['status']>>(
     Object.fromEntries(assets.map(a => [a.id, a.status ?? 'pending']))
   )
@@ -411,8 +413,7 @@ export default function ImageReviewPanel({
     setApproving(true)
     try {
       await approveProject(token, 'creatives')
-      // Refresh is handled server-side via revalidatePath
-      window.location.reload()
+      router.refresh()
     } finally {
       setApproving(false)
     }

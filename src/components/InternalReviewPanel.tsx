@@ -498,7 +498,7 @@ function AssetView({
     e.preventDefault()
     if (!directPrompt.trim()) return
     const price = QUALITY_OPTIONS.find(q => q.value === directQuality)!.price
-    if (!confirm(`Send this prompt to GPT Image 2 at ${directQuality} quality (${price}/image)?`)) return
+    if (!confirm(`Send this prompt to GPT Image 1 at ${directQuality} quality (${price}/image)?`)) return
     setDirectRunning(true)
     setDirectError('')
     try {

@@ -184,7 +184,7 @@ function InternalLightbox({
           {hasComments ? (
             <>
               <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12, lineHeight: 1.6 }}>
-                {comments.length} comment{comments.length !== 1 ? 's' : ''} will be compiled into an edit prompt for GPT Image 2.
+                {comments.length} comment{comments.length !== 1 ? 's' : ''} will be compiled into an edit prompt for GPT Image 1.
                 {hasRevision && <span style={{ color: 'var(--accent)', display: 'block', marginTop: 4 }}>A revision already exists. Generating again will replace it.</span>}
               </div>
 

@@ -3,8 +3,11 @@
 :root {
   --background: #0d0d0d;
   --surface: #161616;
+  --surface-1: #161616;
+  --surface-2: #1a1a1a;
   --surface-raised: #1f1f1f;
   --border: #2a2a2a;
+  --border-strong: #3a3a3a;
   --border-hover: #3a3a3a;
   --text-primary: #f5f5f5;
   --text-secondary: #888888;
@@ -15,6 +18,55 @@
   --success: #22c55e;
   --warning: #eab308;
   --danger: #ef4444;
+
+  /* ── Prometheus stage color system ── */
+
+  /* Stage 1: Brief */
+  --stage-brief:        #94A3B8;
+  --stage-brief-bg:     rgba(148, 163, 184, 0.14);
+  --stage-brief-text:   #94A3B8;
+
+  /* Stage 2: In Progress */
+  --stage-progress:     #3B82F6;
+  --stage-progress-bg:  rgba(59, 130, 246, 0.14);
+  --stage-progress-text:#60A5FA;
+
+  /* Stage 3: Internal Review */
+  --stage-internal:     #6366F1;
+  --stage-internal-bg:  rgba(99, 102, 241, 0.14);
+  --stage-internal-text:#818CF8;
+
+  /* Stage 4: Client Review */
+  --stage-client:       #F59E0B;
+  --stage-client-bg:    rgba(245, 158, 11, 0.14);
+  --stage-client-text:  #FCD34D;
+
+  /* Stage 5: Live */
+  --stage-live:         #65A30D;
+  --stage-live-bg:      rgba(101, 163, 13, 0.16);
+  --stage-live-text:    #A3E635;
+
+  /* Stage 6: Done */
+  --stage-done:         #10B981;
+  --stage-done-bg:      rgba(16, 185, 129, 0.16);
+  --stage-done-text:    #34D399;
+
+  /* ── Urgency ── */
+  --urgent-overdue:     #EF4444;
+  --urgent-overdue-bg:  rgba(239, 68, 68, 0.14);
+  --urgent-soon:        #F97316;
+  --urgent-soon-bg:     rgba(249, 115, 22, 0.14);
+
+  /* ── BD Pipeline ── */
+  --bd-intro:           #A78BFA;
+  --bd-discovery:       #818CF8;
+  --bd-offer:           #F59E0B;
+  --bd-active:          #10B981;
+
+  /* ── Client status ── */
+  --client-approved:    #10B981;
+  --client-flagged:     #EF4444;
+  --client-pending:     #94A3B8;
 }
 
 * {
@@ -153,6 +205,20 @@ label {
 .kanban-card:hover {
   transform: translateY(-2px);
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+
+/* Project card hover */
+.project-card:hover {
+  background: var(--surface-2);
+}
+
+/* Responsive: dashboard grid stacks under 900px, KPI strip becomes 2×2 under 768px */
+@media (max-width: 900px) {
+  .dashboard-grid { grid-template-columns: 1fr !important; }
+}
+@media (max-width: 768px) {
+  .kpi-strip { grid-template-columns: repeat(2, 1fr) !important; }
+  .bd-kanban-grid { grid-template-columns: repeat(4, minmax(180px, 1fr)) !important; }
 }
 
 /* Tab loading sweep bar */
