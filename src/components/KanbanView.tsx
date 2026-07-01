@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useDeferredValue, useMemo, useTransition } from 'react'
+import { memo, useState, useEffect, useDeferredValue, useMemo, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   DndContext, DragOverlay,
@@ -10,7 +10,7 @@ import {
   type DragStartEvent, type DragOverEvent, type DragEndEvent,
 } from '@dnd-kit/core'
 import { STAGE_ORDER, STAGE_LABELS, type Stage, type Project } from '@/lib/types'
-import { updateProjectStage } from '@/lib/actions'
+import { updateProjectStagesBoth } from '@/lib/actions'
 import { isProjectOverdue } from '@/lib/stageColors'
 import KanbanCard from './KanbanCard'
 
@@ -114,10 +114,7 @@ export default function KanbanView({ pipeline }: { pipeline: PipelineProject[] }
 
     startTransition(async () => {
       try {
-        await Promise.all([
-          updateProjectStage(card.id, card.brands.id, 'lp_stage', targetStage),
-          updateProjectStage(card.id, card.brands.id, 'creatives_stage', targetStage),
-        ])
+        await updateProjectStagesBoth(card.id, card.brands.id, targetStage)
         router.refresh()
       } catch {
         setLocalProjects(snapshot)
@@ -236,7 +233,12 @@ export default function KanbanView({ pipeline }: { pipeline: PipelineProject[] }
   )
 }
 
-function KanbanColumn({
+// Memoized so that a pointer-driven `overId` change on the parent only
+// re-renders the columns whose `isOver` actually flipped (the leaving column
+// and the entering one), instead of all six on every mousemove.
+const KanbanColumn = memo(KanbanColumnInner)
+
+function KanbanColumnInner({
   stage,
   cards,
   isOver,

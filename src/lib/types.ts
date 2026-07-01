@@ -37,6 +37,7 @@ export interface Brand {
   pipeline_status: PipelineStatus
   client_number: number | null
   brand_notes: string | null
+  onboarding_transcript: string | null
   client_token: string | null
   created_at: string
   created_by: string

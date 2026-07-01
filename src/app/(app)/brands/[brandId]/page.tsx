@@ -6,6 +6,7 @@ import { updateBrandDetails, deleteBrand } from '@/lib/actions'
 import ConfirmDeleteForm from '@/components/ConfirmDeleteForm'
 import ProfitEngineerSelect from '@/components/ProfitEngineerSelect'
 import ClientPortalButton from '@/components/ClientPortalButton'
+import OnboardingTranscriptField from '@/components/OnboardingTranscriptField'
 import type { Brand, Project, Journey, PipelineStatus } from '@/lib/types'
 import { PIPELINE_STATUS_LABELS, PIPELINE_STATUS_ORDER } from '@/lib/types'
 import JourneyHeader from '@/components/JourneyHeader'
@@ -267,6 +268,11 @@ export default async function BrandPage({ params }: { params: Promise<{ brandId:
                   placeholder="General account context, strategy notes, things to keep in mind…"
                   style={{ resize: 'vertical' }}
                 />
+              </div>
+
+              {/* Onboarding meeting transcript */}
+              <div style={{ marginBottom: 20 }}>
+                <OnboardingTranscriptField initialValue={b.onboarding_transcript ?? null} />
               </div>
 
               <button type="submit" className="btn-secondary" style={{ fontSize: 13 }}>

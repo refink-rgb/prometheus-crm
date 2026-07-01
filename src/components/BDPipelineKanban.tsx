@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useOptimistic, useTransition } from 'react'
+import { memo, useMemo, useState, useOptimistic, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
@@ -58,12 +58,18 @@ export default function BDPipelineKanban({ brands, canEdit }: BDPipelineKanbanPr
     }),
   )
 
-  const columns = PIPELINE_STATUS_ORDER.map(status => ({
-    status,
-    label: PIPELINE_STATUS_LABELS[status],
-    color: COLUMN_COLORS[status],
-    items: optimisticBrands.filter(b => b.pipeline_status === status),
-  }))
+  // Memoize per-column groupings so the `items` array reference stays stable
+  // between renders that don't change the brand list (e.g. drag-hover flicker).
+  // Stable refs let the memoized BrandMiniCards skip re-render entirely.
+  const columns = useMemo(
+    () => PIPELINE_STATUS_ORDER.map(status => ({
+      status,
+      label: PIPELINE_STATUS_LABELS[status],
+      color: COLUMN_COLORS[status],
+      items: optimisticBrands.filter(b => b.pipeline_status === status),
+    })),
+    [optimisticBrands]
+  )
 
   const activeBrand = draggingId ? optimisticBrands.find(b => b.id === draggingId) ?? null : null
 
@@ -212,7 +218,12 @@ function KanbanColumn({
   )
 }
 
-function BrandMiniCard({
+// Memoized so `draggingId` state changes on the board (fired at drag-start /
+// end and on any hover transition) don't re-render every card on every column.
+// `brand` and the flags are stable references between renders.
+const BrandMiniCard = memo(BrandMiniCardInner)
+
+function BrandMiniCardInner({
   brand,
   canEdit,
   draggable,

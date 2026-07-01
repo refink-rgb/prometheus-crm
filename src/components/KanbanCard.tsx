@@ -1,5 +1,6 @@
 'use client'
 
+import { memo } from 'react'
 import Link from 'next/link'
 import { useDraggable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
@@ -22,7 +23,7 @@ interface KanbanCardProps {
   isGhost?: boolean
 }
 
-export default function KanbanCard({ p, isGhost = false }: KanbanCardProps) {
+function KanbanCardInner({ p, isGhost = false }: KanbanCardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: p.id,
     disabled: isGhost,
@@ -150,6 +151,12 @@ export default function KanbanCard({ p, isGhost = false }: KanbanCardProps) {
     </div>
   )
 }
+
+// Memoized so drag-over/pointer-move events on the parent board don't force
+// every card in every column to re-render. `p` is a stable reference between
+// renders (comes straight from server data), so shallow-equal props is enough.
+const KanbanCard = memo(KanbanCardInner)
+export default KanbanCard
 
 function TrackBadge({ label, stage, approved }: { label: string; stage: Stage; approved: boolean }) {
   const color = STAGE_COLORS[stage]

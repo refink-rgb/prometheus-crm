@@ -162,6 +162,29 @@ export async function updateProjectStage(
   revalidatePath('/')
 }
 
+// Combined stage update — used by the pipeline kanban drag-drop, which always
+// moves both LP and Creatives to the same column. One UPDATE + one server call
+// instead of two, so the optimistic UI settles faster.
+export async function updateProjectStagesBoth(
+  projectId: string,
+  brandId: string,
+  stage: Stage
+) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
+
+  await supabase
+    .from('projects')
+    .update({ lp_stage: stage, creatives_stage: stage })
+    .eq('id', projectId)
+
+  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+  revalidatePath('/')
+  revalidatePath('/pipeline')
+}
+
 export async function updateProjectDeliverable(formData: FormData) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -230,10 +253,11 @@ export async function updateBrandDetails(formData: FormData) {
   const profit_engineer = (formData.get('profit_engineer') as string)?.trim() || null
   const pipeline_status = (formData.get('pipeline_status') as string) || 'active'
   const brand_notes = (formData.get('brand_notes') as string)?.trim() || null
+  const onboarding_transcript = (formData.get('onboarding_transcript') as string)?.trim() || null
 
   await supabase
     .from('brands')
-    .update({ monthly_retainer, start_date, growth_strategist, is_active, is_trial, profit_engineer, pipeline_status, brand_notes })
+    .update({ monthly_retainer, start_date, growth_strategist, is_active, is_trial, profit_engineer, pipeline_status, brand_notes, onboarding_transcript })
     .eq('id', brandId)
 
   revalidatePath(`/brands/${brandId}`)
