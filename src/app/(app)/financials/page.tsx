@@ -31,12 +31,14 @@ export default async function FinancialsPage() {
     redirect('/')
   }
 
+  // Financials only reads these fields — avoid pulling large TEXT columns
+  // (onboarding_transcript, brand_notes, client_token, etc.) on this page.
   const { data: brands } = await supabase
     .from('brands')
-    .select('*')
+    .select('id, name, is_active, is_trial, monthly_retainer, start_date, pipeline_status')
     .order('monthly_retainer', { ascending: false, nullsFirst: false })
 
-  const allBrands = (brands ?? []) as Brand[]
+  const allBrands = (brands ?? []) as Pick<Brand, 'id' | 'name' | 'is_active' | 'is_trial' | 'monthly_retainer' | 'start_date' | 'pipeline_status'>[]
   const billableClients = allBrands
     .filter(b => (b.monthly_retainer ?? 0) > 0)
     .sort((a, b) => (b.monthly_retainer ?? 0) - (a.monthly_retainer ?? 0))

@@ -35,9 +35,11 @@ export default async function ProjectPage({
 
   if (!project) notFound()
 
+  // This page only renders the brand's name in the breadcrumb; no need to pull
+  // onboarding_transcript / brand_notes / client_token / etc.
   const { data: brand } = await supabase
     .from('brands')
-    .select('*')
+    .select('id, name')
     .eq('id', brandId)
     .single()
 
@@ -591,6 +593,8 @@ export default async function ProjectPage({
                       <img
                         src={img.storage_url}
                         alt={`Product ${i + 1}`}
+                        loading="lazy"
+                        decoding="async"
                         style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: 8, border: '1px solid var(--border)' }}
                       />
                     </a>

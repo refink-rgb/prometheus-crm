@@ -150,7 +150,7 @@ export default function NotesThread({
                         style={{ display: 'block', width: 64, height: 64, borderRadius: 6, overflow: 'hidden', border: '1px solid var(--border)' }}
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={url} alt={`Attachment ${i + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        <img src={url} alt={`Attachment ${i + 1}`} loading="lazy" decoding="async" width={64} height={64} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                       </a>
                     ))}
                   </div>
@@ -193,7 +193,7 @@ export default function NotesThread({
             {attachments.map((a, i) => (
               <div key={i} style={{ position: 'relative', width: 48, height: 48 }}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={a.preview} alt={`Pending ${i + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 4, border: '1px solid var(--border)' }} />
+                <img src={a.preview} alt={`Pending ${i + 1}`} loading="lazy" decoding="async" width={48} height={48} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 4, border: '1px solid var(--border)' }} />
                 <button
                   type="button"
                   onClick={() => removeAttachment(i)}

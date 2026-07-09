@@ -1,12 +1,12 @@
 import { createClient } from '@/lib/supabase/server'
 import { canEdit } from '@/lib/permissions'
-import type { Brand, Project } from '@/lib/types'
+import type { Project } from '@/lib/types'
 import { isProjectOverdue } from '@/lib/stageColors'
 import StageDistributionChart from '@/components/StageDistributionChart'
 import PipelineTable from '@/components/PipelineTable'
 import OverdueProjectsPanel from '@/components/OverdueProjectsPanel'
 
-type BrandWithProjects = Brand & { projects: Project[] }
+type DashboardBrand = { id: string; monthly_retainer: number | null; is_active: boolean }
 type PipelineProject = Project & { brands: { id: string; name: string } }
 
 function fmtCurrency(n: number) {
@@ -17,20 +17,24 @@ export default async function DashboardPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
+  // Dashboard only needs MRR + brand count from brands, and a narrow slice of
+  // projects to render KPIs / pipeline table / overdue panel. Avoid `select('*')`
+  // and the previously-nested projects(*) — both pulled huge JSON copy fields
+  // that nothing on this page reads.
   const [{ data: brands }, { data: pipelineRaw }] = await Promise.all([
     supabase
       .from('brands')
-      .select('*, projects(*)')
+      .select('id, monthly_retainer, is_active')
       .order('created_at', { ascending: false }),
     supabase
       .from('projects')
-      .select('*, brands(id, name)')
+      .select('id, name, brand_id, due_date, is_complete, lp_stage, creatives_stage, lp_approved, creatives_approved, brands(id, name)')
       .eq('is_complete', false)
       .order('due_date', { ascending: true }),
   ])
 
-  const allBrands = (brands ?? []) as BrandWithProjects[]
-  const pipeline = (pipelineRaw ?? []) as PipelineProject[]
+  const allBrands = (brands ?? []) as DashboardBrand[]
+  const pipeline = (pipelineRaw ?? []) as unknown as PipelineProject[]
   const isAuthorized = canEdit(user?.email)
 
   const activeClients = allBrands.filter(b => (b.monthly_retainer ?? 0) > 0 && b.is_active)

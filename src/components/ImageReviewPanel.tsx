@@ -143,6 +143,7 @@ function AssetRow({
           <img
             src={imgSrc}
             alt={asset.name ?? `Creative ${index + 1}`}
+            decoding="async"
             style={{ width: '100%', display: 'block', userSelect: 'none' }}
             draggable={false}
           />

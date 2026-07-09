@@ -1,6 +1,12 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+
+// Revalidation rule of thumb: only invalidate '/' (the dashboard) when the
+// mutation changes something the dashboard actually renders — the pipeline
+// table reads name/due_date/is_complete/lp_stage/creatives_stage/lp_approved/
+// creatives_approved, and the KPI strip reads brand count / MRR. For anything
+// else, revalidate only the specific brand/project/pipeline paths.
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { canEdit } from '@/lib/permissions'
@@ -242,8 +248,8 @@ export async function toggleProjectRevisions(projectId: string, brandId: string,
     .update({ needs_revisions: value })
     .eq('id', projectId)
 
+  // needs_revisions is not shown on the dashboard — skip '/'.
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)
-  revalidatePath('/')
 }
 
 export async function markProjectComplete(projectId: string, brandId: string) {
@@ -313,8 +319,9 @@ export async function updateBrandPipelineStatus(
     .update({ pipeline_status: newStatus })
     .eq('id', brandId)
 
+  // Dashboard doesn't render pipeline_status; the financials page does.
   revalidatePath('/pipeline')
-  revalidatePath('/')
+  revalidatePath('/financials')
   revalidatePath(`/brands/${brandId}`)
 }
 
@@ -680,13 +687,37 @@ export async function publishAssets(
   const { data: rows, error: selErr } = await query
   if (selErr) throw new Error(selErr.message)
 
+  // Two update shapes: rows without a revision_url just flip client_visible;
+  // rows with a revision_url also copy it into published_url. Batch the first
+  // group into one query; parallelize the second because published_url differs
+  // per row.
+  const rowsList = rows ?? []
+  const plainIds = rowsList.filter(r => !r.revision_url).map(r => r.id)
+  const withRevision = rowsList.filter(r => r.revision_url)
+
   let published = 0
-  for (const row of rows ?? []) {
-    const update: { client_visible: boolean; published_url?: string } = { client_visible: true }
-    if (row.revision_url) update.published_url = row.revision_url
-    const { error } = await supabase.from('creative_assets').update(update).eq('id', row.id)
-    if (error) { console.error(`[publishAssets] failed for ${row.id}:`, error.message); continue }
-    published += 1
+
+  if (plainIds.length > 0) {
+    const { error } = await supabase
+      .from('creative_assets')
+      .update({ client_visible: true })
+      .in('id', plainIds)
+    if (error) console.error('[publishAssets] batch update failed:', error.message)
+    else published += plainIds.length
+  }
+
+  if (withRevision.length > 0) {
+    const results = await Promise.all(withRevision.map(row =>
+      supabase
+        .from('creative_assets')
+        .update({ client_visible: true, published_url: row.revision_url })
+        .eq('id', row.id)
+        .then(({ error }) => ({ id: row.id, error }))
+    ))
+    for (const r of results) {
+      if (r.error) console.error(`[publishAssets] failed for ${r.id}:`, r.error.message)
+      else published += 1
+    }
   }
 
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)
@@ -698,10 +729,13 @@ export async function publishAssets(
 // Internal helper: move a single asset's Drive file into the project's Delete
 // subfolder and set is_hidden=true. Does NOT do auth — callers gate access.
 // Throws on Drive failure; callers decide whether to swallow that error.
+// Callers batching over many assets should pass `driveFolderUrl` to avoid
+// re-fetching the project row per asset.
 async function _archiveAssetCore(
   supabase: Awaited<ReturnType<typeof createClient>>,
   assetId: string,
-  projectId: string
+  projectId: string,
+  driveFolderUrl?: string
 ): Promise<void> {
   const { data: asset } = await supabase
     .from('creative_assets')
@@ -711,16 +745,20 @@ async function _archiveAssetCore(
     .single()
   if (!asset) throw new Error('Asset not found.')
 
-  const { data: project } = await supabase
-    .from('projects')
-    .select('drive_folder_url')
-    .eq('id', projectId)
-    .single()
-  if (!project?.drive_folder_url) {
+  let folderUrl = driveFolderUrl
+  if (!folderUrl) {
+    const { data: project } = await supabase
+      .from('projects')
+      .select('drive_folder_url')
+      .eq('id', projectId)
+      .single()
+    folderUrl = project?.drive_folder_url
+  }
+  if (!folderUrl) {
     throw new Error('Project has no Drive folder configured — cannot move file to Delete.')
   }
 
-  const parentFolderId = extractDriveFolderId(project.drive_folder_url)
+  const parentFolderId = extractDriveFolderId(folderUrl)
   const deleteFolderId = await ensureDeleteSubfolder(parentFolderId)
   await moveDriveFile(asset.drive_file_id, parentFolderId, deleteFolderId)
 
@@ -865,10 +903,25 @@ export async function purgeStaleAssets(
     assetIds && assetIds.length > 0 ? true : a.is_hidden || a.status === 'rejected' || a.internal_status === 'rejected'
   )
 
+  // Fetch the project's drive folder once and pass it into each archive call,
+  // instead of re-fetching per asset (was 2N+1 queries).
+  let driveFolderUrl: string | undefined
+  if (targets.length > 0) {
+    const { data: project } = await supabase
+      .from('projects')
+      .select('drive_folder_url')
+      .eq('id', projectId)
+      .single()
+    driveFolderUrl = project?.drive_folder_url ?? undefined
+    if (!driveFolderUrl) {
+      throw new Error('Project has no Drive folder configured — cannot move files to Delete.')
+    }
+  }
+
   let purged = 0
   for (const row of targets) {
     try {
-      await _archiveAssetCore(supabase, row.id, projectId)
+      await _archiveAssetCore(supabase, row.id, projectId, driveFolderUrl)
       purged += 1
     } catch (err) {
       console.error(`[purgeStaleAssets] failed for asset ${row.id}:`, err)
@@ -1224,7 +1277,8 @@ export async function addProfitEngineer(name: string) {
   if (!canEdit(user.email)) throw new Error('Not authorized.')
 
   await supabase.from('profit_engineers').insert({ name: name.trim() })
-  revalidatePath('/', 'layout')
+  // The dropdown that consumes this list only appears on brand pages.
+  revalidatePath('/brands', 'layout')
 }
 
 export async function addInternalNote(

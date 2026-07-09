@@ -26,8 +26,15 @@ export default async function BrandPage({ params }: { params: Promise<{ brandId:
 
   if (!brand) notFound()
 
+  // Brand page renders ProjectCard for each row and reads only these fields.
+  // The big JSON copy columns (ad_headlines/ad_subcopies/ad_eyebrows/body_copy)
+  // and the full ad-brief fields belong to the project detail page, not here.
   const [{ data: projects }, { data: peRows }, { data: journeyRows }] = await Promise.all([
-    supabase.from('projects').select('*').eq('brand_id', brandId).order('due_date', { ascending: true }),
+    supabase
+      .from('projects')
+      .select('id, name, brand_id, due_date, is_complete, journey_id, marketing_moment, lp_stage, creatives_stage, lp_approved, creatives_approved, share_token')
+      .eq('brand_id', brandId)
+      .order('due_date', { ascending: true }),
     supabase.from('profit_engineers').select('name').order('name', { ascending: true }),
     supabase.from('journeys').select('*').eq('brand_id', brandId).order('created_at', { ascending: false }),
   ])

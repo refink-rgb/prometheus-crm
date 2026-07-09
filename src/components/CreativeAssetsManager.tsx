@@ -112,6 +112,7 @@ function InternalLightbox({
             <img
               src={mainImage}
               alt={asset.name ?? 'Creative'}
+              decoding="async"
               style={{
                 maxWidth: '100%',
                 maxHeight: 'calc(100vh - 130px)',
@@ -163,6 +164,10 @@ function InternalLightbox({
               <img
                 src={originalThumb}
                 alt="Original"
+                loading="lazy"
+                decoding="async"
+                width={120}
+                height={120}
                 style={{ width: 120, height: 120, objectFit: 'cover', display: 'block' }}
               />
             </div>
@@ -598,6 +603,8 @@ function AssetThumb({
         <img
           src={displayUrl}
           alt={asset.name ?? `Image ${index + 1}`}
+          loading="lazy"
+          decoding="async"
           style={{
             width: '100%', aspectRatio: '1', objectFit: 'cover',
             borderRadius: 8, display: 'block',

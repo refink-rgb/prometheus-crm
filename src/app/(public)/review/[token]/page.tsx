@@ -255,6 +255,8 @@ export default async function ReviewPage({
                   <img
                     src={img.storage_url}
                     alt={`Product ${i + 1}`}
+                    loading="lazy"
+                    decoding="async"
                     style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: 10, border: '1px solid var(--border)', display: 'block' }}
                   />
                 </a>

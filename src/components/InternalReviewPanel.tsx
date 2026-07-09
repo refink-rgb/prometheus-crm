@@ -294,7 +294,7 @@ export default function InternalReviewPanel({
               }}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={thumb} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+              <img src={thumb} alt="" loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
               {/* Client-visibility dot: filled green = live to client, hollow = internal only */}
               <div title={a.client_visible ? 'Live to client' : 'Internal only'} style={{
                 position: 'absolute', top: 3, right: 3, width: 10, height: 10, borderRadius: '50%',
@@ -576,6 +576,7 @@ function AssetView({
           <img
             src={displaySrc}
             alt={asset.name ?? 'Creative'}
+            decoding="async"
             style={{ width: '100%', display: 'block', userSelect: 'none', maxHeight: 'calc(100vh - 260px)', objectFit: 'contain', background: '#080808' }}
             draggable={false}
           />

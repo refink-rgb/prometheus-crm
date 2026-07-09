@@ -117,6 +117,8 @@ export default function ImageUploader({ onChange, value }: ImageUploaderProps) {
               <img
                 src={img.preview || img.url}
                 alt={`Product image ${i + 1}`}
+                loading="lazy"
+                decoding="async"
                 style={{ width: '100%', height: '100%', objectFit: 'cover' }}
               />
               <button
