@@ -34,6 +34,25 @@ CREATE TABLE IF NOT EXISTS projects (
   creatives_notes TEXT,
   shopify_coupon_code TEXT,
   is_complete BOOLEAN DEFAULT FALSE,
+  -- Per-stage due dates (see 20260708_brief_restructure.sql)
+  stage_brief_due_date DATE,
+  stage_in_progress_due_date DATE,
+  stage_internal_review_due_date DATE,
+  stage_client_review_due_date DATE,
+  -- Extended brief fields (see 20260708_brief_restructure.sql)
+  product_description TEXT,
+  retail_price TEXT,
+  offer_dynamics_type TEXT,
+  offer_dynamics_detail TEXT,
+  competitor_reference TEXT,
+  client_ad_inspiration TEXT,
+  ad_copy_primary_text TEXT,
+  ad_copy_description TEXT,
+  ad_copy_url TEXT,
+  product_images_link TEXT,
+  ad_headlines JSONB,
+  ad_subcopies JSONB,
+  ad_eyebrows JSONB,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL
 );
