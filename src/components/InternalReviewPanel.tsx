@@ -441,6 +441,7 @@ function AssetView({
       pin_y: pendingPin?.y ?? null,
       section_tag: null,
       audience: 'internal',
+      attachment_urls: null,
     }
     onCommentAdded(optimistic)
     try {

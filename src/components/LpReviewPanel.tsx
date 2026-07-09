@@ -103,6 +103,7 @@ export default function LpReviewPanel({
       pin_y: null,
       section_tag: sectionTag,
       audience: 'client',
+      attachment_urls: null,
     }
     setComments(prev => [optimistic, ...prev])
 

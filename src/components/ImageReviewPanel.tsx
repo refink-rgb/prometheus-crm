@@ -60,6 +60,7 @@ function AssetRow({
       pin_y: pendingPin?.y ?? null,
       section_tag: null,
       audience: 'client',
+      attachment_urls: null,
     }
     setComments(prev => [...prev, optimistic])
     try {
