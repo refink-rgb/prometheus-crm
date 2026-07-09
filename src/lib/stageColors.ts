@@ -45,9 +45,39 @@ export function cardBorderColor(
   return STAGE_COLORS[dominant].border
 }
 
-export function calcDaysUntil(dueDateStr: string | null | undefined): number | null {
+// Postgres `DATE` values arrive as `YYYY-MM-DD`. `new Date("YYYY-MM-DD")` parses
+// them as UTC midnight, which renders as the previous calendar day in any
+// timezone west of UTC. Force a local-midnight parse so the day the user sees
+// matches the day the team stored.
+const BARE_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+
+export function parseDueDate(dueDateStr: string | null | undefined): Date | null {
   if (!dueDateStr) return null
-  return Math.ceil((new Date(dueDateStr).getTime() - Date.now()) / 86_400_000)
+  // Handle both plain dates and full ISO strings; only patch bare YYYY-MM-DD.
+  const bare = BARE_DATE_RE.test(dueDateStr) ? `${dueDateStr}T00:00:00` : dueDateStr
+  const d = new Date(bare)
+  return isNaN(d.getTime()) ? null : d
+}
+
+// Local-midnight-of-today, computed once per call site so the caller can pass
+// it in when computing multiple days-until values in one render.
+function localMidnightToday(): number {
+  const now = new Date()
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+}
+
+export function calcDaysUntil(dueDateStr: string | null | undefined): number | null {
+  const due = parseDueDate(dueDateStr)
+  if (!due) return null
+  return Math.round((due.getTime() - localMidnightToday()) / 86_400_000)
+}
+
+// Combined variant: parses once, returns both. Prefer this at render sites
+// that need the Date AND the days-until — halves the work of calling both.
+export function parseAndDaysUntil(dueDateStr: string | null | undefined): { due: Date | null; daysUntil: number | null } {
+  const due = parseDueDate(dueDateStr)
+  if (!due) return { due: null, daysUntil: null }
+  return { due, daysUntil: Math.round((due.getTime() - localMidnightToday()) / 86_400_000) }
 }
 
 export function isProjectLive(lpStage: Stage | null, creativesStage: Stage | null): boolean {

@@ -14,12 +14,10 @@ export const PIPELINE_STATUS_ORDER: PipelineStatus[] = [
 ]
 
 export const PAGE_TYPE_OPTIONS = [
-  'Long Form',
-  'Short Form',
-  'Advertorial',
   'Listicle',
-  'Video Sales Letter',
-  'Other',
+  'Bundle Builder',
+  'Collection Page',
+  'Generic Offer Page',
 ] as const
 
 export type PageType = typeof PAGE_TYPE_OPTIONS[number]
@@ -54,12 +52,19 @@ export interface Project {
   id: string
   brand_id: string
   name: string
+  // Launch (LIVE) target date. Per-stage targets live in the stage_*_due_date columns.
   due_date: string
+  // Per-stage planning targets (informational — never gate advancement).
+  stage_brief_due_date: string | null
+  stage_in_progress_due_date: string | null
+  stage_internal_review_due_date: string | null
+  stage_client_review_due_date: string | null
   drive_folder_url: string | null
   // offer description step
   offer_description: string | null
+  // Superseded by competitor_reference + client_ad_inspiration. Kept for legacy reads.
   inspiration: string | null
-  // copy & offer step
+  // Superseded by offer_dynamics_type + offer_dynamics_detail. Kept for legacy reads.
   offer_type: string | null
   offer: string | null
   discount: string | null
@@ -79,6 +84,20 @@ export interface Project {
   marketing_moment: 1 | 2 | null
   page_type: string | null
   product_featured: string | null
+  product_description: string | null
+  // Creatives-only brief fields
+  retail_price: string | null
+  offer_dynamics_type: string | null
+  offer_dynamics_detail: string | null
+  competitor_reference: string | null
+  client_ad_inspiration: string | null
+  ad_copy_primary_text: string | null
+  ad_copy_description: string | null
+  ad_copy_url: string | null
+  ad_headlines: string[] | null
+  ad_subcopies: string[] | null
+  ad_eyebrows: string[] | null
+  product_images_link: string | null
   needs_revisions: boolean
   // offer lock
   offer_locked: boolean
@@ -138,6 +157,9 @@ export interface ProjectComment {
   // 'client' = posted from the public review link; 'internal' = posted from
   // the authed internal review page. Defaulted at the DB level to 'client'.
   audience: 'internal' | 'client'
+  // Freeform image attachments (Supabase storage URLs). Distinct from asset_id,
+  // which is for pin-annotations on creative-review images.
+  attachment_urls: string[] | null
 }
 
 export interface CreativeAsset {
