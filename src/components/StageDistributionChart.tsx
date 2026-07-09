@@ -57,7 +57,7 @@ export default function StageDistributionChart({ projects }: StageDistributionCh
               type="number"
               domain={[0, Math.ceil(maxCount * 1.15)]}
               tick={{ fill: '#666', fontSize: 11 }}
-              axisLine={{ stroke: 'rgba(255,255,255,0.08)' }}
+              axisLine={{ stroke: 'rgba(120,120,120,0.25)' }}
               tickLine={false}
               allowDecimals={false}
             />
@@ -70,15 +70,16 @@ export default function StageDistributionChart({ projects }: StageDistributionCh
               width={110}
             />
             <Tooltip
-              cursor={{ fill: 'rgba(255,255,255,0.04)' }}
+              cursor={{ fill: 'rgba(120,120,120,0.08)' }}
               contentStyle={{
-                background: '#111',
-                border: '1px solid rgba(255,255,255,0.12)',
+                background: 'var(--surface-raised)',
+                border: '1px solid var(--border)',
                 borderRadius: 8,
                 fontSize: 12,
+                color: 'var(--text-primary)',
               }}
-              labelStyle={{ color: '#eee' }}
-              itemStyle={{ color: '#eee' }}
+              labelStyle={{ color: 'var(--text-primary)' }}
+              itemStyle={{ color: 'var(--text-primary)' }}
               formatter={(value) => [`${Number(value)} project${Number(value) === 1 ? '' : 's'}`, 'Count']}
             />
             <Bar dataKey="count" radius={[3, 3, 3, 3]}>

@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { signOut } from '@/lib/actions'
+import ThemeToggle from '@/components/ThemeToggle'
 
 interface SidebarProps {
   email?: string | null
@@ -163,8 +164,8 @@ export default function Sidebar({ email, canEdit }: SidebarProps) {
                   borderRadius: 8,
                   fontSize: 13,
                   fontWeight: active ? 600 : 500,
-                  color: active ? '#fff' : 'var(--text-muted)',
-                  background: active ? 'rgba(255,255,255,0.06)' : 'transparent',
+                  color: active ? 'var(--accent)' : 'var(--text-muted)',
+                  background: active ? 'var(--accent-muted)' : 'transparent',
                   borderLeft: active ? '3px solid var(--accent)' : '3px solid transparent',
                   paddingLeft: active ? 9 : 12,
                   textDecoration: 'none',
@@ -195,24 +196,27 @@ export default function Sidebar({ email, canEdit }: SidebarProps) {
               {email}
             </div>
           )}
-          <form action={signOut}>
-            <button type="submit" style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              background: 'transparent',
-              color: 'var(--text-muted)',
-              border: '1px solid var(--sidebar-border)',
-              borderRadius: 6,
-              padding: '5px 10px',
-              fontSize: 11,
-              fontWeight: 500,
-              cursor: 'pointer',
-              transition: 'border-color 0.12s, color 0.12s',
-            }}>
-              Log out
-            </button>
-          </form>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <ThemeToggle />
+            <form action={signOut}>
+              <button type="submit" style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                background: 'transparent',
+                color: 'var(--text-muted)',
+                border: '1px solid var(--sidebar-border)',
+                borderRadius: 6,
+                padding: '5px 10px',
+                fontSize: 11,
+                fontWeight: 500,
+                cursor: 'pointer',
+                transition: 'border-color 0.12s, color 0.12s',
+              }}>
+                Log out
+              </button>
+            </form>
+          </div>
         </div>
       </aside>
 

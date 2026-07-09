@@ -43,7 +43,7 @@ export default function BrandCard({ brand, canEdit }: BrandCardProps) {
     <Link href={`/brands/${brand.id}`} style={{ textDecoration: 'none', display: 'block' }}>
       <div className="brand-grid-card" style={{
         background: 'var(--surface-1)',
-        border: '1px solid rgba(255,255,255,0.1)',
+        border: '1px solid var(--border)',
         borderRadius: 12,
         padding: 20,
         cursor: 'pointer',
@@ -83,7 +83,7 @@ export default function BrandCard({ brand, canEdit }: BrandCardProps) {
           {billing.label}
         </span>
 
-        <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '14px 0 12px' }} />
+        <div style={{ height: 1, background: 'var(--border)', margin: '14px 0 12px' }} />
 
         <div style={{
           display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
