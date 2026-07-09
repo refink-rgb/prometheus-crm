@@ -39,7 +39,6 @@ interface Props {
     product_description: string | null
     retail_price: string | null
     offer_dynamics_type: string | null
-    offer_dynamics_detail: string | null
     competitor_reference: string | null
     client_ad_inspiration: string | null
     ad_copy_primary_text: string | null
@@ -161,7 +160,6 @@ export default function ProjectEditForm({ projectId, brandId, journeys, initial 
   // Creatives-only
   const [retailPrice, setRetailPrice] = useState(initial.retail_price ?? '')
   const [offerDynamicsType, setOfferDynamicsType] = useState(initial.offer_dynamics_type ?? '')
-  const [offerDynamicsDetail, setOfferDynamicsDetail] = useState(initial.offer_dynamics_detail ?? '')
   const [competitorReference, setCompetitorReference] = useState(initial.competitor_reference ?? '')
   const [clientAdInspiration, setClientAdInspiration] = useState(initial.client_ad_inspiration ?? '')
   const [adCopyPrimary, setAdCopyPrimary] = useState(initial.ad_copy_primary_text ?? '')
@@ -197,7 +195,6 @@ export default function ProjectEditForm({ projectId, brandId, journeys, initial 
     setSupportingMessage(initial.supporting_message ?? '')
     setRetailPrice(initial.retail_price ?? '')
     setOfferDynamicsType(initial.offer_dynamics_type ?? '')
-    setOfferDynamicsDetail(initial.offer_dynamics_detail ?? '')
     setCompetitorReference(initial.competitor_reference ?? '')
     setClientAdInspiration(initial.client_ad_inspiration ?? '')
     setAdCopyPrimary(initial.ad_copy_primary_text ?? '')
@@ -242,7 +239,6 @@ export default function ProjectEditForm({ projectId, brandId, journeys, initial 
         product_description: productDescription.trim() || null,
         retail_price: retailPrice.trim() || null,
         offer_dynamics_type: offerDynamicsType || null,
-        offer_dynamics_detail: offerDynamicsDetail.trim() || null,
         competitor_reference: competitorReference.trim() || null,
         client_ad_inspiration: clientAdInspiration.trim() || null,
         ad_copy_primary_text: adCopyPrimary.trim() || null,
@@ -379,7 +375,13 @@ export default function ProjectEditForm({ projectId, brandId, journeys, initial 
       {/* ── Shared brief ── */}
       <Section title="Shared brief" subtitle="Used by both LP and Creatives.">
         <Field label="Offer / Promo" optional>
-          <input type="text" value={offer} onChange={e => setOffer(e.target.value)} placeholder="e.g. Buy 2 Get 1 Free" />
+          <select value={offerDynamicsType} onChange={e => setOfferDynamicsType(e.target.value)} style={{ marginBottom: 8 }}>
+            <option value="">Select offer type…</option>
+            {OFFER_DYNAMICS_OPTIONS.map(o => (
+              <option key={o} value={o}>{o}</option>
+            ))}
+          </select>
+          <input type="text" value={offer} onChange={e => setOffer(e.target.value)} placeholder="Details — e.g. Buy 2 Get 1 Free, 20% off orders $75+" />
         </Field>
         <Field label="Offer overview" optional>
           <textarea value={offerDescription} onChange={e => setOfferDescription(e.target.value)} rows={4} style={{ resize: 'vertical' }} />
@@ -442,22 +444,6 @@ export default function ProjectEditForm({ projectId, brandId, journeys, initial 
 
         <Field label="Retail price / value" optional>
           <input type="text" value={retailPrice} onChange={e => setRetailPrice(e.target.value)} placeholder='e.g. $29.99, "$29.99 value"' />
-        </Field>
-
-        <Field label="Offer dynamics" optional>
-          <select value={offerDynamicsType} onChange={e => setOfferDynamicsType(e.target.value)} style={{ marginBottom: 8 }}>
-            <option value="">Select dynamic…</option>
-            {OFFER_DYNAMICS_OPTIONS.map(o => (
-              <option key={o} value={o}>{o}</option>
-            ))}
-          </select>
-          <textarea
-            value={offerDynamicsDetail}
-            onChange={e => setOfferDynamicsDetail(e.target.value)}
-            rows={2}
-            placeholder="Details that don't fit the preset — thresholds, add-ons, tier structure, etc."
-            style={{ resize: 'vertical' }}
-          />
         </Field>
 
         <Field label="Competitor reference" optional>

@@ -121,7 +121,6 @@ export async function createProject(formData: FormData): Promise<{ redirect: str
       product_description: str('product_description'),
       retail_price: str('retail_price'),
       offer_dynamics_type: str('offer_dynamics_type'),
-      offer_dynamics_detail: str('offer_dynamics_detail'),
       competitor_reference: str('competitor_reference'),
       client_ad_inspiration: str('client_ad_inspiration'),
       ad_copy_primary_text: str('ad_copy_primary_text'),
@@ -1375,7 +1374,6 @@ export async function updateProjectDetails(
     product_description: string | null
     retail_price: string | null
     offer_dynamics_type: string | null
-    offer_dynamics_detail: string | null
     competitor_reference: string | null
     client_ad_inspiration: string | null
     ad_copy_primary_text: string | null

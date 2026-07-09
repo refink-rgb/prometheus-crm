@@ -311,7 +311,6 @@ export default async function ProjectPage({
               product_description: p.product_description,
               retail_price: p.retail_price,
               offer_dynamics_type: p.offer_dynamics_type,
-              offer_dynamics_detail: p.offer_dynamics_detail,
               competitor_reference: p.competitor_reference,
               client_ad_inspiration: p.client_ad_inspiration,
               ad_copy_primary_text: p.ad_copy_primary_text,

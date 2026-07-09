@@ -294,7 +294,13 @@ export default function NewProjectForm({
           {/* Shared Core Brief */}
           <Section title="Shared brief" subtitle="Used by both LP and Creatives. Brand DNA is read from the brand's Account Notes.">
             <Field label="Offer / Promo" optional>
-              <input name="offer" type="text" placeholder="e.g. Buy 2 Get 1 Free" />
+              <select name="offer_dynamics_type" defaultValue="" style={{ marginBottom: 8 }}>
+                <option value="">Select offer type…</option>
+                {OFFER_DYNAMICS_OPTIONS.map(o => (
+                  <option key={o} value={o}>{o}</option>
+                ))}
+              </select>
+              <input name="offer" type="text" placeholder="Details — e.g. Buy 2 Get 1 Free, 20% off orders $75+, GWP with any $50 order" />
             </Field>
             <Field label="Offer overview" optional>
               <textarea
@@ -371,21 +377,6 @@ export default function NewProjectForm({
 
             <Field label="Retail price / value" optional>
               <input name="retail_price" type="text" placeholder='e.g. $29.99, "$29.99 value"' />
-            </Field>
-
-            <Field label="Offer dynamics" optional>
-              <select name="offer_dynamics_type" defaultValue="" style={{ marginBottom: 8 }}>
-                <option value="">Select dynamic…</option>
-                {OFFER_DYNAMICS_OPTIONS.map(o => (
-                  <option key={o} value={o}>{o}</option>
-                ))}
-              </select>
-              <textarea
-                name="offer_dynamics_detail"
-                rows={2}
-                placeholder="Details that don't fit the preset — thresholds, add-ons, tier structure, etc."
-                style={{ resize: 'vertical' }}
-              />
             </Field>
 
             <Field label="Competitor reference" optional>
