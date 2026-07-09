@@ -1,5 +1,5 @@
 import type { Project } from '@/lib/types'
-import { calcDaysUntil, isProjectOverdue } from '@/lib/stageColors'
+import { calcDaysUntil, isProjectOverdue, parseDueDate } from '@/lib/stageColors'
 import ProjectCard from './ProjectCard'
 
 type ProjectWithBrand = Project & { brand_name: string }
@@ -64,8 +64,8 @@ export default function ActiveProjectsPanel({ projects }: ActiveProjectsPanelPro
   // Sort each group by due_date ASC
   for (const list of grouped.values()) {
     list.sort((a, b) => {
-      const da = a.due_date ? new Date(a.due_date).getTime() : Infinity
-      const db = b.due_date ? new Date(b.due_date).getTime() : Infinity
+      const da = parseDueDate(a.due_date)?.getTime() ?? Infinity
+      const db = parseDueDate(b.due_date)?.getTime() ?? Infinity
       return da - db
     })
   }

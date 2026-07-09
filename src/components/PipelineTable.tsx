@@ -4,7 +4,7 @@ import { useState, useDeferredValue, useMemo } from 'react'
 import Link from 'next/link'
 import type { Project, Stage } from '@/lib/types'
 import { STAGE_LABELS } from '@/lib/types'
-import { isProjectOverdue } from '@/lib/stageColors'
+import { isProjectOverdue, parseAndDaysUntil } from '@/lib/stageColors'
 
 type PipelineProject = Project & { brands: { id: string; name: string } }
 
@@ -166,9 +166,8 @@ export default function PipelineTable({ pipeline }: { pipeline: PipelineProject[
 }
 
 function DueBadge({ dueDate, isOverdue }: { dueDate: string | null; isOverdue: boolean }) {
-  if (!dueDate) return <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>—</span>
-  const due = new Date(dueDate)
-  const daysUntil = Math.ceil((due.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+  const { due, daysUntil } = parseAndDaysUntil(dueDate)
+  if (!due || daysUntil === null) return <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>—</span>
   const isUrgent = !isOverdue && daysUntil >= 0 && daysUntil <= 7
   const color = isOverdue ? 'var(--danger)' : isUrgent ? 'var(--warning)' : 'var(--text-muted)'
   const dueStr = due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })

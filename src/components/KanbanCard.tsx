@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useDraggable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
 import { STAGE_LABELS, type Stage, type Project } from '@/lib/types'
-import { isProjectOverdue } from '@/lib/stageColors'
+import { isProjectOverdue, parseAndDaysUntil } from '@/lib/stageColors'
 
 type PipelineProject = Project & { brands: { id: string; name: string } }
 
@@ -34,9 +34,7 @@ function KanbanCardInner({ p, isGhost = false }: KanbanCardProps) {
   const cardIdx = Math.min(lpIdx, crIdx)
   const aligned = p.lp_stage === p.creatives_stage
 
-  const now = Date.now()
-  const due = p.due_date ? new Date(p.due_date) : null
-  const daysLeft = due ? Math.ceil((due.getTime() - now) / (1000 * 60 * 60 * 24)) : null
+  const { due, daysUntil: daysLeft } = parseAndDaysUntil(p.due_date)
   const isOverdue = isProjectOverdue(p.due_date, p.is_complete, p.lp_stage, p.creatives_stage)
   const isUrgent = !isOverdue && daysLeft !== null && daysLeft >= 0 && daysLeft <= 7
 
@@ -130,7 +128,7 @@ function KanbanCardInner({ p, isGhost = false }: KanbanCardProps) {
                   width: 5, height: 5, borderRadius: '50%', flexShrink: 0,
                   background: isOverdue ? 'var(--danger)' : isUrgent ? 'var(--warning)' : 'var(--text-muted)',
                 }} />
-                {new Date(p.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                {due?.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
               </span>
             </div>
           )}

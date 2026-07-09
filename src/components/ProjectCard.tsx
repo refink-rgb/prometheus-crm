@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import type { Project } from '@/lib/types'
-import { calcDaysUntil, cardBorderColor, isProjectLive, isProjectOverdue } from '@/lib/stageColors'
+import { calcDaysUntil, cardBorderColor, isProjectLive, isProjectOverdue, parseDueDate } from '@/lib/stageColors'
 import DualStageBar from './DualStageBar'
 
 interface ProjectCardProps {
@@ -27,9 +27,7 @@ export default function ProjectCard({
 
   const showClientRow = !!project.share_token && !compact
 
-  const dueDateStr = project.due_date
-    ? new Date(project.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-    : null
+  const dueDateStr = parseDueDate(project.due_date)?.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) ?? null
 
   const tag = brandName ?? journeyName ?? null
 

@@ -6,6 +6,7 @@ import ImageReviewPanel from '@/components/ImageReviewPanel'
 import NotesThread from '@/components/NotesThread'
 import ConfirmOfferButton from '@/components/ConfirmOfferButton'
 import type { Project, Brand, ProjectImage, ProjectComment, CreativeAsset } from '@/lib/types'
+import { parseDueDate } from '@/lib/stageColors'
 
 export default async function ReviewPage({
   params,
@@ -52,7 +53,7 @@ export default async function ReviewPage({
   const imageComments = comments.filter(c => c.track === 'image')
   const notes = comments.filter(c => c.track === 'note')
 
-  const due = p.due_date ? new Date(p.due_date) : null
+  const due = parseDueDate(p.due_date)
   const dueStr = due?.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
 
   return (
