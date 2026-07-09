@@ -11,12 +11,13 @@ export default async function BrandsPage() {
   const { data: { user } } = await supabase.auth.getUser()
   const isEditor = canEdit(user?.email)
 
-  // Grid only reads brand.name/website/profit_engineer/id and per-project
+  // Grid reads brand.name/website/profit_engineer/id, the Active/Trial/Inactive
+  // pill (is_trial, is_active, monthly_retainer), and per-project
   // due_date/is_complete/lp_stage/creatives_stage. Fetching `*, projects(*)`
   // was pulling every ad-copy JSON field per project for no reason.
   const { data: brands } = await supabase
     .from('brands')
-    .select('id, name, website, profit_engineer, projects(due_date, is_complete, lp_stage, creatives_stage)')
+    .select('id, name, website, profit_engineer, is_active, is_trial, monthly_retainer, projects(due_date, is_complete, lp_stage, creatives_stage)')
     .order('name', { ascending: true })
 
   const allBrands = (brands ?? []) as unknown as BrandWithProjects[]
