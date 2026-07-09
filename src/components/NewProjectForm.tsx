@@ -14,7 +14,16 @@ interface UploadedImage {
   preview: string
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+const OFFER_DYNAMICS_OPTIONS = [
+  'BOGO',
+  'GWP',
+  'Buy X Get Y',
+  'Flat Discount',
+  'Tiered Discount',
+  'Other',
+] as const
+
+function Section({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return (
     <div style={{
       background: 'var(--surface)',
@@ -23,9 +32,12 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       padding: '24px',
       marginBottom: 16,
     }}>
-      <h2 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 20 }}>
+      <h2 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: subtitle ? 4 : 20 }}>
         {title}
       </h2>
+      {subtitle && (
+        <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 20 }}>{subtitle}</p>
+      )}
       {children}
     </div>
   )
@@ -43,6 +55,41 @@ function Field({ label, optional, children }: { label: string; optional?: boolea
   )
 }
 
+function CopyBank({
+  name,
+  count,
+  placeholderPrefix,
+  values,
+  onChange,
+}: {
+  name: string
+  count: number
+  placeholderPrefix: string
+  values: string[]
+  onChange: (next: string[]) => void
+}) {
+  return (
+    <>
+      {Array.from({ length: count }).map((_, i) => (
+        <input
+          key={i}
+          type="text"
+          value={values[i] ?? ''}
+          onChange={e => {
+            const next = [...values]
+            next[i] = e.target.value
+            onChange(next)
+          }}
+          placeholder={`${placeholderPrefix} ${i + 1}`}
+          style={{ marginBottom: 8 }}
+        />
+      ))}
+      {/* Hidden field carrying JSON-encoded bank into FormData for the server action. */}
+      <input type="hidden" name={name} value={JSON.stringify(values)} />
+    </>
+  )
+}
+
 export default function NewProjectForm({
   brandId,
   journeys,
@@ -52,10 +99,13 @@ export default function NewProjectForm({
 }) {
   const router = useRouter()
 
-  const [offerType, setOfferType] = useState<'flat' | 'tiered' | ''>('')
   const [images, setImages] = useState<UploadedImage[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+
+  const [headlines, setHeadlines] = useState<string[]>(Array(5).fill(''))
+  const [subcopies, setSubcopies] = useState<string[]>(Array(5).fill(''))
+  const [eyebrows, setEyebrows]  = useState<string[]>(Array(3).fill(''))
 
   // Journey state
   const [journeyMode, setJourneyMode] = useState<'existing' | 'new'>(
@@ -66,20 +116,13 @@ export default function NewProjectForm({
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
-    if (images.length < 3) {
-      setError('Please upload at least 3 product images before submitting.')
-      document.getElementById('images-section')?.scrollIntoView({ behavior: 'smooth' })
-      return
-    }
     setSubmitting(true)
     setError('')
 
     const fd = new FormData(e.currentTarget)
     fd.set('brand_id', brandId)
-    fd.set('offer_type', offerType)
     fd.set('image_urls', JSON.stringify(images.map(({ path, url }) => ({ path, url }))))
 
-    // Set journey fields based on mode
     if (journeyMode === 'existing') {
       fd.set('journey_id', selectedJourneyId)
       fd.delete('new_journey_name')
@@ -147,7 +190,7 @@ export default function NewProjectForm({
               <Field label="Marketing moment name *">
                 <input name="name" type="text" placeholder="e.g. Memorial Day Sale 2025" required autoFocus />
               </Field>
-              <Field label="Due date *">
+              <Field label="Launch date (Live) *">
                 <input name="due_date" type="date" required />
               </Field>
             </div>
@@ -228,92 +271,37 @@ export default function NewProjectForm({
                 ))}
               </div>
             </Field>
-
-            {/* Page type */}
-            <Field label="Page Type" optional>
-              <select name="page_type">
-                <option value="">Select page type…</option>
-                {PAGE_TYPE_OPTIONS.map(t => (
-                  <option key={t} value={t}>{t}</option>
-                ))}
-              </select>
-            </Field>
-
-            {/* Product featured */}
-            <Field label="Product Featured" optional>
-              <input
-                name="product_featured"
-                type="text"
-                placeholder="e.g. Viking Beard Oil 3-Pack, Summer Collection"
-              />
-            </Field>
           </Section>
 
-          {/* Offer Description */}
-          <Section title="Offer Description">
+          {/* Stage timeline */}
+          <Section title="Stage timeline" subtitle="Target dates per phase — informational, not enforced. All optional.">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+              <Field label="Brief due" optional>
+                <input name="stage_brief_due_date" type="date" />
+              </Field>
+              <Field label="In Progress due" optional>
+                <input name="stage_in_progress_due_date" type="date" />
+              </Field>
+              <Field label="Internal Review due" optional>
+                <input name="stage_internal_review_due_date" type="date" />
+              </Field>
+              <Field label="Client Review due" optional>
+                <input name="stage_client_review_due_date" type="date" />
+              </Field>
+            </div>
+          </Section>
+
+          {/* Shared Core Brief */}
+          <Section title="Shared brief" subtitle="Used by both LP and Creatives. Brand DNA is read from the brand's Account Notes.">
+            <Field label="Offer / Promo" optional>
+              <input name="offer" type="text" placeholder="e.g. Buy 2 Get 1 Free" />
+            </Field>
             <Field label="Offer overview" optional>
               <textarea
                 name="offer_description"
                 rows={4}
-                placeholder="What is the offer? Who are we targeting? What's the key buying motivation? What makes this moment relevant right now?"
+                placeholder="What is the offer? Who are we targeting? What's the key buying motivation?"
                 style={{ resize: 'vertical' }}
-              />
-            </Field>
-            <Field label="Inspiration" optional>
-              <textarea
-                name="inspiration"
-                rows={2}
-                placeholder="Reference URLs, visual direction, brands or ads to draw from…"
-                style={{ resize: 'vertical' }}
-              />
-            </Field>
-          </Section>
-
-          {/* Copy & Offer */}
-          <Section title="Copy & Offer">
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-              <Field label="Offer / Promo" optional>
-                <input name="offer" type="text" placeholder="e.g. Buy 2 Get 1 Free" />
-              </Field>
-              <Field label="Call to action" optional>
-                <input name="cta" type="text" placeholder="e.g. Shop Now, Claim Your Deal" />
-              </Field>
-            </div>
-
-            <Field label="Discount structure" optional>
-              <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-                {(['flat', 'tiered'] as const).map(t => (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => setOfferType(prev => prev === t ? '' : t)}
-                    style={{
-                      padding: '7px 16px',
-                      borderRadius: 8,
-                      border: `1px solid ${offerType === t ? 'var(--accent)' : 'var(--border)'}`,
-                      background: offerType === t ? 'var(--accent-muted)' : 'transparent',
-                      color: offerType === t ? 'var(--accent)' : 'var(--text-secondary)',
-                      fontSize: 13,
-                      fontWeight: offerType === t ? 600 : 400,
-                      cursor: 'pointer',
-                      transition: 'all 0.15s',
-                    }}
-                  >
-                    {t === 'flat' ? 'Flat discount' : 'Tiered discount'}
-                  </button>
-                ))}
-              </div>
-              <input
-                name="discount"
-                type="text"
-                placeholder="e.g. 20% off, $15 off orders $75+"
-                style={{ display: offerType === 'flat' ? 'block' : 'none' }}
-              />
-              <textarea
-                name="tiered_offer"
-                rows={2}
-                placeholder="e.g. Spend $50 → 10% off · Spend $100 → 20% off · Spend $150 → 25% off"
-                style={{ resize: 'vertical', display: offerType === 'tiered' ? 'block' : 'none' }}
               />
             </Field>
 
@@ -326,28 +314,116 @@ export default function NewProjectForm({
             <Field label="Supporting message" optional>
               <textarea name="supporting_message" rows={2} placeholder="Secondary line, urgency cue, or subtext…" style={{ resize: 'vertical' }} />
             </Field>
+            <Field label="Call to action" optional>
+              <input name="cta" type="text" placeholder="e.g. Shop Now, Claim Your Deal" />
+            </Field>
+
+            <Field label="Product name" optional>
+              <input
+                name="product_featured"
+                type="text"
+                placeholder="e.g. Viking Beard Oil 3-Pack, Summer Collection"
+              />
+            </Field>
+            <Field label="Product description" optional>
+              <textarea
+                name="product_description"
+                rows={2}
+                placeholder="What the product is, key ingredients, benefits, or specs…"
+                style={{ resize: 'vertical' }}
+              />
+            </Field>
+          </Section>
+
+          {/* LP-only */}
+          <Section title="LP-only" subtitle="Fields specific to the landing page.">
+            <Field label="Page type" optional>
+              <select name="page_type" defaultValue="">
+                <option value="">Select page type…</option>
+                {PAGE_TYPE_OPTIONS.map(t => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </select>
+            </Field>
+          </Section>
+
+          {/* Creatives-only */}
+          <Section title="Creatives-only" subtitle="Fields specific to ad creatives.">
+            <Field label="Headlines (5 variations)" optional>
+              <CopyBank name="ad_headlines" count={5} placeholderPrefix="Headline" values={headlines} onChange={setHeadlines} />
+            </Field>
+            <Field label="Subcopy (5 variations)" optional>
+              <CopyBank name="ad_subcopies" count={5} placeholderPrefix="Subcopy" values={subcopies} onChange={setSubcopies} />
+            </Field>
+            <Field label="Eyebrows (3 variations)" optional>
+              <CopyBank name="ad_eyebrows" count={3} placeholderPrefix="Eyebrow" values={eyebrows} onChange={setEyebrows} />
+            </Field>
+
+            <Field label="Ad Copy — Primary text" optional>
+              <textarea name="ad_copy_primary_text" rows={3} placeholder="The main body of the ad" style={{ resize: 'vertical' }} />
+            </Field>
+            <Field label="Ad Copy — Description" optional>
+              <input name="ad_copy_description" type="text" placeholder="Meta ad description line" />
+            </Field>
+            <Field label="Ad Copy — URL" optional>
+              <input name="ad_copy_url" type="url" placeholder="https://…" />
+            </Field>
+
+            <Field label="Retail price / value" optional>
+              <input name="retail_price" type="text" placeholder='e.g. $29.99, "$29.99 value"' />
+            </Field>
+
+            <Field label="Offer dynamics" optional>
+              <select name="offer_dynamics_type" defaultValue="" style={{ marginBottom: 8 }}>
+                <option value="">Select dynamic…</option>
+                {OFFER_DYNAMICS_OPTIONS.map(o => (
+                  <option key={o} value={o}>{o}</option>
+                ))}
+              </select>
+              <textarea
+                name="offer_dynamics_detail"
+                rows={2}
+                placeholder="Details that don't fit the preset — thresholds, add-ons, tier structure, etc."
+                style={{ resize: 'vertical' }}
+              />
+            </Field>
+
+            <Field label="Competitor reference" optional>
+              <textarea
+                name="competitor_reference"
+                rows={2}
+                placeholder="Competitors, benchmark ads, or category references to draw from…"
+                style={{ resize: 'vertical' }}
+              />
+            </Field>
+            <Field label="Client ad inspiration" optional>
+              <textarea
+                name="client_ad_inspiration"
+                rows={2}
+                placeholder="Ads or references the client shared as direction…"
+                style={{ resize: 'vertical' }}
+              />
+            </Field>
           </Section>
 
           {/* Product Images */}
-          <Section title="Product Images">
+          <Section title="Product images" subtitle="Optional — 3+ recommended for stronger creative output.">
             <div id="images-section">
-              <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 4 }}>
-                Upload <strong>at least 3</strong> clean product images (no background clutter).
-              </p>
-              <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 20 }}>
-                The more you provide, the better — more options means stronger creative output.
-              </p>
               <ImageUploader value={images} onChange={setImages} />
-              {images.length > 0 && images.length < 3 && (
-                <p style={{ color: 'var(--warning)', fontSize: 13, marginTop: 12 }}>
-                  ⚠ Need {3 - images.length} more image{3 - images.length !== 1 ? 's' : ''}
+              {images.length > 0 && (
+                <p style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 12 }}>
+                  {images.length} image{images.length === 1 ? '' : 's'} attached
                 </p>
               )}
-              {images.length >= 3 && (
-                <p style={{ color: 'var(--success)', fontSize: 13, marginTop: 12 }}>
-                  ✓ {images.length} images ready
-                </p>
-              )}
+              <div style={{ marginTop: 20 }}>
+                <Field label="Or link to product assets" optional>
+                  <input
+                    name="product_images_link"
+                    type="url"
+                    placeholder="Drive folder URL, Dropbox link, or any external asset location"
+                  />
+                </Field>
+              </div>
             </div>
           </Section>
 

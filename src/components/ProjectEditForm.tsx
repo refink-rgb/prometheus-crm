@@ -6,6 +6,15 @@ import { updateProjectDetails } from '@/lib/actions'
 import { PAGE_TYPE_OPTIONS } from '@/lib/types'
 import type { Journey } from '@/lib/types'
 
+const OFFER_DYNAMICS_OPTIONS = [
+  'BOGO',
+  'GWP',
+  'Buy X Get Y',
+  'Flat Discount',
+  'Tiered Discount',
+  'Other',
+] as const
+
 interface Props {
   projectId: string
   brandId: string
@@ -13,13 +22,13 @@ interface Props {
   initial: {
     name: string
     due_date: string | null
+    stage_brief_due_date: string | null
+    stage_in_progress_due_date: string | null
+    stage_internal_review_due_date: string | null
+    stage_client_review_due_date: string | null
     offer_description: string | null
-    inspiration: string | null
     offer: string | null
     cta: string | null
-    discount: string | null
-    tiered_offer: string | null
-    offer_type: string | null
     headline: string | null
     body_copy: string | null
     supporting_message: string | null
@@ -27,18 +36,32 @@ interface Props {
     marketing_moment: 1 | 2 | null
     page_type: string | null
     product_featured: string | null
+    product_description: string | null
+    retail_price: string | null
+    offer_dynamics_type: string | null
+    offer_dynamics_detail: string | null
+    competitor_reference: string | null
+    client_ad_inspiration: string | null
+    ad_copy_primary_text: string | null
+    ad_copy_description: string | null
+    ad_copy_url: string | null
+    ad_headlines: string[] | null
+    ad_subcopies: string[] | null
+    ad_eyebrows: string[] | null
+    product_images_link: string | null
     lp_url: string | null
     creatives_notes: string | null
     shopify_coupon_code: string | null
   }
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return (
     <div style={{ borderTop: '1px solid var(--border)', paddingTop: 20, marginTop: 20 }}>
-      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 16 }}>
+      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: subtitle ? 4 : 16 }}>
         {title}
       </div>
+      {subtitle && <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16 }}>{subtitle}</p>}
       {children}
     </div>
   )
@@ -53,6 +76,47 @@ function Field({ label, optional, children }: { label: string; optional?: boolea
       </label>
       {children}
     </div>
+  )
+}
+
+function padArray(values: string[] | null, size: number): string[] {
+  const src = values ?? []
+  return Array.from({ length: size }).map((_, i) => src[i] ?? '')
+}
+
+function cleanBank(values: string[]): string[] | null {
+  const cleaned = values.map(v => v.trim()).filter(Boolean)
+  return cleaned.length > 0 ? cleaned : null
+}
+
+function CopyBank({
+  count,
+  placeholderPrefix,
+  values,
+  onChange,
+}: {
+  count: number
+  placeholderPrefix: string
+  values: string[]
+  onChange: (next: string[]) => void
+}) {
+  return (
+    <>
+      {Array.from({ length: count }).map((_, i) => (
+        <input
+          key={i}
+          type="text"
+          value={values[i] ?? ''}
+          onChange={e => {
+            const next = [...values]
+            next[i] = e.target.value
+            onChange(next)
+          }}
+          placeholder={`${placeholderPrefix} ${i + 1}`}
+          style={{ marginBottom: 8 }}
+        />
+      ))}
+    </>
   )
 }
 
@@ -74,27 +138,41 @@ export default function ProjectEditForm({ projectId, brandId, journeys, initial 
 
   const [name, setName] = useState(initial.name)
   const [dueDate, setDueDate] = useState(initial.due_date ?? '')
+  const [stageBrief, setStageBrief] = useState(initial.stage_brief_due_date ?? '')
+  const [stageInProgress, setStageInProgress] = useState(initial.stage_in_progress_due_date ?? '')
+  const [stageInternal, setStageInternal] = useState(initial.stage_internal_review_due_date ?? '')
+  const [stageClient, setStageClient] = useState(initial.stage_client_review_due_date ?? '')
+
   const [journeyId, setJourneyId] = useState(initial.journey_id ?? '')
   const [moment, setMoment] = useState<'' | '1' | '2'>(
     initial.marketing_moment ? String(initial.marketing_moment) as '1' | '2' : ''
   )
   const [pageType, setPageType] = useState(initial.page_type ?? '')
   const [productFeatured, setProductFeatured] = useState(initial.product_featured ?? '')
+  const [productDescription, setProductDescription] = useState(initial.product_description ?? '')
 
   const [offerDescription, setOfferDescription] = useState(initial.offer_description ?? '')
-  const [inspiration, setInspiration] = useState(initial.inspiration ?? '')
-
   const [offer, setOffer] = useState(initial.offer ?? '')
   const [cta, setCta] = useState(initial.cta ?? '')
-  const [offerType, setOfferType] = useState<'flat' | 'tiered' | ''>(
-    initial.offer_type === 'flat' ? 'flat' : initial.offer_type === 'tiered' ? 'tiered' : ''
-  )
-  const [discount, setDiscount] = useState(initial.discount ?? '')
-  const [tieredOffer, setTieredOffer] = useState(initial.tiered_offer ?? '')
   const [headline, setHeadline] = useState(initial.headline ?? '')
   const [bodyCopy, setBodyCopy] = useState(initial.body_copy ?? '')
   const [supportingMessage, setSupportingMessage] = useState(initial.supporting_message ?? '')
 
+  // Creatives-only
+  const [retailPrice, setRetailPrice] = useState(initial.retail_price ?? '')
+  const [offerDynamicsType, setOfferDynamicsType] = useState(initial.offer_dynamics_type ?? '')
+  const [offerDynamicsDetail, setOfferDynamicsDetail] = useState(initial.offer_dynamics_detail ?? '')
+  const [competitorReference, setCompetitorReference] = useState(initial.competitor_reference ?? '')
+  const [clientAdInspiration, setClientAdInspiration] = useState(initial.client_ad_inspiration ?? '')
+  const [adCopyPrimary, setAdCopyPrimary] = useState(initial.ad_copy_primary_text ?? '')
+  const [adCopyDescription, setAdCopyDescription] = useState(initial.ad_copy_description ?? '')
+  const [adCopyUrl, setAdCopyUrl] = useState(initial.ad_copy_url ?? '')
+  const [headlines, setHeadlines] = useState<string[]>(padArray(initial.ad_headlines, 5))
+  const [subcopies, setSubcopies] = useState<string[]>(padArray(initial.ad_subcopies, 5))
+  const [eyebrows, setEyebrows]  = useState<string[]>(padArray(initial.ad_eyebrows, 3))
+  const [productImagesLink, setProductImagesLink] = useState(initial.product_images_link ?? '')
+
+  // Deliverables
   const [lpUrl, setLpUrl] = useState(initial.lp_url ?? '')
   const [creativesNotes, setCreativesNotes] = useState(initial.creatives_notes ?? '')
   const [shopifyCouponCode, setShopifyCouponCode] = useState(initial.shopify_coupon_code ?? '')
@@ -102,20 +180,33 @@ export default function ProjectEditForm({ projectId, brandId, journeys, initial 
   function cancel() {
     setName(initial.name)
     setDueDate(initial.due_date ?? '')
+    setStageBrief(initial.stage_brief_due_date ?? '')
+    setStageInProgress(initial.stage_in_progress_due_date ?? '')
+    setStageInternal(initial.stage_internal_review_due_date ?? '')
+    setStageClient(initial.stage_client_review_due_date ?? '')
     setJourneyId(initial.journey_id ?? '')
     setMoment(initial.marketing_moment ? String(initial.marketing_moment) as '1' | '2' : '')
     setPageType(initial.page_type ?? '')
     setProductFeatured(initial.product_featured ?? '')
+    setProductDescription(initial.product_description ?? '')
     setOfferDescription(initial.offer_description ?? '')
-    setInspiration(initial.inspiration ?? '')
     setOffer(initial.offer ?? '')
     setCta(initial.cta ?? '')
-    setOfferType(initial.offer_type === 'flat' ? 'flat' : initial.offer_type === 'tiered' ? 'tiered' : '')
-    setDiscount(initial.discount ?? '')
-    setTieredOffer(initial.tiered_offer ?? '')
     setHeadline(initial.headline ?? '')
     setBodyCopy(initial.body_copy ?? '')
     setSupportingMessage(initial.supporting_message ?? '')
+    setRetailPrice(initial.retail_price ?? '')
+    setOfferDynamicsType(initial.offer_dynamics_type ?? '')
+    setOfferDynamicsDetail(initial.offer_dynamics_detail ?? '')
+    setCompetitorReference(initial.competitor_reference ?? '')
+    setClientAdInspiration(initial.client_ad_inspiration ?? '')
+    setAdCopyPrimary(initial.ad_copy_primary_text ?? '')
+    setAdCopyDescription(initial.ad_copy_description ?? '')
+    setAdCopyUrl(initial.ad_copy_url ?? '')
+    setHeadlines(padArray(initial.ad_headlines, 5))
+    setSubcopies(padArray(initial.ad_subcopies, 5))
+    setEyebrows(padArray(initial.ad_eyebrows, 3))
+    setProductImagesLink(initial.product_images_link ?? '')
     setLpUrl(initial.lp_url ?? '')
     setCreativesNotes(initial.creatives_notes ?? '')
     setShopifyCouponCode(initial.shopify_coupon_code ?? '')
@@ -134,13 +225,13 @@ export default function ProjectEditForm({ projectId, brandId, journeys, initial 
       await updateProjectDetails(projectId, brandId, {
         name: name.trim(),
         due_date: dueDate || null,
+        stage_brief_due_date: stageBrief || null,
+        stage_in_progress_due_date: stageInProgress || null,
+        stage_internal_review_due_date: stageInternal || null,
+        stage_client_review_due_date: stageClient || null,
         offer_description: offerDescription.trim() || null,
-        inspiration: inspiration.trim() || null,
         offer: offer.trim() || null,
         cta: cta.trim() || null,
-        offer_type: offerType || null,
-        discount: offerType === 'flat' ? (discount.trim() || null) : null,
-        tiered_offer: offerType === 'tiered' ? (tieredOffer.trim() || null) : null,
         headline: headline.trim() || null,
         body_copy: bodyCopy.trim() || null,
         supporting_message: supportingMessage.trim() || null,
@@ -148,6 +239,19 @@ export default function ProjectEditForm({ projectId, brandId, journeys, initial 
         marketing_moment: moment === '1' ? 1 : moment === '2' ? 2 : null,
         page_type: pageType || null,
         product_featured: productFeatured.trim() || null,
+        product_description: productDescription.trim() || null,
+        retail_price: retailPrice.trim() || null,
+        offer_dynamics_type: offerDynamicsType || null,
+        offer_dynamics_detail: offerDynamicsDetail.trim() || null,
+        competitor_reference: competitorReference.trim() || null,
+        client_ad_inspiration: clientAdInspiration.trim() || null,
+        ad_copy_primary_text: adCopyPrimary.trim() || null,
+        ad_copy_description: adCopyDescription.trim() || null,
+        ad_copy_url: adCopyUrl.trim() || null,
+        ad_headlines: cleanBank(headlines),
+        ad_subcopies: cleanBank(subcopies),
+        ad_eyebrows: cleanBank(eyebrows),
+        product_images_link: productImagesLink.trim() || null,
         lp_url: lpUrl.trim() || null,
         creatives_notes: creativesNotes.trim() || null,
         shopify_coupon_code: shopifyCouponCode.trim() || null,
@@ -218,7 +322,7 @@ export default function ProjectEditForm({ projectId, brandId, journeys, initial 
           <Field label="Project name">
             <input type="text" value={name} onChange={e => setName(e.target.value)} />
           </Field>
-          <Field label="Due date" optional>
+          <Field label="Launch date (Live)" optional>
             <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} />
           </Field>
         </div>
@@ -252,78 +356,119 @@ export default function ProjectEditForm({ projectId, brandId, journeys, initial 
             ))}
           </div>
         </Field>
+      </Section>
 
+      {/* ── Stage timeline ── */}
+      <Section title="Stage timeline" subtitle="Target dates per phase — informational, not enforced.">
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-          <Field label="Page Type" optional>
-            <select value={pageType} onChange={e => setPageType(e.target.value)}>
-              <option value="">Select page type…</option>
-              {PAGE_TYPE_OPTIONS.map(t => (
-                <option key={t} value={t}>{t}</option>
-              ))}
-            </select>
+          <Field label="Brief due" optional>
+            <input type="date" value={stageBrief} onChange={e => setStageBrief(e.target.value)} />
           </Field>
-          <Field label="Product Featured" optional>
-            <input type="text" value={productFeatured} onChange={e => setProductFeatured(e.target.value)} placeholder="e.g. Viking Beard Oil 3-Pack" />
+          <Field label="In Progress due" optional>
+            <input type="date" value={stageInProgress} onChange={e => setStageInProgress(e.target.value)} />
+          </Field>
+          <Field label="Internal Review due" optional>
+            <input type="date" value={stageInternal} onChange={e => setStageInternal(e.target.value)} />
+          </Field>
+          <Field label="Client Review due" optional>
+            <input type="date" value={stageClient} onChange={e => setStageClient(e.target.value)} />
           </Field>
         </div>
       </Section>
 
-      {/* ── Offer Description ── */}
-      <Section title="Offer Description">
+      {/* ── Shared brief ── */}
+      <Section title="Shared brief" subtitle="Used by both LP and Creatives.">
+        <Field label="Offer / Promo" optional>
+          <input type="text" value={offer} onChange={e => setOffer(e.target.value)} placeholder="e.g. Buy 2 Get 1 Free" />
+        </Field>
         <Field label="Offer overview" optional>
-          <textarea value={offerDescription} onChange={e => setOfferDescription(e.target.value)} rows={4} style={{ resize: 'vertical' }} placeholder="What is the offer? Who are we targeting? What's the key buying motivation?" />
-        </Field>
-        <Field label="Inspiration" optional>
-          <textarea value={inspiration} onChange={e => setInspiration(e.target.value)} rows={2} style={{ resize: 'vertical' }} placeholder="Reference URLs, visual direction, brands or ads to draw from…" />
-        </Field>
-      </Section>
-
-      {/* ── Copy & Offer ── */}
-      <Section title="Copy & Offer">
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-          <Field label="Offer / Promo" optional>
-            <input type="text" value={offer} onChange={e => setOffer(e.target.value)} placeholder="e.g. Buy 2 Get 1 Free" />
-          </Field>
-          <Field label="Call to action" optional>
-            <input type="text" value={cta} onChange={e => setCta(e.target.value)} placeholder="e.g. Shop Now, Claim Your Deal" />
-          </Field>
-        </div>
-
-        <Field label="Discount structure" optional>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-            {(['flat', 'tiered'] as const).map(t => (
-              <button
-                key={t}
-                type="button"
-                onClick={() => setOfferType(prev => prev === t ? '' : t)}
-                style={{
-                  padding: '7px 16px', borderRadius: 8, fontSize: 13, cursor: 'pointer', fontWeight: offerType === t ? 600 : 400,
-                  border: `1px solid ${offerType === t ? 'var(--accent)' : 'var(--border)'}`,
-                  background: offerType === t ? 'var(--accent-muted)' : 'transparent',
-                  color: offerType === t ? 'var(--accent)' : 'var(--text-secondary)',
-                  transition: 'all 0.15s',
-                }}
-              >
-                {t === 'flat' ? 'Flat discount' : 'Tiered discount'}
-              </button>
-            ))}
-          </div>
-          {offerType === 'flat' && (
-            <input type="text" value={discount} onChange={e => setDiscount(e.target.value)} placeholder="e.g. 20% off, $15 off orders $75+" />
-          )}
-          {offerType === 'tiered' && (
-            <textarea value={tieredOffer} onChange={e => setTieredOffer(e.target.value)} rows={2} style={{ resize: 'vertical' }} placeholder="e.g. Spend $50 → 10% off · Spend $100 → 20% off" />
-          )}
+          <textarea value={offerDescription} onChange={e => setOfferDescription(e.target.value)} rows={4} style={{ resize: 'vertical' }} />
         </Field>
 
         <Field label="Hero headline" optional>
           <input type="text" value={headline} onChange={e => setHeadline(e.target.value)} placeholder="The main hook for this moment" />
         </Field>
         <Field label="Body copy" optional>
-          <textarea value={bodyCopy} onChange={e => setBodyCopy(e.target.value)} rows={4} style={{ resize: 'vertical' }} placeholder="Key claims, product benefits, supporting proof…" />
+          <textarea value={bodyCopy} onChange={e => setBodyCopy(e.target.value)} rows={4} style={{ resize: 'vertical' }} />
         </Field>
         <Field label="Supporting message" optional>
-          <textarea value={supportingMessage} onChange={e => setSupportingMessage(e.target.value)} rows={2} style={{ resize: 'vertical' }} placeholder="Secondary line, urgency cue, or subtext…" />
+          <textarea value={supportingMessage} onChange={e => setSupportingMessage(e.target.value)} rows={2} style={{ resize: 'vertical' }} />
+        </Field>
+        <Field label="Call to action" optional>
+          <input type="text" value={cta} onChange={e => setCta(e.target.value)} placeholder="e.g. Shop Now, Claim Your Deal" />
+        </Field>
+
+        <Field label="Product name" optional>
+          <input type="text" value={productFeatured} onChange={e => setProductFeatured(e.target.value)} placeholder="e.g. Viking Beard Oil 3-Pack" />
+        </Field>
+        <Field label="Product description" optional>
+          <textarea value={productDescription} onChange={e => setProductDescription(e.target.value)} rows={2} style={{ resize: 'vertical' }} />
+        </Field>
+      </Section>
+
+      {/* ── LP-only ── */}
+      <Section title="LP-only">
+        <Field label="Page type" optional>
+          <select value={pageType} onChange={e => setPageType(e.target.value)}>
+            <option value="">Select page type…</option>
+            {PAGE_TYPE_OPTIONS.map(t => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+        </Field>
+      </Section>
+
+      {/* ── Creatives-only ── */}
+      <Section title="Creatives-only">
+        <Field label="Headlines (5 variations)" optional>
+          <CopyBank count={5} placeholderPrefix="Headline" values={headlines} onChange={setHeadlines} />
+        </Field>
+        <Field label="Subcopy (5 variations)" optional>
+          <CopyBank count={5} placeholderPrefix="Subcopy" values={subcopies} onChange={setSubcopies} />
+        </Field>
+        <Field label="Eyebrows (3 variations)" optional>
+          <CopyBank count={3} placeholderPrefix="Eyebrow" values={eyebrows} onChange={setEyebrows} />
+        </Field>
+
+        <Field label="Ad Copy — Primary text" optional>
+          <textarea value={adCopyPrimary} onChange={e => setAdCopyPrimary(e.target.value)} rows={3} style={{ resize: 'vertical' }} />
+        </Field>
+        <Field label="Ad Copy — Description" optional>
+          <input type="text" value={adCopyDescription} onChange={e => setAdCopyDescription(e.target.value)} />
+        </Field>
+        <Field label="Ad Copy — URL" optional>
+          <input type="url" value={adCopyUrl} onChange={e => setAdCopyUrl(e.target.value)} placeholder="https://…" />
+        </Field>
+
+        <Field label="Retail price / value" optional>
+          <input type="text" value={retailPrice} onChange={e => setRetailPrice(e.target.value)} placeholder='e.g. $29.99, "$29.99 value"' />
+        </Field>
+
+        <Field label="Offer dynamics" optional>
+          <select value={offerDynamicsType} onChange={e => setOfferDynamicsType(e.target.value)} style={{ marginBottom: 8 }}>
+            <option value="">Select dynamic…</option>
+            {OFFER_DYNAMICS_OPTIONS.map(o => (
+              <option key={o} value={o}>{o}</option>
+            ))}
+          </select>
+          <textarea
+            value={offerDynamicsDetail}
+            onChange={e => setOfferDynamicsDetail(e.target.value)}
+            rows={2}
+            placeholder="Details that don't fit the preset — thresholds, add-ons, tier structure, etc."
+            style={{ resize: 'vertical' }}
+          />
+        </Field>
+
+        <Field label="Competitor reference" optional>
+          <textarea value={competitorReference} onChange={e => setCompetitorReference(e.target.value)} rows={2} style={{ resize: 'vertical' }} />
+        </Field>
+        <Field label="Client ad inspiration" optional>
+          <textarea value={clientAdInspiration} onChange={e => setClientAdInspiration(e.target.value)} rows={2} style={{ resize: 'vertical' }} />
+        </Field>
+
+        <Field label="Product images link" optional>
+          <input type="url" value={productImagesLink} onChange={e => setProductImagesLink(e.target.value)} placeholder="Drive folder or external URL" />
         </Field>
       </Section>
 
@@ -342,7 +487,7 @@ export default function ProjectEditForm({ projectId, brandId, journeys, initial 
           />
         </Field>
         <Field label="Creatives link / notes" optional>
-          <textarea value={creativesNotes} onChange={e => setCreativesNotes(e.target.value)} rows={2} style={{ resize: 'vertical' }} placeholder="Drive link, Figma link, or delivery notes…" />
+          <textarea value={creativesNotes} onChange={e => setCreativesNotes(e.target.value)} rows={2} style={{ resize: 'vertical' }} />
         </Field>
       </Section>
 

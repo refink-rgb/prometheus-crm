@@ -77,7 +77,7 @@ export default function ImageUploader({ onChange, value }: ImageUploaderProps) {
         onDragOver={e => e.preventDefault()}
         onClick={() => inputRef.current?.click()}
         style={{
-          border: `2px dashed ${value.length >= 3 ? 'var(--success)' : 'var(--border)'}`,
+          border: `2px dashed ${value.length > 0 ? 'var(--success)' : 'var(--border)'}`,
           borderRadius: 10,
           padding: '24px 16px',
           textAlign: 'center',
@@ -100,9 +100,7 @@ export default function ImageUploader({ onChange, value }: ImageUploaderProps) {
           {uploading ? 'Uploading…' : 'Drag & drop or click to upload'}
         </p>
         <p style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-          PNG, JPG, WEBP · Max 10MB each · <strong style={{ color: value.length >= 3 ? 'var(--success)' : 'var(--accent)' }}>
-            {value.length}/3 min required
-          </strong>
+          PNG, JPG, WEBP · Max 10MB each
         </p>
       </div>
 

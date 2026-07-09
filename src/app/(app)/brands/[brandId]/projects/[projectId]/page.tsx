@@ -10,7 +10,7 @@ import ShareButton from '@/components/ShareButton'
 import RevisionsToggle from '@/components/RevisionsToggle'
 import NotesThread from '@/components/NotesThread'
 import type { Project, Brand, ProjectImage, Journey, CreativeAsset, ProjectComment } from '@/lib/types'
-import { calcDaysUntil, isProjectOverdue, overallProgress } from '@/lib/stageColors'
+import { calcDaysUntil, isProjectOverdue, overallProgress, parseDueDate } from '@/lib/stageColors'
 import ProjectEditForm from '@/components/ProjectEditForm'
 import OpenEditFormButton from '@/components/OpenEditFormButton'
 
@@ -70,7 +70,7 @@ export default async function ProjectPage({
     journey = jData as Journey | null
   }
 
-  const due = p.due_date ? new Date(p.due_date) : null
+  const due = parseDueDate(p.due_date)
   const daysUntil = calcDaysUntil(p.due_date)
   const isOverdue = isProjectOverdue(p.due_date, p.is_complete, p.lp_stage, p.creatives_stage)
   const dueStr = due ? due.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '—'
@@ -294,13 +294,13 @@ export default async function ProjectPage({
             initial={{
               name: p.name,
               due_date: p.due_date,
+              stage_brief_due_date: p.stage_brief_due_date,
+              stage_in_progress_due_date: p.stage_in_progress_due_date,
+              stage_internal_review_due_date: p.stage_internal_review_due_date,
+              stage_client_review_due_date: p.stage_client_review_due_date,
               offer_description: p.offer_description,
-              inspiration: p.inspiration,
               offer: p.offer,
               cta: p.cta,
-              discount: p.discount,
-              tiered_offer: p.tiered_offer,
-              offer_type: p.offer_type,
               headline: p.headline,
               body_copy: p.body_copy,
               supporting_message: p.supporting_message,
@@ -308,6 +308,19 @@ export default async function ProjectPage({
               marketing_moment: p.marketing_moment,
               page_type: p.page_type,
               product_featured: p.product_featured,
+              product_description: p.product_description,
+              retail_price: p.retail_price,
+              offer_dynamics_type: p.offer_dynamics_type,
+              offer_dynamics_detail: p.offer_dynamics_detail,
+              competitor_reference: p.competitor_reference,
+              client_ad_inspiration: p.client_ad_inspiration,
+              ad_copy_primary_text: p.ad_copy_primary_text,
+              ad_copy_description: p.ad_copy_description,
+              ad_copy_url: p.ad_copy_url,
+              ad_headlines: p.ad_headlines,
+              ad_subcopies: p.ad_subcopies,
+              ad_eyebrows: p.ad_eyebrows,
+              product_images_link: p.product_images_link,
               lp_url: p.lp_url,
               creatives_notes: p.creatives_notes,
               shopify_coupon_code: p.shopify_coupon_code,

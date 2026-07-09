@@ -85,18 +85,31 @@ export async function createProject(formData: FormData): Promise<{ redirect: str
   const momentRaw = formData.get('marketing_moment') as string
   const marketing_moment = momentRaw === '1' ? 1 : momentRaw === '2' ? 2 : null
 
+  // JSON-encoded arrays for headline/subcopy/eyebrow banks. Empty entries dropped
+  // server-side so a bank with only 2 filled slots doesn't persist 3 empty strings.
+  const jsonArr = (key: string): string[] | null => {
+    const raw = formData.get(key) as string | null
+    if (!raw) return null
+    try {
+      const parsed = JSON.parse(raw)
+      if (!Array.isArray(parsed)) return null
+      const cleaned = parsed.map(s => (typeof s === 'string' ? s.trim() : '')).filter(Boolean)
+      return cleaned.length > 0 ? cleaned : null
+    } catch { return null }
+  }
+
   const { data, error } = await supabase
     .from('projects')
     .insert({
       brand_id: brandId,
       name: formData.get('name') as string,
       due_date: formData.get('due_date') as string,
+      stage_brief_due_date:           str('stage_brief_due_date'),
+      stage_in_progress_due_date:     str('stage_in_progress_due_date'),
+      stage_internal_review_due_date: str('stage_internal_review_due_date'),
+      stage_client_review_due_date:   str('stage_client_review_due_date'),
       offer_description: str('offer_description'),
-      inspiration: str('inspiration'),
-      offer_type: str('offer_type'),
       offer: str('offer'),
-      discount: str('discount'),
-      tiered_offer: str('tiered_offer'),
       headline: str('headline'),
       body_copy: str('body_copy'),
       supporting_message: str('supporting_message'),
@@ -105,6 +118,19 @@ export async function createProject(formData: FormData): Promise<{ redirect: str
       marketing_moment,
       page_type: str('page_type'),
       product_featured: str('product_featured'),
+      product_description: str('product_description'),
+      retail_price: str('retail_price'),
+      offer_dynamics_type: str('offer_dynamics_type'),
+      offer_dynamics_detail: str('offer_dynamics_detail'),
+      competitor_reference: str('competitor_reference'),
+      client_ad_inspiration: str('client_ad_inspiration'),
+      ad_copy_primary_text: str('ad_copy_primary_text'),
+      ad_copy_description: str('ad_copy_description'),
+      ad_copy_url: str('ad_copy_url'),
+      ad_headlines: jsonArr('ad_headlines'),
+      ad_subcopies: jsonArr('ad_subcopies'),
+      ad_eyebrows: jsonArr('ad_eyebrows'),
+      product_images_link: str('product_images_link'),
       created_by: user?.id ?? null,
     })
     .select()
@@ -320,6 +346,7 @@ export async function addProjectComment(
     pin_x?: number
     pin_y?: number
     section_tag?: string
+    attachment_urls?: string[]
   }
 ) {
   const supabase = await createClient()
@@ -332,6 +359,8 @@ export async function addProjectComment(
 
   if (!project) throw new Error('Invalid review link.')
 
+  const cleanedAttachments = (extras?.attachment_urls ?? []).filter(u => typeof u === 'string' && u.length > 0)
+
   await supabase
     .from('project_comments')
     .insert({
@@ -343,6 +372,7 @@ export async function addProjectComment(
       pin_x: extras?.pin_x ?? null,
       pin_y: extras?.pin_y ?? null,
       section_tag: extras?.section_tag ?? null,
+      attachment_urls: cleanedAttachments.length > 0 ? cleanedAttachments : null,
       // Comments from the public review link are always client-facing.
       audience: 'client',
     })
@@ -1198,12 +1228,19 @@ export async function addProfitEngineer(name: string) {
   revalidatePath('/', 'layout')
 }
 
-export async function addInternalNote(projectId: string, brandId: string, content: string, displayName: string) {
+export async function addInternalNote(
+  projectId: string,
+  brandId: string,
+  content: string,
+  displayName: string,
+  attachmentUrls?: string[] | null,
+) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
   const name = displayName.trim() || user.email?.split('@')[0] || 'Team'
+  const cleanedAttachments = (attachmentUrls ?? []).filter(u => typeof u === 'string' && u.length > 0)
 
   await supabase.from('project_comments').insert({
     project_id: projectId,
@@ -1214,6 +1251,7 @@ export async function addInternalNote(projectId: string, brandId: string, conten
     pin_x: null,
     pin_y: null,
     section_tag: null,
+    attachment_urls: cleanedAttachments.length > 0 ? cleanedAttachments : null,
   })
 
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)
@@ -1320,13 +1358,13 @@ export async function updateProjectDetails(
   values: {
     name: string
     due_date: string | null
+    stage_brief_due_date: string | null
+    stage_in_progress_due_date: string | null
+    stage_internal_review_due_date: string | null
+    stage_client_review_due_date: string | null
     offer_description: string | null
-    inspiration: string | null
     offer: string | null
     cta: string | null
-    discount: string | null
-    tiered_offer: string | null
-    offer_type: string | null
     headline: string | null
     body_copy: string | null
     supporting_message: string | null
@@ -1334,6 +1372,19 @@ export async function updateProjectDetails(
     marketing_moment: 1 | 2 | null
     page_type: string | null
     product_featured: string | null
+    product_description: string | null
+    retail_price: string | null
+    offer_dynamics_type: string | null
+    offer_dynamics_detail: string | null
+    competitor_reference: string | null
+    client_ad_inspiration: string | null
+    ad_copy_primary_text: string | null
+    ad_copy_description: string | null
+    ad_copy_url: string | null
+    ad_headlines: string[] | null
+    ad_subcopies: string[] | null
+    ad_eyebrows: string[] | null
+    product_images_link: string | null
     lp_url: string | null
     creatives_notes: string | null
     shopify_coupon_code: string | null
