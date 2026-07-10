@@ -204,6 +204,7 @@ export default function KanbanView({ pipeline }: { pipeline: PipelineProject[] }
           <div style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(6, minmax(260px, 1fr))',
+            gridTemplateRows: 'minmax(0, 1fr)',
             gap: 12,
             height: '100%',
             overflowX: 'auto',
