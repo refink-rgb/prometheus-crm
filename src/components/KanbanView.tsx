@@ -324,7 +324,11 @@ function KanbanColumnInner({
         ) : (
           cards
             .filter(p => p.id !== draggedCardId)
-            .map(p => <KanbanCard key={p.id} p={p} />)
+            .map(p => (
+              <div key={p.id} style={{ flexShrink: 0 }}>
+                <KanbanCard p={p} />
+              </div>
+            ))
         )}
       </div>
     </div>
