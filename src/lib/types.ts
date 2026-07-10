@@ -187,6 +187,61 @@ export interface CreativeAsset {
   internal_status: 'pending' | 'approved' | 'needs_revision' | 'rejected'
 }
 
+export interface BrandDnaSource {
+  url: string
+  field: string
+  note: string
+}
+
+export interface BrandDna {
+  id: string
+  brand_id: string
+  version: number
+  is_active: boolean
+  logo_url: string | null
+  tagline: string | null
+  positioning: string | null
+  voice_adjectives: string[] | null
+  design_agency: string | null
+  competitive_differentiation: string | null
+  primary_font: string | null
+  secondary_font: string | null
+  primary_color: string | null
+  secondary_color: string | null
+  accent_color: string | null
+  background_colors: string[] | null
+  contrast_color: string | null
+  headline_weight: string | null
+  body_weight: string | null
+  cta_style: string | null
+  lighting: string | null
+  color_grading: string | null
+  composition: string | null
+  subject_matter: string | null
+  props_and_surfaces: string | null
+  mood: string | null
+  packaging_description: string | null
+  packaging_label_placement: string | null
+  packaging_finish: string | null
+  packaging_system: string | null
+  typical_formats: string | null
+  text_overlay_style: string | null
+  ugc_usage: string | null
+  offer_presentation: string | null
+  core_value_prop: string | null
+  top_pain_points: string[] | null
+  proof_points: string[] | null
+  common_offers: string[] | null
+  price_anchor: string | null
+  top_objections: string[] | null
+  winning_hooks: string[] | null
+  prompt_modifier: string | null
+  sources: BrandDnaSource[] | null
+  research_markdown: string | null
+  created_at: string
+  updated_at: string
+}
+
 export const STAGE_LABELS: Record<Stage, string> = {
   brief:           'Brief',
   in_progress:     'In Progress',

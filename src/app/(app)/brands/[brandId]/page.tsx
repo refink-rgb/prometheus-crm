@@ -7,10 +7,16 @@ import ConfirmDeleteForm from '@/components/ConfirmDeleteForm'
 import ProfitEngineerSelect from '@/components/ProfitEngineerSelect'
 import ClientPortalButton from '@/components/ClientPortalButton'
 import OnboardingTranscriptField from '@/components/OnboardingTranscriptField'
-import type { Brand, Project, Journey, PipelineStatus } from '@/lib/types'
+import type { Brand, Project, Journey, PipelineStatus, BrandDna } from '@/lib/types'
 import { PIPELINE_STATUS_LABELS, PIPELINE_STATUS_ORDER } from '@/lib/types'
 import JourneyHeader from '@/components/JourneyHeader'
 import ProjectCard from '@/components/ProjectCard'
+import BrandDnaPanel from '@/components/BrandDnaPanel'
+
+// Two-step Gemini research + synthesis for Brand DNA can run 30-90s. Vercel's
+// default function timeout would cut it off — mirror the pattern used on the
+// project pages for the AI image-edit flows.
+export const maxDuration = 120
 
 export default async function BrandPage({ params }: { params: Promise<{ brandId: string }> }) {
   const { brandId } = await params
@@ -29,7 +35,7 @@ export default async function BrandPage({ params }: { params: Promise<{ brandId:
   // Brand page renders ProjectCard for each row and reads only these fields.
   // The big JSON copy columns (ad_headlines/ad_subcopies/ad_eyebrows/body_copy)
   // and the full ad-brief fields belong to the project detail page, not here.
-  const [{ data: projects }, { data: peRows }, { data: journeyRows }] = await Promise.all([
+  const [{ data: projects }, { data: peRows }, { data: journeyRows }, { data: dnaRow }] = await Promise.all([
     supabase
       .from('projects')
       .select('id, name, brand_id, due_date, is_complete, journey_id, marketing_moment, lp_stage, creatives_stage, lp_approved, creatives_approved, share_token')
@@ -37,12 +43,14 @@ export default async function BrandPage({ params }: { params: Promise<{ brandId:
       .order('due_date', { ascending: true }),
     supabase.from('profit_engineers').select('name').order('name', { ascending: true }),
     supabase.from('journeys').select('*').eq('brand_id', brandId).order('created_at', { ascending: false }),
+    supabase.from('brand_dna').select('*').eq('brand_id', brandId).eq('is_active', true).maybeSingle(),
   ])
 
   const b = brand as Brand
   const allProjects = (projects ?? []) as Project[]
   const engineerNames = (peRows ?? []).map((r: { name: string }) => r.name)
   const journeys = (journeyRows ?? []) as Journey[]
+  const dna = (dnaRow ?? null) as BrandDna | null
 
   const active = allProjects.filter(p => !p.is_complete)
   const done = allProjects.filter(p => p.is_complete)
@@ -298,6 +306,10 @@ export default async function BrandPage({ params }: { params: Promise<{ brandId:
               <ClientPortalButton brandId={brandId} initialToken={b.client_token ?? null} />
             </div>
           </div>
+        )}
+
+        {isAuthorized && (
+          <BrandDnaPanel brandId={brandId} dna={dna} />
         )}
 
         {/* Show brand notes (read-only) for non-editors */}

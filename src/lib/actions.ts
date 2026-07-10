@@ -1461,3 +1461,106 @@ export async function signOut() {
   await supabase.auth.signOut()
   redirect('/login')
 }
+
+// Brand DNA — Gemini-driven research + synthesis pass. Writes a new active row
+// on `brand_dna` and flips any prior active row to is_active=false, so there's
+// exactly one active version per brand. Expected runtime 30-90s; the brand
+// page carries `maxDuration = 120` to accommodate.
+export async function buildBrandDna(brandId: string): Promise<void> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
+
+  const { data: brand } = await supabase
+    .from('brands')
+    .select('name, website')
+    .eq('id', brandId)
+    .single()
+  if (!brand) throw new Error('Brand not found.')
+  if (!brand.website) throw new Error('Brand website is required to research DNA.')
+
+  const { researchBrandDna, synthesizeBrandDna } = await import('@/lib/ai/gemini')
+  const { TEXT_FIELDS } = await import('@/lib/ai/brand-dna-schema')
+
+  const { dossier, urls } = await researchBrandDna(brand.name, brand.website)
+  const dna = await synthesizeBrandDna(dossier, urls)
+
+  const normalized: Record<string, unknown> = { ...dna }
+  for (const field of TEXT_FIELDS) {
+    if (normalized[field] === '') normalized[field] = null
+  }
+
+  const { data: prevActive } = await supabase
+    .from('brand_dna')
+    .select('id, version, logo_url')
+    .eq('brand_id', brandId)
+    .eq('is_active', true)
+    .maybeSingle()
+
+  if (prevActive) {
+    await supabase.from('brand_dna').update({ is_active: false }).eq('id', prevActive.id)
+  }
+
+  const insertRow = {
+    ...normalized,
+    brand_id: brandId,
+    version: (prevActive?.version ?? 0) + 1,
+    is_active: true,
+    logo_url: prevActive?.logo_url ?? null,
+  }
+
+  const { error } = await supabase.from('brand_dna').insert(insertRow)
+  if (error) throw new Error(`Failed to save Brand DNA: ${error.message}`)
+
+  revalidatePath(`/brands/${brandId}`)
+}
+
+export async function uploadBrandLogo(formData: FormData): Promise<{ logoUrl: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
+
+  const brandId = formData.get('brand_id') as string | null
+  const file = formData.get('file') as File | null
+  if (!brandId) throw new Error('brand_id is required.')
+  if (!file) throw new Error('No file provided.')
+
+  const ext = (file.name.split('.').pop() || 'png').toLowerCase().replace(/[^a-z0-9]/g, '') || 'png'
+  const path = `brand-logos/${brandId}-${Date.now()}.${ext}`
+
+  const buffer = Buffer.from(await file.arrayBuffer())
+  const { error: uploadError } = await supabase.storage
+    .from('project-images')
+    .upload(path, buffer, { contentType: file.type || 'image/png', upsert: false })
+  if (uploadError) throw new Error(`Storage upload failed: ${uploadError.message}`)
+
+  const { data: { publicUrl } } = supabase.storage.from('project-images').getPublicUrl(path)
+
+  const { data: active } = await supabase
+    .from('brand_dna')
+    .select('id')
+    .eq('brand_id', brandId)
+    .eq('is_active', true)
+    .maybeSingle()
+
+  if (active) {
+    const { error } = await supabase.from('brand_dna').update({ logo_url: publicUrl }).eq('id', active.id)
+    if (error) throw new Error(`Failed to save logo URL: ${error.message}`)
+  } else {
+    // No DNA row yet — create a stub active row that just holds the logo, so
+    // the panel has somewhere to persist the upload. A later Build pass will
+    // supersede this with version=2.
+    const { error } = await supabase.from('brand_dna').insert({
+      brand_id: brandId,
+      version: 1,
+      is_active: true,
+      logo_url: publicUrl,
+    })
+    if (error) throw new Error(`Failed to save logo URL: ${error.message}`)
+  }
+
+  revalidatePath(`/brands/${brandId}`)
+  return { logoUrl: publicUrl }
+}
