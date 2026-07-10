@@ -15,7 +15,7 @@ export default async function ClientPortalPage({
 
   const { data: brandRaw } = await supabase
     .from('brands')
-    .select('*')
+    .select('id, name')
     .eq('client_token', token)
     .single()
 
@@ -24,8 +24,8 @@ export default async function ClientPortalPage({
   const brand = brandRaw as Brand
 
   const [{ data: projectsRaw }, { data: journeysRaw }] = await Promise.all([
-    supabase.from('projects').select('*').eq('brand_id', brand.id).order('due_date', { ascending: false }),
-    supabase.from('journeys').select('*').eq('brand_id', brand.id).order('created_at', { ascending: false }),
+    supabase.from('projects').select('id, name, brand_id, due_date, is_complete, journey_id, marketing_moment, lp_stage, creatives_stage, page_type, share_token, offer_locked').eq('brand_id', brand.id).order('due_date', { ascending: false }),
+    supabase.from('journeys').select('id, name').eq('brand_id', brand.id).order('created_at', { ascending: false }),
   ])
 
   const projects = (projectsRaw ?? []) as Project[]

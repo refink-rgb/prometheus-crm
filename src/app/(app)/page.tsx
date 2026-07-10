@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { canEdit } from '@/lib/permissions'
 import type { Project } from '@/lib/types'
 import { isProjectOverdue } from '@/lib/stageColors'
-import StageDistributionChart from '@/components/StageDistributionChart'
+import StageDistributionChart from '@/components/LazyStageDistributionChart'
 import PipelineTable from '@/components/PipelineTable'
 import OverdueProjectsPanel from '@/components/OverdueProjectsPanel'
 

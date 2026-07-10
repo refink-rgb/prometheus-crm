@@ -44,7 +44,7 @@ export default async function ProjectPage({
     .single()
 
   const [{ data: images }, { data: creativeAssetsRaw }, { data: imageCommentsRaw }, { data: notesRaw }, { data: brandJourneysRaw }] = await Promise.all([
-    supabase.from('project_images').select('*').eq('project_id', projectId),
+    supabase.from('project_images').select('id, storage_url').eq('project_id', projectId),
     supabase.from('creative_assets').select('*').eq('project_id', projectId).order('sort_order'),
     supabase.from('project_comments').select('*').eq('project_id', projectId).eq('track', 'image').order('created_at'),
     supabase.from('project_comments').select('*').eq('project_id', projectId).eq('track', 'note').order('created_at'),

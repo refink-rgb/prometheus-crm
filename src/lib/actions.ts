@@ -23,6 +23,7 @@ export async function createBrand(formData: FormData) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
 
   const name = formData.get('name') as string
   const raw = (formData.get('website') as string).trim()
@@ -68,6 +69,8 @@ export async function createBrand(formData: FormData) {
 export async function createProject(formData: FormData): Promise<{ redirect: string }> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
 
   const brandId = formData.get('brand_id') as string
   const imageUrls = JSON.parse(formData.get('image_urls') as string) as Array<{ path: string; url: string }>
@@ -144,33 +147,18 @@ export async function createProject(formData: FormData): Promise<{ redirect: str
   if (error) throw new Error(error.message)
 
   if (imageUrls.length > 0) {
-    await supabase.from('project_images').insert(
+    const { error: imgErr } = await supabase.from('project_images').insert(
       imageUrls.map(({ path, url }) => ({
         project_id: data.id,
         storage_path: path,
         storage_url: url,
       }))
     )
+    if (imgErr) throw new Error(`Failed to attach project images: ${imgErr.message}`)
   }
 
   revalidatePath(`/brands/${brandId}`)
   return { redirect: `/brands/${brandId}/projects/${data.id}` }
-}
-
-export async function createJourney(brandId: string, name: string): Promise<string> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Not authenticated.')
-
-  const { data, error } = await supabase
-    .from('journeys')
-    .insert({ brand_id: brandId, name: name.trim() })
-    .select()
-    .single()
-
-  if (error) throw new Error(error.message)
-  revalidatePath(`/brands/${brandId}`)
-  return data.id
 }
 
 export async function updateProjectStage(
@@ -825,47 +813,6 @@ export async function archiveAssetToDeleteFolder(
 }
 
 /**
- * Restore a previously-archived asset: move its file from Delete/ back to the
- * project's root Drive folder and un-hide it in the CRM. Authed.
- */
-export async function restoreAssetFromDeleteFolder(
-  assetId: string,
-  projectId: string,
-  brandId: string
-): Promise<void> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
-
-  await _restoreAssetCore(supabase, assetId, projectId)
-
-  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
-  revalidatePath(`/brands/${brandId}/projects/${projectId}/internal-review`)
-  revalidatePath('/review', 'layout')
-}
-
-/**
- * Count of "stale" assets eligible for purge: hidden OR rejected. Authed.
- * Used by the UI to enable/disable the button and show a count.
- */
-export async function countStaleAssets(
-  projectId: string
-): Promise<number> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
-
-  const { data } = await supabase
-    .from('creative_assets')
-    .select('id, is_hidden, status, internal_status')
-    .eq('project_id', projectId)
-
-  return (data ?? []).filter(a => a.is_hidden || a.status === 'rejected' || a.internal_status === 'rejected').length
-}
-
-/**
  * Batch-purge stale assets (is_hidden=true OR status='rejected') by moving
  * each to the project's Delete subfolder. Idempotent: already-moved files
  * are skipped. Authed.
@@ -1240,8 +1187,10 @@ export async function deleteProject(projectId: string, brandId: string) {
   if (!user) redirect('/login')
   if (!canEdit(user.email)) throw new Error('Not authorized.')
 
-  await supabase.from('project_images').delete().eq('project_id', projectId)
-  await supabase.from('projects').delete().eq('id', projectId)
+  const { error: imgErr } = await supabase.from('project_images').delete().eq('project_id', projectId)
+  if (imgErr) throw new Error(`Failed to delete project images: ${imgErr.message}`)
+  const { error: projErr } = await supabase.from('projects').delete().eq('id', projectId)
+  if (projErr) throw new Error(`Failed to delete project: ${projErr.message}`)
 
   revalidatePath(`/brands/${brandId}`)
   redirect(`/brands/${brandId}`)
@@ -1260,11 +1209,14 @@ export async function deleteBrand(brandId: string) {
 
   if (projects && projects.length > 0) {
     const ids = projects.map(p => p.id)
-    await supabase.from('project_images').delete().in('project_id', ids)
-    await supabase.from('projects').delete().eq('brand_id', brandId)
+    const { error: imgErr } = await supabase.from('project_images').delete().in('project_id', ids)
+    if (imgErr) throw new Error(`Failed to delete project images: ${imgErr.message}`)
+    const { error: projErr } = await supabase.from('projects').delete().eq('brand_id', brandId)
+    if (projErr) throw new Error(`Failed to delete projects: ${projErr.message}`)
   }
 
-  await supabase.from('brands').delete().eq('id', brandId)
+  const { error: brandErr } = await supabase.from('brands').delete().eq('id', brandId)
+  if (brandErr) throw new Error(`Failed to delete brand: ${brandErr.message}`)
 
   revalidatePath('/')
   redirect('/')
@@ -1276,7 +1228,8 @@ export async function addProfitEngineer(name: string) {
   if (!user) redirect('/login')
   if (!canEdit(user.email)) throw new Error('Not authorized.')
 
-  await supabase.from('profit_engineers').insert({ name: name.trim() })
+  const { error } = await supabase.from('profit_engineers').insert({ name: name.trim() })
+  if (error) throw new Error(`Failed to add profit engineer: ${error.message}`)
   // The dropdown that consumes this list only appears on brand pages.
   revalidatePath('/brands', 'layout')
 }
@@ -1291,11 +1244,12 @@ export async function addInternalNote(
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
 
   const name = displayName.trim() || user.email?.split('@')[0] || 'Team'
   const cleanedAttachments = (attachmentUrls ?? []).filter(u => typeof u === 'string' && u.length > 0)
 
-  await supabase.from('project_comments').insert({
+  const { error } = await supabase.from('project_comments').insert({
     project_id: projectId,
     author_name: name,
     content: content.trim(),
@@ -1306,6 +1260,7 @@ export async function addInternalNote(
     section_tag: null,
     attachment_urls: cleanedAttachments.length > 0 ? cleanedAttachments : null,
   })
+  if (error) throw new Error(`Failed to add note: ${error.message}`)
 
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)
 }
@@ -1316,11 +1271,12 @@ export async function lockProjectOffer(projectId: string, brandId: string) {
   if (!user) redirect('/login')
   if (!canEdit(user.email)) throw new Error('Not authorized.')
 
-  await supabase.from('projects').update({
+  const { error } = await supabase.from('projects').update({
     offer_locked: true,
     offer_locked_at: new Date().toISOString(),
     offer_locked_by: user.email,
   }).eq('id', projectId)
+  if (error) throw new Error(`Failed to lock offer: ${error.message}`)
 
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)
 }
@@ -1331,11 +1287,12 @@ export async function unlockProjectOffer(projectId: string, brandId: string) {
   if (!user) redirect('/login')
   if (!canEdit(user.email)) throw new Error('Not authorized.')
 
-  await supabase.from('projects').update({
+  const { error } = await supabase.from('projects').update({
     offer_locked: false,
     offer_locked_at: null,
     offer_locked_by: null,
   }).eq('id', projectId)
+  if (error) throw new Error(`Failed to unlock offer: ${error.message}`)
 
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)
 }
@@ -1350,11 +1307,12 @@ export async function confirmOfferByClient(token: string) {
     .single()
   if (!project) throw new Error('Invalid review link.')
 
-  await supabase.from('projects').update({
+  const { error } = await supabase.from('projects').update({
     offer_locked: true,
     offer_locked_at: new Date().toISOString(),
     offer_locked_by: 'client',
   }).eq('id', project.id)
+  if (error) throw new Error(`Failed to confirm offer: ${error.message}`)
 
   revalidatePath(`/review/${token}`)
 }
@@ -1368,7 +1326,8 @@ export async function generateClientToken(brandId: string): Promise<string> {
   const { randomBytes } = await import('crypto')
   const token = randomBytes(20).toString('hex')
 
-  await supabase.from('brands').update({ client_token: token }).eq('id', brandId)
+  const { error } = await supabase.from('brands').update({ client_token: token }).eq('id', brandId)
+  if (error) throw new Error(`Failed to save client token: ${error.message}`)
   revalidatePath(`/brands/${brandId}`)
   return token
 }
@@ -1379,10 +1338,11 @@ export async function renameJourney(journeyId: string, brandId: string, newName:
   if (!user) redirect('/login')
   if (!canEdit(user.email)) throw new Error('Not authorized.')
 
-  await supabase
+  const { error } = await supabase
     .from('journeys')
     .update({ name: newName.trim() })
     .eq('id', journeyId)
+  if (error) throw new Error(`Failed to rename journey: ${error.message}`)
 
   revalidatePath(`/brands/${brandId}`)
 }
@@ -1400,7 +1360,8 @@ export async function deleteJourney(journeyId: string, brandId: string) {
 
   if ((count ?? 0) > 0) throw new Error('Cannot delete a journey that still has projects assigned to it.')
 
-  await supabase.from('journeys').delete().eq('id', journeyId)
+  const { error } = await supabase.from('journeys').delete().eq('id', journeyId)
+  if (error) throw new Error(`Failed to delete journey: ${error.message}`)
 
   revalidatePath(`/brands/${brandId}`)
 }
@@ -1447,10 +1408,11 @@ export async function updateProjectDetails(
   if (!user) redirect('/login')
   if (!canEdit(user.email)) throw new Error('Not authorized.')
 
-  await supabase
+  const { error } = await supabase
     .from('projects')
     .update(values)
     .eq('id', projectId)
+  if (error) throw new Error(`Failed to update project: ${error.message}`)
 
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)
   revalidatePath('/')
@@ -1499,7 +1461,8 @@ export async function buildBrandDna(brandId: string): Promise<void> {
     .maybeSingle()
 
   if (prevActive) {
-    await supabase.from('brand_dna').update({ is_active: false }).eq('id', prevActive.id)
+    const { error: flipErr } = await supabase.from('brand_dna').update({ is_active: false }).eq('id', prevActive.id)
+    if (flipErr) throw new Error(`Failed to deactivate prior Brand DNA: ${flipErr.message}`)
   }
 
   const insertRow = {

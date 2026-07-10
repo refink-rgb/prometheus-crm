@@ -37,8 +37,8 @@ export default async function ReviewPage({
     { data: allComments },
     { data: assetsRaw },
   ] = await Promise.all([
-    supabase.from('brands').select('*').eq('id', p.brand_id).single(),
-    supabase.from('project_images').select('*').eq('project_id', p.id).order('created_at'),
+    supabase.from('brands').select('id, name').eq('id', p.brand_id).single(),
+    supabase.from('project_images').select('id, storage_url, created_at').eq('project_id', p.id).order('created_at'),
     // Client review must NEVER show internal-only comments — exclude audience='internal'.
     supabase.from('project_comments').select('*').eq('project_id', p.id).neq('audience', 'internal').order('created_at'),
     supabase.from('creative_assets').select('*').eq('project_id', p.id).eq('is_hidden', false).eq('client_visible', true).order('sort_order'),
