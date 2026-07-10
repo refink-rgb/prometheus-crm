@@ -128,7 +128,7 @@ export default function KanbanView({ pipeline }: { pipeline: PipelineProject[] }
   }
 
   return (
-    <section style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 320px)' }}>
+    <section style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       {/* Filter bar */}
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', flexShrink: 0 }}>
         <input
@@ -203,10 +203,11 @@ export default function KanbanView({ pipeline }: { pipeline: PipelineProject[] }
           {/* Board */}
           <div style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(6, minmax(200px, 1fr))',
+            gridTemplateColumns: 'repeat(6, minmax(260px, 1fr))',
             gap: 12,
             height: '100%',
             overflowX: 'auto',
+            overflowY: 'hidden',
           }}>
             {columns.map(({ stage, cards }) => (
               <KanbanColumn
@@ -265,6 +266,9 @@ function KanbanColumnInner({
         borderTop: `2px solid ${color}`,
         borderRadius: 8,
         flexShrink: 0,
+        position: 'sticky',
+        top: 0,
+        zIndex: 2,
       }}>
         <span style={{
           fontSize: 11, fontWeight: 700, color,

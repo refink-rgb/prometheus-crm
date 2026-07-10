@@ -1428,102 +1428,124 @@ export async function signOut() {
 // on `brand_dna` and flips any prior active row to is_active=false, so there's
 // exactly one active version per brand. Expected runtime 30-90s; the brand
 // page carries `maxDuration = 120` to accommodate.
-export async function buildBrandDna(brandId: string): Promise<void> {
+//
+// Returns { ok, error } instead of throwing: thrown errors from server actions
+// are redacted to a generic "Server Components render" message in production,
+// so the panel could never surface the real cause. Same pattern used by
+// createProject above.
+export async function buildBrandDna(
+  brandId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
+  if (!canEdit(user.email)) return { ok: false, error: 'Not authorized.' }
 
-  const { data: brand } = await supabase
-    .from('brands')
-    .select('name, website')
-    .eq('id', brandId)
-    .single()
-  if (!brand) throw new Error('Brand not found.')
-  if (!brand.website) throw new Error('Brand website is required to research DNA.')
+  try {
+    const { data: brand } = await supabase
+      .from('brands')
+      .select('name, website')
+      .eq('id', brandId)
+      .single()
+    if (!brand) return { ok: false, error: 'Brand not found.' }
+    if (!brand.website) return { ok: false, error: 'Brand website is required to research DNA.' }
 
-  const { researchBrandDna, synthesizeBrandDna } = await import('@/lib/ai/gemini')
-  const { TEXT_FIELDS } = await import('@/lib/ai/brand-dna-schema')
+    const { researchBrandDna, synthesizeBrandDna } = await import('@/lib/ai/gemini')
+    const { TEXT_FIELDS } = await import('@/lib/ai/brand-dna-schema')
 
-  const { dossier, urls } = await researchBrandDna(brand.name, brand.website)
-  const dna = await synthesizeBrandDna(dossier, urls)
+    const { dossier, urls } = await researchBrandDna(brand.name, brand.website)
+    const dna = await synthesizeBrandDna(dossier, urls)
 
-  const normalized: Record<string, unknown> = { ...dna }
-  for (const field of TEXT_FIELDS) {
-    if (normalized[field] === '') normalized[field] = null
+    const normalized: Record<string, unknown> = { ...dna }
+    for (const field of TEXT_FIELDS) {
+      if (normalized[field] === '') normalized[field] = null
+    }
+
+    const { data: prevActive } = await supabase
+      .from('brand_dna')
+      .select('id, version, logo_url')
+      .eq('brand_id', brandId)
+      .eq('is_active', true)
+      .maybeSingle()
+
+    if (prevActive) {
+      const { error: flipErr } = await supabase.from('brand_dna').update({ is_active: false }).eq('id', prevActive.id)
+      if (flipErr) return { ok: false, error: `Failed to deactivate prior Brand DNA: ${flipErr.message}` }
+    }
+
+    const insertRow = {
+      ...normalized,
+      brand_id: brandId,
+      version: (prevActive?.version ?? 0) + 1,
+      is_active: true,
+      logo_url: prevActive?.logo_url ?? null,
+    }
+
+    const { error } = await supabase.from('brand_dna').insert(insertRow)
+    if (error) return { ok: false, error: `Failed to save Brand DNA: ${error.message}` }
+
+    revalidatePath(`/brands/${brandId}`)
+    return { ok: true }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.error('[buildBrandDna]', brandId, msg, e)
+    return { ok: false, error: msg }
   }
-
-  const { data: prevActive } = await supabase
-    .from('brand_dna')
-    .select('id, version, logo_url')
-    .eq('brand_id', brandId)
-    .eq('is_active', true)
-    .maybeSingle()
-
-  if (prevActive) {
-    const { error: flipErr } = await supabase.from('brand_dna').update({ is_active: false }).eq('id', prevActive.id)
-    if (flipErr) throw new Error(`Failed to deactivate prior Brand DNA: ${flipErr.message}`)
-  }
-
-  const insertRow = {
-    ...normalized,
-    brand_id: brandId,
-    version: (prevActive?.version ?? 0) + 1,
-    is_active: true,
-    logo_url: prevActive?.logo_url ?? null,
-  }
-
-  const { error } = await supabase.from('brand_dna').insert(insertRow)
-  if (error) throw new Error(`Failed to save Brand DNA: ${error.message}`)
-
-  revalidatePath(`/brands/${brandId}`)
 }
 
-export async function uploadBrandLogo(formData: FormData): Promise<{ logoUrl: string }> {
+export async function uploadBrandLogo(
+  formData: FormData,
+): Promise<{ ok: true; logoUrl: string } | { ok: false; error: string }> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
+  if (!canEdit(user.email)) return { ok: false, error: 'Not authorized.' }
 
-  const brandId = formData.get('brand_id') as string | null
-  const file = formData.get('file') as File | null
-  if (!brandId) throw new Error('brand_id is required.')
-  if (!file) throw new Error('No file provided.')
+  try {
+    const brandId = formData.get('brand_id') as string | null
+    const file = formData.get('file') as File | null
+    if (!brandId) return { ok: false, error: 'brand_id is required.' }
+    if (!file) return { ok: false, error: 'No file provided.' }
 
-  const ext = (file.name.split('.').pop() || 'png').toLowerCase().replace(/[^a-z0-9]/g, '') || 'png'
-  const path = `brand-logos/${brandId}-${Date.now()}.${ext}`
+    const ext = (file.name.split('.').pop() || 'png').toLowerCase().replace(/[^a-z0-9]/g, '') || 'png'
+    const path = `brand-logos/${brandId}-${Date.now()}.${ext}`
 
-  const buffer = Buffer.from(await file.arrayBuffer())
-  const { error: uploadError } = await supabase.storage
-    .from('project-images')
-    .upload(path, buffer, { contentType: file.type || 'image/png', upsert: false })
-  if (uploadError) throw new Error(`Storage upload failed: ${uploadError.message}`)
+    const buffer = Buffer.from(await file.arrayBuffer())
+    const { error: uploadError } = await supabase.storage
+      .from('project-images')
+      .upload(path, buffer, { contentType: file.type || 'image/png', upsert: false })
+    if (uploadError) return { ok: false, error: `Storage upload failed: ${uploadError.message}` }
 
-  const { data: { publicUrl } } = supabase.storage.from('project-images').getPublicUrl(path)
+    const { data: { publicUrl } } = supabase.storage.from('project-images').getPublicUrl(path)
 
-  const { data: active } = await supabase
-    .from('brand_dna')
-    .select('id')
-    .eq('brand_id', brandId)
-    .eq('is_active', true)
-    .maybeSingle()
+    const { data: active } = await supabase
+      .from('brand_dna')
+      .select('id')
+      .eq('brand_id', brandId)
+      .eq('is_active', true)
+      .maybeSingle()
 
-  if (active) {
-    const { error } = await supabase.from('brand_dna').update({ logo_url: publicUrl }).eq('id', active.id)
-    if (error) throw new Error(`Failed to save logo URL: ${error.message}`)
-  } else {
-    // No DNA row yet — create a stub active row that just holds the logo, so
-    // the panel has somewhere to persist the upload. A later Build pass will
-    // supersede this with version=2.
-    const { error } = await supabase.from('brand_dna').insert({
-      brand_id: brandId,
-      version: 1,
-      is_active: true,
-      logo_url: publicUrl,
-    })
-    if (error) throw new Error(`Failed to save logo URL: ${error.message}`)
+    if (active) {
+      const { error } = await supabase.from('brand_dna').update({ logo_url: publicUrl }).eq('id', active.id)
+      if (error) return { ok: false, error: `Failed to save logo URL: ${error.message}` }
+    } else {
+      // No DNA row yet — create a stub active row that just holds the logo, so
+      // the panel has somewhere to persist the upload. A later Build pass will
+      // supersede this with version=2.
+      const { error } = await supabase.from('brand_dna').insert({
+        brand_id: brandId,
+        version: 1,
+        is_active: true,
+        logo_url: publicUrl,
+      })
+      if (error) return { ok: false, error: `Failed to save logo URL: ${error.message}` }
+    }
+
+    revalidatePath(`/brands/${brandId}`)
+    return { ok: true, logoUrl: publicUrl }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.error('[uploadBrandLogo]', msg, e)
+    return { ok: false, error: msg }
   }
-
-  revalidatePath(`/brands/${brandId}`)
-  return { logoUrl: publicUrl }
 }

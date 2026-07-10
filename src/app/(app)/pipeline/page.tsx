@@ -21,8 +21,14 @@ export default async function PipelinePage() {
   const pipeline = (pipelineRaw ?? []) as PipelineProject[]
 
   return (
-    <div style={{ padding: '28px 32px 40px' }}>
-      <div style={{ marginBottom: 20 }}>
+    <div style={{
+      display: 'flex',
+      flexDirection: 'column',
+      height: '100dvh',
+      padding: '20px 24px 16px',
+      overflow: 'hidden',
+    }}>
+      <div style={{ marginBottom: 14, flexShrink: 0 }}>
         <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.02em', marginBottom: 4 }}>
           Active Pipeline
         </h1>

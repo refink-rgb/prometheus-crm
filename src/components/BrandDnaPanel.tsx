@@ -122,8 +122,12 @@ export default function BrandDnaPanel({ brandId, dna }: { brandId: string; dna: 
     setBuilding(true)
     setError('')
     try {
-      await buildBrandDna(brandId)
-      router.refresh()
+      const result = await buildBrandDna(brandId)
+      if (!result.ok) {
+        setError(result.error)
+      } else {
+        router.refresh()
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Build failed')
     } finally {
@@ -140,8 +144,12 @@ export default function BrandDnaPanel({ brandId, dna }: { brandId: string; dna: 
       const fd = new FormData()
       fd.append('brand_id', brandId)
       fd.append('file', file)
-      await uploadBrandLogo(fd)
-      router.refresh()
+      const result = await uploadBrandLogo(fd)
+      if (!result.ok) {
+        setError(result.error)
+      } else {
+        router.refresh()
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Logo upload failed')
     } finally {
