@@ -1,10 +1,19 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, memo, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { updateProjectDetails } from '@/lib/actions'
 import { PAGE_TYPE_OPTIONS } from '@/lib/types'
 import type { Journey } from '@/lib/types'
+
+const OFFER_DYNAMICS_OPTIONS = [
+  'BOGO',
+  'GWP',
+  'Buy X Get Y',
+  'Flat Discount',
+  'Tiered Discount',
+  'Other',
+] as const
 
 interface Props {
   projectId: string
@@ -13,13 +22,13 @@ interface Props {
   initial: {
     name: string
     due_date: string | null
+    stage_brief_due_date: string | null
+    stage_in_progress_due_date: string | null
+    stage_internal_review_due_date: string | null
+    stage_client_review_due_date: string | null
     offer_description: string | null
-    inspiration: string | null
     offer: string | null
     cta: string | null
-    discount: string | null
-    tiered_offer: string | null
-    offer_type: string | null
     headline: string | null
     body_copy: string | null
     supporting_message: string | null
@@ -27,18 +36,31 @@ interface Props {
     marketing_moment: 1 | 2 | null
     page_type: string | null
     product_featured: string | null
+    product_description: string | null
+    retail_price: string | null
+    offer_dynamics_type: string | null
+    competitor_reference: string | null
+    client_ad_inspiration: string | null
+    ad_copy_primary_text: string | null
+    ad_copy_description: string | null
+    ad_copy_url: string | null
+    ad_headlines: string[] | null
+    ad_subcopies: string[] | null
+    ad_eyebrows: string[] | null
+    product_images_link: string | null
     lp_url: string | null
     creatives_notes: string | null
     shopify_coupon_code: string | null
   }
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return (
     <div style={{ borderTop: '1px solid var(--border)', paddingTop: 20, marginTop: 20 }}>
-      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 16 }}>
+      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: subtitle ? 4 : 16 }}>
         {title}
       </div>
+      {subtitle && <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16 }}>{subtitle}</p>}
       {children}
     </div>
   )
@@ -56,101 +78,181 @@ function Field({ label, optional, children }: { label: string; optional?: boolea
   )
 }
 
+function padArray(values: string[] | null, size: number): string[] {
+  const src = values ?? []
+  return Array.from({ length: size }).map((_, i) => src[i] ?? '')
+}
+
+function cleanBank(values: string[]): string[] | null {
+  const cleaned = values.map(v => v.trim()).filter(Boolean)
+  return cleaned.length > 0 ? cleaned : null
+}
+
+// Memoized copy-bank: its own state lives here so typing in one row only
+// re-renders this component (not the whole 400-line form). The parent reads
+// the current values via ref when saving.
+const CopyBank = memo(function CopyBank({
+  placeholderPrefix,
+  initial,
+  onChange,
+}: {
+  count: number
+  placeholderPrefix: string
+  initial: string[]
+  onChange: (next: string[]) => void
+}) {
+  const [values, setValues] = useState<string[]>(initial)
+  const update = useCallback((i: number, v: string) => {
+    setValues(prev => {
+      const next = [...prev]
+      next[i] = v
+      onChange(next)
+      return next
+    })
+  }, [onChange])
+
+  return (
+    <>
+      {values.map((v, i) => (
+        <input
+          key={i}
+          type="text"
+          defaultValue={v}
+          onChange={e => update(i, e.target.value)}
+          placeholder={`${placeholderPrefix} ${i + 1}`}
+          style={{ marginBottom: 8 }}
+        />
+      ))}
+    </>
+  )
+})
+
+// Marketing Moment picker isolated into its own memoized component so the
+// tri-state button rerender doesn't touch the rest of the form.
+const MomentPicker = memo(function MomentPicker({
+  initial,
+  onChange,
+}: {
+  initial: '' | '1' | '2'
+  onChange: (v: '' | '1' | '2') => void
+}) {
+  const [value, setValue] = useState<'' | '1' | '2'>(initial)
+  return (
+    <div style={{ display: 'flex', gap: 8 }}>
+      {(['', '1', '2'] as const).map(m => (
+        <button
+          key={m}
+          type="button"
+          onClick={() => { setValue(m); onChange(m) }}
+          style={{
+            padding: '7px 14px', borderRadius: 8, fontSize: 13, cursor: 'pointer', fontWeight: 500,
+            border: `1px solid ${value === m ? 'var(--accent)' : 'var(--border)'}`,
+            background: value === m ? 'var(--accent-muted)' : 'transparent',
+            color: value === m ? 'var(--accent)' : 'var(--text-secondary)',
+            transition: 'all 0.15s',
+          }}
+        >
+          {m === '' ? 'None' : m === '1' ? 'Moment 1 (1st half)' : 'Moment 2 (2nd half)'}
+        </button>
+      ))}
+    </div>
+  )
+})
+
 export default function ProjectEditForm({ projectId, brandId, journeys, initial }: Props) {
   const router = useRouter()
   const [editing, setEditing] = useState(false)
-  const formRef = useRef<HTMLDivElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const formRef = useRef<HTMLFormElement>(null)
+
+  // Bumped on cancel to remount the form and reset all defaultValue inputs.
+  const [formKey, setFormKey] = useState(0)
 
   useEffect(() => {
     function handleOpen() {
       setEditing(true)
-      setTimeout(() => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
+      setTimeout(() => containerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
     }
     window.addEventListener('prometheus-open-edit', handleOpen)
     return () => window.removeEventListener('prometheus-open-edit', handleOpen)
   }, [])
+
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
-  const [name, setName] = useState(initial.name)
-  const [dueDate, setDueDate] = useState(initial.due_date ?? '')
-  const [journeyId, setJourneyId] = useState(initial.journey_id ?? '')
-  const [moment, setMoment] = useState<'' | '1' | '2'>(
+  // Only the field types that (a) can't be uncontrolled or (b) submit an
+  // array/derived value still need refs. All other inputs are uncontrolled
+  // defaultValue + read from FormData at save time.
+  const momentRef = useRef<'' | '1' | '2'>(
     initial.marketing_moment ? String(initial.marketing_moment) as '1' | '2' : ''
   )
-  const [pageType, setPageType] = useState(initial.page_type ?? '')
-  const [productFeatured, setProductFeatured] = useState(initial.product_featured ?? '')
+  const headlinesRef = useRef<string[]>(padArray(initial.ad_headlines, 5))
+  const subcopiesRef = useRef<string[]>(padArray(initial.ad_subcopies, 5))
+  const eyebrowsRef = useRef<string[]>(padArray(initial.ad_eyebrows, 3))
 
-  const [offerDescription, setOfferDescription] = useState(initial.offer_description ?? '')
-  const [inspiration, setInspiration] = useState(initial.inspiration ?? '')
-
-  const [offer, setOffer] = useState(initial.offer ?? '')
-  const [cta, setCta] = useState(initial.cta ?? '')
-  const [offerType, setOfferType] = useState<'flat' | 'tiered' | ''>(
-    initial.offer_type === 'flat' ? 'flat' : initial.offer_type === 'tiered' ? 'tiered' : ''
-  )
-  const [discount, setDiscount] = useState(initial.discount ?? '')
-  const [tieredOffer, setTieredOffer] = useState(initial.tiered_offer ?? '')
-  const [headline, setHeadline] = useState(initial.headline ?? '')
-  const [bodyCopy, setBodyCopy] = useState(initial.body_copy ?? '')
-  const [supportingMessage, setSupportingMessage] = useState(initial.supporting_message ?? '')
-
-  const [lpUrl, setLpUrl] = useState(initial.lp_url ?? '')
-  const [creativesNotes, setCreativesNotes] = useState(initial.creatives_notes ?? '')
-  const [shopifyCouponCode, setShopifyCouponCode] = useState(initial.shopify_coupon_code ?? '')
+  const onMomentChange = useCallback((v: '' | '1' | '2') => { momentRef.current = v }, [])
+  const onHeadlinesChange = useCallback((v: string[]) => { headlinesRef.current = v }, [])
+  const onSubcopiesChange = useCallback((v: string[]) => { subcopiesRef.current = v }, [])
+  const onEyebrowsChange = useCallback((v: string[]) => { eyebrowsRef.current = v }, [])
 
   function cancel() {
-    setName(initial.name)
-    setDueDate(initial.due_date ?? '')
-    setJourneyId(initial.journey_id ?? '')
-    setMoment(initial.marketing_moment ? String(initial.marketing_moment) as '1' | '2' : '')
-    setPageType(initial.page_type ?? '')
-    setProductFeatured(initial.product_featured ?? '')
-    setOfferDescription(initial.offer_description ?? '')
-    setInspiration(initial.inspiration ?? '')
-    setOffer(initial.offer ?? '')
-    setCta(initial.cta ?? '')
-    setOfferType(initial.offer_type === 'flat' ? 'flat' : initial.offer_type === 'tiered' ? 'tiered' : '')
-    setDiscount(initial.discount ?? '')
-    setTieredOffer(initial.tiered_offer ?? '')
-    setHeadline(initial.headline ?? '')
-    setBodyCopy(initial.body_copy ?? '')
-    setSupportingMessage(initial.supporting_message ?? '')
-    setLpUrl(initial.lp_url ?? '')
-    setCreativesNotes(initial.creatives_notes ?? '')
-    setShopifyCouponCode(initial.shopify_coupon_code ?? '')
+    momentRef.current = initial.marketing_moment ? String(initial.marketing_moment) as '1' | '2' : ''
+    headlinesRef.current = padArray(initial.ad_headlines, 5)
+    subcopiesRef.current = padArray(initial.ad_subcopies, 5)
+    eyebrowsRef.current = padArray(initial.ad_eyebrows, 3)
     setError('')
+    setFormKey(k => k + 1) // remount to reset defaultValue inputs
     setEditing(false)
   }
 
   async function save() {
-    if (!name.trim()) {
+    const form = formRef.current
+    if (!form) return
+    const fd = new FormData(form)
+    const s = (k: string): string => (fd.get(k) as string ?? '').toString()
+    const trimmed = (k: string): string | null => s(k).trim() || null
+
+    const nameVal = s('name').trim()
+    if (!nameVal) {
       setError('Project name is required.')
       return
     }
     setSaving(true)
     setError('')
     try {
+      const moment = momentRef.current
       await updateProjectDetails(projectId, brandId, {
-        name: name.trim(),
-        due_date: dueDate || null,
-        offer_description: offerDescription.trim() || null,
-        inspiration: inspiration.trim() || null,
-        offer: offer.trim() || null,
-        cta: cta.trim() || null,
-        offer_type: offerType || null,
-        discount: offerType === 'flat' ? (discount.trim() || null) : null,
-        tiered_offer: offerType === 'tiered' ? (tieredOffer.trim() || null) : null,
-        headline: headline.trim() || null,
-        body_copy: bodyCopy.trim() || null,
-        supporting_message: supportingMessage.trim() || null,
-        journey_id: journeyId || null,
+        name: nameVal,
+        due_date: s('due_date') || null,
+        stage_brief_due_date: s('stage_brief_due_date') || null,
+        stage_in_progress_due_date: s('stage_in_progress_due_date') || null,
+        stage_internal_review_due_date: s('stage_internal_review_due_date') || null,
+        stage_client_review_due_date: s('stage_client_review_due_date') || null,
+        offer_description: trimmed('offer_description'),
+        offer: trimmed('offer'),
+        cta: trimmed('cta'),
+        headline: trimmed('headline'),
+        body_copy: trimmed('body_copy'),
+        supporting_message: trimmed('supporting_message'),
+        journey_id: s('journey_id') || null,
         marketing_moment: moment === '1' ? 1 : moment === '2' ? 2 : null,
-        page_type: pageType || null,
-        product_featured: productFeatured.trim() || null,
-        lp_url: lpUrl.trim() || null,
-        creatives_notes: creativesNotes.trim() || null,
-        shopify_coupon_code: shopifyCouponCode.trim() || null,
+        page_type: s('page_type') || null,
+        product_featured: trimmed('product_featured'),
+        product_description: trimmed('product_description'),
+        retail_price: trimmed('retail_price'),
+        offer_dynamics_type: s('offer_dynamics_type') || null,
+        competitor_reference: trimmed('competitor_reference'),
+        client_ad_inspiration: trimmed('client_ad_inspiration'),
+        ad_copy_primary_text: trimmed('ad_copy_primary_text'),
+        ad_copy_description: trimmed('ad_copy_description'),
+        ad_copy_url: trimmed('ad_copy_url'),
+        ad_headlines: cleanBank(headlinesRef.current),
+        ad_subcopies: cleanBank(subcopiesRef.current),
+        ad_eyebrows: cleanBank(eyebrowsRef.current),
+        product_images_link: trimmed('product_images_link'),
+        lp_url: trimmed('lp_url'),
+        creatives_notes: trimmed('creatives_notes'),
+        shopify_coupon_code: trimmed('shopify_coupon_code'),
       })
       setEditing(false)
       router.refresh()
@@ -163,7 +265,7 @@ export default function ProjectEditForm({ projectId, brandId, journeys, initial 
 
   if (!editing) {
     return (
-      <div ref={formRef} style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 24 }}>
+      <div ref={containerRef} style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 24 }}>
         <button
           onClick={() => setEditing(true)}
           style={{
@@ -192,8 +294,12 @@ export default function ProjectEditForm({ projectId, brandId, journeys, initial 
     }
   }
 
+  const momentInitial: '' | '1' | '2' = initial.marketing_moment
+    ? String(initial.marketing_moment) as '1' | '2'
+    : ''
+
   return (
-    <div ref={formRef} className="card" style={{ marginBottom: 24 }} onKeyDown={handleKeyDown}>
+    <div ref={containerRef} className="card" style={{ marginBottom: 24 }} onKeyDown={handleKeyDown}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
         <h3 style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>Edit Project</h3>
         <div style={{ display: 'flex', gap: 8 }}>
@@ -212,139 +318,162 @@ export default function ProjectEditForm({ projectId, brandId, journeys, initial 
         </div>
       )}
 
-      {/* ── Basics ── */}
-      <Section title="Basics">
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-          <Field label="Project name">
-            <input type="text" value={name} onChange={e => setName(e.target.value)} />
-          </Field>
-          <Field label="Due date" optional>
-            <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} />
-          </Field>
-        </div>
-
-        <Field label="Journey" optional>
-          <select value={journeyId} onChange={e => setJourneyId(e.target.value)}>
-            <option value="">(No journey)</option>
-            {journeys.map(j => (
-              <option key={j.id} value={j.id}>{j.name}</option>
-            ))}
-          </select>
-        </Field>
-
-        <Field label="Marketing Moment" optional>
-          <div style={{ display: 'flex', gap: 8 }}>
-            {(['', '1', '2'] as const).map(m => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => setMoment(m)}
-                style={{
-                  padding: '7px 14px', borderRadius: 8, fontSize: 13, cursor: 'pointer', fontWeight: 500,
-                  border: `1px solid ${moment === m ? 'var(--accent)' : 'var(--border)'}`,
-                  background: moment === m ? 'var(--accent-muted)' : 'transparent',
-                  color: moment === m ? 'var(--accent)' : 'var(--text-secondary)',
-                  transition: 'all 0.15s',
-                }}
-              >
-                {m === '' ? 'None' : m === '1' ? 'Moment 1 (1st half)' : 'Moment 2 (2nd half)'}
-              </button>
-            ))}
+      {/* All scalar inputs live inside this form and are uncontrolled — they
+          never trigger a re-render on keystroke. Save reads FormData; cancel
+          bumps formKey to remount and reset defaultValues. */}
+      <form
+        key={formKey}
+        ref={formRef}
+        onSubmit={e => { e.preventDefault(); save() }}
+      >
+        {/* ── Basics ── */}
+        <Section title="Basics">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <Field label="Project name">
+              <input type="text" name="name" defaultValue={initial.name} />
+            </Field>
+            <Field label="Launch date (Live)" optional>
+              <input type="date" name="due_date" defaultValue={initial.due_date ?? ''} />
+            </Field>
           </div>
-        </Field>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-          <Field label="Page Type" optional>
-            <select value={pageType} onChange={e => setPageType(e.target.value)}>
+          <Field label="Journey" optional>
+            <select name="journey_id" defaultValue={initial.journey_id ?? ''}>
+              <option value="">(No journey)</option>
+              {journeys.map(j => (
+                <option key={j.id} value={j.id}>{j.name}</option>
+              ))}
+            </select>
+          </Field>
+
+          <Field label="Marketing Moment" optional>
+            <MomentPicker initial={momentInitial} onChange={onMomentChange} />
+          </Field>
+        </Section>
+
+        {/* ── Stage timeline ── */}
+        <Section title="Stage timeline" subtitle="Target dates per phase — informational, not enforced.">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <Field label="Brief due" optional>
+              <input type="date" name="stage_brief_due_date" defaultValue={initial.stage_brief_due_date ?? ''} />
+            </Field>
+            <Field label="In Progress due" optional>
+              <input type="date" name="stage_in_progress_due_date" defaultValue={initial.stage_in_progress_due_date ?? ''} />
+            </Field>
+            <Field label="Internal Review due" optional>
+              <input type="date" name="stage_internal_review_due_date" defaultValue={initial.stage_internal_review_due_date ?? ''} />
+            </Field>
+            <Field label="Client Review due" optional>
+              <input type="date" name="stage_client_review_due_date" defaultValue={initial.stage_client_review_due_date ?? ''} />
+            </Field>
+          </div>
+        </Section>
+
+        {/* ── Shared brief ── */}
+        <Section title="Shared brief" subtitle="Used by both LP and Creatives.">
+          <Field label="Offer / Promo" optional>
+            <select name="offer_dynamics_type" defaultValue={initial.offer_dynamics_type ?? ''} style={{ marginBottom: 8 }}>
+              <option value="">Select offer type…</option>
+              {OFFER_DYNAMICS_OPTIONS.map(o => (
+                <option key={o} value={o}>{o}</option>
+              ))}
+            </select>
+            <input type="text" name="offer" defaultValue={initial.offer ?? ''} placeholder="Details — e.g. Buy 2 Get 1 Free, 20% off orders $75+" />
+          </Field>
+          <Field label="Offer overview" optional>
+            <textarea name="offer_description" defaultValue={initial.offer_description ?? ''} rows={4} style={{ resize: 'vertical' }} />
+          </Field>
+
+          <Field label="Hero headline" optional>
+            <input type="text" name="headline" defaultValue={initial.headline ?? ''} placeholder="The main hook for this moment" />
+          </Field>
+          <Field label="Body copy" optional>
+            <textarea name="body_copy" defaultValue={initial.body_copy ?? ''} rows={4} style={{ resize: 'vertical' }} />
+          </Field>
+          <Field label="Supporting message" optional>
+            <textarea name="supporting_message" defaultValue={initial.supporting_message ?? ''} rows={2} style={{ resize: 'vertical' }} />
+          </Field>
+          <Field label="Call to action" optional>
+            <input type="text" name="cta" defaultValue={initial.cta ?? ''} placeholder="e.g. Shop Now, Claim Your Deal" />
+          </Field>
+
+          <Field label="Product name" optional>
+            <input type="text" name="product_featured" defaultValue={initial.product_featured ?? ''} placeholder="e.g. Viking Beard Oil 3-Pack" />
+          </Field>
+          <Field label="Product description" optional>
+            <textarea name="product_description" defaultValue={initial.product_description ?? ''} rows={2} style={{ resize: 'vertical' }} />
+          </Field>
+        </Section>
+
+        {/* ── LP-only ── */}
+        <Section title="LP-only">
+          <Field label="Page type" optional>
+            <select name="page_type" defaultValue={initial.page_type ?? ''}>
               <option value="">Select page type…</option>
               {PAGE_TYPE_OPTIONS.map(t => (
                 <option key={t} value={t}>{t}</option>
               ))}
             </select>
           </Field>
-          <Field label="Product Featured" optional>
-            <input type="text" value={productFeatured} onChange={e => setProductFeatured(e.target.value)} placeholder="e.g. Viking Beard Oil 3-Pack" />
+        </Section>
+
+        {/* ── Creatives-only ── */}
+        <Section title="Creatives-only">
+          <Field label="Headlines (5 variations)" optional>
+            <CopyBank count={5} placeholderPrefix="Headline" initial={padArray(initial.ad_headlines, 5)} onChange={onHeadlinesChange} />
           </Field>
-        </div>
-      </Section>
-
-      {/* ── Offer Description ── */}
-      <Section title="Offer Description">
-        <Field label="Offer overview" optional>
-          <textarea value={offerDescription} onChange={e => setOfferDescription(e.target.value)} rows={4} style={{ resize: 'vertical' }} placeholder="What is the offer? Who are we targeting? What's the key buying motivation?" />
-        </Field>
-        <Field label="Inspiration" optional>
-          <textarea value={inspiration} onChange={e => setInspiration(e.target.value)} rows={2} style={{ resize: 'vertical' }} placeholder="Reference URLs, visual direction, brands or ads to draw from…" />
-        </Field>
-      </Section>
-
-      {/* ── Copy & Offer ── */}
-      <Section title="Copy & Offer">
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-          <Field label="Offer / Promo" optional>
-            <input type="text" value={offer} onChange={e => setOffer(e.target.value)} placeholder="e.g. Buy 2 Get 1 Free" />
+          <Field label="Subcopy (5 variations)" optional>
+            <CopyBank count={5} placeholderPrefix="Subcopy" initial={padArray(initial.ad_subcopies, 5)} onChange={onSubcopiesChange} />
           </Field>
-          <Field label="Call to action" optional>
-            <input type="text" value={cta} onChange={e => setCta(e.target.value)} placeholder="e.g. Shop Now, Claim Your Deal" />
+          <Field label="Eyebrows (3 variations)" optional>
+            <CopyBank count={3} placeholderPrefix="Eyebrow" initial={padArray(initial.ad_eyebrows, 3)} onChange={onEyebrowsChange} />
           </Field>
-        </div>
 
-        <Field label="Discount structure" optional>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-            {(['flat', 'tiered'] as const).map(t => (
-              <button
-                key={t}
-                type="button"
-                onClick={() => setOfferType(prev => prev === t ? '' : t)}
-                style={{
-                  padding: '7px 16px', borderRadius: 8, fontSize: 13, cursor: 'pointer', fontWeight: offerType === t ? 600 : 400,
-                  border: `1px solid ${offerType === t ? 'var(--accent)' : 'var(--border)'}`,
-                  background: offerType === t ? 'var(--accent-muted)' : 'transparent',
-                  color: offerType === t ? 'var(--accent)' : 'var(--text-secondary)',
-                  transition: 'all 0.15s',
-                }}
-              >
-                {t === 'flat' ? 'Flat discount' : 'Tiered discount'}
-              </button>
-            ))}
-          </div>
-          {offerType === 'flat' && (
-            <input type="text" value={discount} onChange={e => setDiscount(e.target.value)} placeholder="e.g. 20% off, $15 off orders $75+" />
-          )}
-          {offerType === 'tiered' && (
-            <textarea value={tieredOffer} onChange={e => setTieredOffer(e.target.value)} rows={2} style={{ resize: 'vertical' }} placeholder="e.g. Spend $50 → 10% off · Spend $100 → 20% off" />
-          )}
-        </Field>
+          <Field label="Ad Copy — Primary text" optional>
+            <textarea name="ad_copy_primary_text" defaultValue={initial.ad_copy_primary_text ?? ''} rows={3} style={{ resize: 'vertical' }} />
+          </Field>
+          <Field label="Ad Copy — Description" optional>
+            <input type="text" name="ad_copy_description" defaultValue={initial.ad_copy_description ?? ''} />
+          </Field>
+          <Field label="Ad Copy — URL" optional>
+            <input type="url" name="ad_copy_url" defaultValue={initial.ad_copy_url ?? ''} placeholder="https://…" />
+          </Field>
 
-        <Field label="Hero headline" optional>
-          <input type="text" value={headline} onChange={e => setHeadline(e.target.value)} placeholder="The main hook for this moment" />
-        </Field>
-        <Field label="Body copy" optional>
-          <textarea value={bodyCopy} onChange={e => setBodyCopy(e.target.value)} rows={4} style={{ resize: 'vertical' }} placeholder="Key claims, product benefits, supporting proof…" />
-        </Field>
-        <Field label="Supporting message" optional>
-          <textarea value={supportingMessage} onChange={e => setSupportingMessage(e.target.value)} rows={2} style={{ resize: 'vertical' }} placeholder="Secondary line, urgency cue, or subtext…" />
-        </Field>
-      </Section>
+          <Field label="Retail price / value" optional>
+            <input type="text" name="retail_price" defaultValue={initial.retail_price ?? ''} placeholder='e.g. $29.99, "$29.99 value"' />
+          </Field>
 
-      {/* ── Deliverables ── */}
-      <Section title="Deliverables">
-        <Field label="Landing page URL" optional>
-          <input type="url" value={lpUrl} onChange={e => setLpUrl(e.target.value)} placeholder="https://…" />
-        </Field>
-        <Field label="Shopify coupon code" optional>
-          <input
-            type="text"
-            value={shopifyCouponCode}
-            onChange={e => setShopifyCouponCode(e.target.value)}
-            placeholder="e.g. SUMMER20"
-            style={{ textTransform: 'uppercase' }}
-          />
-        </Field>
-        <Field label="Creatives link / notes" optional>
-          <textarea value={creativesNotes} onChange={e => setCreativesNotes(e.target.value)} rows={2} style={{ resize: 'vertical' }} placeholder="Drive link, Figma link, or delivery notes…" />
-        </Field>
-      </Section>
+          <Field label="Competitor reference" optional>
+            <textarea name="competitor_reference" defaultValue={initial.competitor_reference ?? ''} rows={2} style={{ resize: 'vertical' }} />
+          </Field>
+          <Field label="Client ad inspiration" optional>
+            <textarea name="client_ad_inspiration" defaultValue={initial.client_ad_inspiration ?? ''} rows={2} style={{ resize: 'vertical' }} />
+          </Field>
+
+          <Field label="Product images link" optional>
+            <input type="url" name="product_images_link" defaultValue={initial.product_images_link ?? ''} placeholder="Drive folder or external URL" />
+          </Field>
+        </Section>
+
+        {/* ── Deliverables ── */}
+        <Section title="Deliverables">
+          <Field label="Landing page URL" optional>
+            <input type="url" name="lp_url" defaultValue={initial.lp_url ?? ''} placeholder="https://…" />
+          </Field>
+          <Field label="Shopify coupon code" optional>
+            <input
+              type="text"
+              name="shopify_coupon_code"
+              defaultValue={initial.shopify_coupon_code ?? ''}
+              placeholder="e.g. SUMMER20"
+              style={{ textTransform: 'uppercase' }}
+            />
+          </Field>
+          <Field label="Creatives link / notes" optional>
+            <textarea name="creatives_notes" defaultValue={initial.creatives_notes ?? ''} rows={2} style={{ resize: 'vertical' }} />
+          </Field>
+        </Section>
+      </form>
 
       <div style={{ display: 'flex', gap: 8, marginTop: 20 }}>
         <button onClick={save} disabled={saving} className="btn-primary" style={{ fontSize: 13 }}>

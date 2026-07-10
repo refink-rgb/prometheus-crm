@@ -201,11 +201,7 @@ export async function ensureDeleteSubfolder(
   return created.id
 }
 
-/**
- * Get the current parents of a Drive file (used by callers that don't
- * already know which parent to swap out — e.g. restore-from-Delete).
- */
-export async function getDriveFileParents(fileId: string): Promise<string[]> {
+async function getDriveFileParents(fileId: string): Promise<string[]> {
   const token = await getDriveAccessToken()
   const res = await fetch(
     `https://www.googleapis.com/drive/v3/files/${fileId}?fields=parents`,

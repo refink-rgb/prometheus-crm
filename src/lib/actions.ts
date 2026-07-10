@@ -1,6 +1,12 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+
+// Revalidation rule of thumb: only invalidate '/' (the dashboard) when the
+// mutation changes something the dashboard actually renders — the pipeline
+// table reads name/due_date/is_complete/lp_stage/creatives_stage/lp_approved/
+// creatives_approved, and the KPI strip reads brand count / MRR. For anything
+// else, revalidate only the specific brand/project/pipeline paths.
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { canEdit } from '@/lib/permissions'
@@ -17,6 +23,7 @@ export async function createBrand(formData: FormData) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
 
   const name = formData.get('name') as string
   const raw = (formData.get('website') as string).trim()
@@ -62,6 +69,8 @@ export async function createBrand(formData: FormData) {
 export async function createProject(formData: FormData): Promise<{ redirect: string }> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
 
   const brandId = formData.get('brand_id') as string
   const imageUrls = JSON.parse(formData.get('image_urls') as string) as Array<{ path: string; url: string }>
@@ -85,18 +94,31 @@ export async function createProject(formData: FormData): Promise<{ redirect: str
   const momentRaw = formData.get('marketing_moment') as string
   const marketing_moment = momentRaw === '1' ? 1 : momentRaw === '2' ? 2 : null
 
+  // JSON-encoded arrays for headline/subcopy/eyebrow banks. Empty entries dropped
+  // server-side so a bank with only 2 filled slots doesn't persist 3 empty strings.
+  const jsonArr = (key: string): string[] | null => {
+    const raw = formData.get(key) as string | null
+    if (!raw) return null
+    try {
+      const parsed = JSON.parse(raw)
+      if (!Array.isArray(parsed)) return null
+      const cleaned = parsed.map(s => (typeof s === 'string' ? s.trim() : '')).filter(Boolean)
+      return cleaned.length > 0 ? cleaned : null
+    } catch { return null }
+  }
+
   const { data, error } = await supabase
     .from('projects')
     .insert({
       brand_id: brandId,
       name: formData.get('name') as string,
       due_date: formData.get('due_date') as string,
+      stage_brief_due_date:           str('stage_brief_due_date'),
+      stage_in_progress_due_date:     str('stage_in_progress_due_date'),
+      stage_internal_review_due_date: str('stage_internal_review_due_date'),
+      stage_client_review_due_date:   str('stage_client_review_due_date'),
       offer_description: str('offer_description'),
-      inspiration: str('inspiration'),
-      offer_type: str('offer_type'),
       offer: str('offer'),
-      discount: str('discount'),
-      tiered_offer: str('tiered_offer'),
       headline: str('headline'),
       body_copy: str('body_copy'),
       supporting_message: str('supporting_message'),
@@ -105,6 +127,18 @@ export async function createProject(formData: FormData): Promise<{ redirect: str
       marketing_moment,
       page_type: str('page_type'),
       product_featured: str('product_featured'),
+      product_description: str('product_description'),
+      retail_price: str('retail_price'),
+      offer_dynamics_type: str('offer_dynamics_type'),
+      competitor_reference: str('competitor_reference'),
+      client_ad_inspiration: str('client_ad_inspiration'),
+      ad_copy_primary_text: str('ad_copy_primary_text'),
+      ad_copy_description: str('ad_copy_description'),
+      ad_copy_url: str('ad_copy_url'),
+      ad_headlines: jsonArr('ad_headlines'),
+      ad_subcopies: jsonArr('ad_subcopies'),
+      ad_eyebrows: jsonArr('ad_eyebrows'),
+      product_images_link: str('product_images_link'),
       created_by: user?.id ?? null,
     })
     .select()
@@ -113,33 +147,18 @@ export async function createProject(formData: FormData): Promise<{ redirect: str
   if (error) throw new Error(error.message)
 
   if (imageUrls.length > 0) {
-    await supabase.from('project_images').insert(
+    const { error: imgErr } = await supabase.from('project_images').insert(
       imageUrls.map(({ path, url }) => ({
         project_id: data.id,
         storage_path: path,
         storage_url: url,
       }))
     )
+    if (imgErr) throw new Error(`Failed to attach project images: ${imgErr.message}`)
   }
 
   revalidatePath(`/brands/${brandId}`)
   return { redirect: `/brands/${brandId}/projects/${data.id}` }
-}
-
-export async function createJourney(brandId: string, name: string): Promise<string> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Not authenticated.')
-
-  const { data, error } = await supabase
-    .from('journeys')
-    .insert({ brand_id: brandId, name: name.trim() })
-    .select()
-    .single()
-
-  if (error) throw new Error(error.message)
-  revalidatePath(`/brands/${brandId}`)
-  return data.id
 }
 
 export async function updateProjectStage(
@@ -160,6 +179,29 @@ export async function updateProjectStage(
 
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)
   revalidatePath('/')
+}
+
+// Combined stage update — used by the pipeline kanban drag-drop, which always
+// moves both LP and Creatives to the same column. One UPDATE + one server call
+// instead of two, so the optimistic UI settles faster.
+export async function updateProjectStagesBoth(
+  projectId: string,
+  brandId: string,
+  stage: Stage
+) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
+
+  await supabase
+    .from('projects')
+    .update({ lp_stage: stage, creatives_stage: stage })
+    .eq('id', projectId)
+
+  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+  revalidatePath('/')
+  revalidatePath('/pipeline')
 }
 
 export async function updateProjectDeliverable(formData: FormData) {
@@ -194,8 +236,8 @@ export async function toggleProjectRevisions(projectId: string, brandId: string,
     .update({ needs_revisions: value })
     .eq('id', projectId)
 
+  // needs_revisions is not shown on the dashboard — skip '/'.
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)
-  revalidatePath('/')
 }
 
 export async function markProjectComplete(projectId: string, brandId: string) {
@@ -230,12 +272,44 @@ export async function updateBrandDetails(formData: FormData) {
   const profit_engineer = (formData.get('profit_engineer') as string)?.trim() || null
   const pipeline_status = (formData.get('pipeline_status') as string) || 'active'
   const brand_notes = (formData.get('brand_notes') as string)?.trim() || null
+  const onboarding_transcript = (formData.get('onboarding_transcript') as string)?.trim() || null
+
+  const core = { monthly_retainer, start_date, growth_strategist, is_active, is_trial, profit_engineer, pipeline_status, brand_notes }
+
+  // Try with onboarding_transcript. If the column doesn't exist yet (migration
+  // 20260701_add_onboarding_transcript.sql not applied), fall back to a save
+  // without it so the rest of the account details still persist.
+  const { error } = await supabase
+    .from('brands')
+    .update({ ...core, onboarding_transcript })
+    .eq('id', brandId)
+
+  if (error) {
+    const missingColumn = error.code === '42703' || /onboarding_transcript/.test(error.message ?? '')
+    if (!missingColumn) throw new Error(error.message)
+    await supabase.from('brands').update(core).eq('id', brandId)
+  }
+
+  revalidatePath(`/brands/${brandId}`)
+}
+
+export async function updateBrandPipelineStatus(
+  brandId: string,
+  newStatus: 'intro_contact' | 'discovery_call' | 'offer_prep' | 'active',
+) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
 
   await supabase
     .from('brands')
-    .update({ monthly_retainer, start_date, growth_strategist, is_active, is_trial, profit_engineer, pipeline_status, brand_notes })
+    .update({ pipeline_status: newStatus })
     .eq('id', brandId)
 
+  // Dashboard doesn't render pipeline_status; the financials page does.
+  revalidatePath('/pipeline')
+  revalidatePath('/financials')
   revalidatePath(`/brands/${brandId}`)
 }
 
@@ -266,6 +340,7 @@ export async function addProjectComment(
     pin_x?: number
     pin_y?: number
     section_tag?: string
+    attachment_urls?: string[]
   }
 ) {
   const supabase = await createClient()
@@ -278,6 +353,8 @@ export async function addProjectComment(
 
   if (!project) throw new Error('Invalid review link.')
 
+  const cleanedAttachments = (extras?.attachment_urls ?? []).filter(u => typeof u === 'string' && u.length > 0)
+
   await supabase
     .from('project_comments')
     .insert({
@@ -289,11 +366,48 @@ export async function addProjectComment(
       pin_x: extras?.pin_x ?? null,
       pin_y: extras?.pin_y ?? null,
       section_tag: extras?.section_tag ?? null,
+      attachment_urls: cleanedAttachments.length > 0 ? cleanedAttachments : null,
       // Comments from the public review link are always client-facing.
       audience: 'client',
     })
 
   revalidatePath(`/review/${token}`)
+}
+
+// Authed-only: delete a comment from the client review page. Gated by the same
+// ALLOWED_EDITORS allowlist used everywhere else — anonymous client viewers
+// can't trigger this even if they discover the action.
+export async function deleteProjectComment(commentId: string, token: string) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authorized.')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
+
+  const { data: comment } = await supabase
+    .from('project_comments')
+    .select('project_id')
+    .eq('id', commentId)
+    .single()
+  if (!comment) throw new Error('Comment not found.')
+
+  const { data: project } = await supabase
+    .from('projects')
+    .select('id, brand_id')
+    .eq('share_token', token)
+    .single()
+  if (!project || project.id !== comment.project_id) {
+    throw new Error('Comment does not belong to this review link.')
+  }
+
+  const { error } = await supabase
+    .from('project_comments')
+    .delete()
+    .eq('id', commentId)
+  if (error) throw new Error(error.message)
+
+  revalidatePath(`/review/${token}`)
+  revalidatePath(`/brands/${project.brand_id}/projects/${project.id}`)
+  revalidatePath(`/brands/${project.brand_id}/projects/${project.id}/internal-review`)
 }
 
 export async function syncDriveImages(projectId: string, brandId: string, folderUrl: string): Promise<number> {
@@ -561,13 +675,37 @@ export async function publishAssets(
   const { data: rows, error: selErr } = await query
   if (selErr) throw new Error(selErr.message)
 
+  // Two update shapes: rows without a revision_url just flip client_visible;
+  // rows with a revision_url also copy it into published_url. Batch the first
+  // group into one query; parallelize the second because published_url differs
+  // per row.
+  const rowsList = rows ?? []
+  const plainIds = rowsList.filter(r => !r.revision_url).map(r => r.id)
+  const withRevision = rowsList.filter(r => r.revision_url)
+
   let published = 0
-  for (const row of rows ?? []) {
-    const update: { client_visible: boolean; published_url?: string } = { client_visible: true }
-    if (row.revision_url) update.published_url = row.revision_url
-    const { error } = await supabase.from('creative_assets').update(update).eq('id', row.id)
-    if (error) { console.error(`[publishAssets] failed for ${row.id}:`, error.message); continue }
-    published += 1
+
+  if (plainIds.length > 0) {
+    const { error } = await supabase
+      .from('creative_assets')
+      .update({ client_visible: true })
+      .in('id', plainIds)
+    if (error) console.error('[publishAssets] batch update failed:', error.message)
+    else published += plainIds.length
+  }
+
+  if (withRevision.length > 0) {
+    const results = await Promise.all(withRevision.map(row =>
+      supabase
+        .from('creative_assets')
+        .update({ client_visible: true, published_url: row.revision_url })
+        .eq('id', row.id)
+        .then(({ error }) => ({ id: row.id, error }))
+    ))
+    for (const r of results) {
+      if (r.error) console.error(`[publishAssets] failed for ${r.id}:`, r.error.message)
+      else published += 1
+    }
   }
 
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)
@@ -579,10 +717,13 @@ export async function publishAssets(
 // Internal helper: move a single asset's Drive file into the project's Delete
 // subfolder and set is_hidden=true. Does NOT do auth — callers gate access.
 // Throws on Drive failure; callers decide whether to swallow that error.
+// Callers batching over many assets should pass `driveFolderUrl` to avoid
+// re-fetching the project row per asset.
 async function _archiveAssetCore(
   supabase: Awaited<ReturnType<typeof createClient>>,
   assetId: string,
-  projectId: string
+  projectId: string,
+  driveFolderUrl?: string
 ): Promise<void> {
   const { data: asset } = await supabase
     .from('creative_assets')
@@ -592,16 +733,20 @@ async function _archiveAssetCore(
     .single()
   if (!asset) throw new Error('Asset not found.')
 
-  const { data: project } = await supabase
-    .from('projects')
-    .select('drive_folder_url')
-    .eq('id', projectId)
-    .single()
-  if (!project?.drive_folder_url) {
+  let folderUrl = driveFolderUrl
+  if (!folderUrl) {
+    const { data: project } = await supabase
+      .from('projects')
+      .select('drive_folder_url')
+      .eq('id', projectId)
+      .single()
+    folderUrl = project?.drive_folder_url
+  }
+  if (!folderUrl) {
     throw new Error('Project has no Drive folder configured — cannot move file to Delete.')
   }
 
-  const parentFolderId = extractDriveFolderId(project.drive_folder_url)
+  const parentFolderId = extractDriveFolderId(folderUrl)
   const deleteFolderId = await ensureDeleteSubfolder(parentFolderId)
   await moveDriveFile(asset.drive_file_id, parentFolderId, deleteFolderId)
 
@@ -668,47 +813,6 @@ export async function archiveAssetToDeleteFolder(
 }
 
 /**
- * Restore a previously-archived asset: move its file from Delete/ back to the
- * project's root Drive folder and un-hide it in the CRM. Authed.
- */
-export async function restoreAssetFromDeleteFolder(
-  assetId: string,
-  projectId: string,
-  brandId: string
-): Promise<void> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
-
-  await _restoreAssetCore(supabase, assetId, projectId)
-
-  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
-  revalidatePath(`/brands/${brandId}/projects/${projectId}/internal-review`)
-  revalidatePath('/review', 'layout')
-}
-
-/**
- * Count of "stale" assets eligible for purge: hidden OR rejected. Authed.
- * Used by the UI to enable/disable the button and show a count.
- */
-export async function countStaleAssets(
-  projectId: string
-): Promise<number> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
-
-  const { data } = await supabase
-    .from('creative_assets')
-    .select('id, is_hidden, status, internal_status')
-    .eq('project_id', projectId)
-
-  return (data ?? []).filter(a => a.is_hidden || a.status === 'rejected' || a.internal_status === 'rejected').length
-}
-
-/**
  * Batch-purge stale assets (is_hidden=true OR status='rejected') by moving
  * each to the project's Delete subfolder. Idempotent: already-moved files
  * are skipped. Authed.
@@ -746,10 +850,25 @@ export async function purgeStaleAssets(
     assetIds && assetIds.length > 0 ? true : a.is_hidden || a.status === 'rejected' || a.internal_status === 'rejected'
   )
 
+  // Fetch the project's drive folder once and pass it into each archive call,
+  // instead of re-fetching per asset (was 2N+1 queries).
+  let driveFolderUrl: string | undefined
+  if (targets.length > 0) {
+    const { data: project } = await supabase
+      .from('projects')
+      .select('drive_folder_url')
+      .eq('id', projectId)
+      .single()
+    driveFolderUrl = project?.drive_folder_url ?? undefined
+    if (!driveFolderUrl) {
+      throw new Error('Project has no Drive folder configured — cannot move files to Delete.')
+    }
+  }
+
   let purged = 0
   for (const row of targets) {
     try {
-      await _archiveAssetCore(supabase, row.id, projectId)
+      await _archiveAssetCore(supabase, row.id, projectId, driveFolderUrl)
       purged += 1
     } catch (err) {
       console.error(`[purgeStaleAssets] failed for asset ${row.id}:`, err)
@@ -1068,8 +1187,10 @@ export async function deleteProject(projectId: string, brandId: string) {
   if (!user) redirect('/login')
   if (!canEdit(user.email)) throw new Error('Not authorized.')
 
-  await supabase.from('project_images').delete().eq('project_id', projectId)
-  await supabase.from('projects').delete().eq('id', projectId)
+  const { error: imgErr } = await supabase.from('project_images').delete().eq('project_id', projectId)
+  if (imgErr) throw new Error(`Failed to delete project images: ${imgErr.message}`)
+  const { error: projErr } = await supabase.from('projects').delete().eq('id', projectId)
+  if (projErr) throw new Error(`Failed to delete project: ${projErr.message}`)
 
   revalidatePath(`/brands/${brandId}`)
   redirect(`/brands/${brandId}`)
@@ -1088,11 +1209,14 @@ export async function deleteBrand(brandId: string) {
 
   if (projects && projects.length > 0) {
     const ids = projects.map(p => p.id)
-    await supabase.from('project_images').delete().in('project_id', ids)
-    await supabase.from('projects').delete().eq('brand_id', brandId)
+    const { error: imgErr } = await supabase.from('project_images').delete().in('project_id', ids)
+    if (imgErr) throw new Error(`Failed to delete project images: ${imgErr.message}`)
+    const { error: projErr } = await supabase.from('projects').delete().eq('brand_id', brandId)
+    if (projErr) throw new Error(`Failed to delete projects: ${projErr.message}`)
   }
 
-  await supabase.from('brands').delete().eq('id', brandId)
+  const { error: brandErr } = await supabase.from('brands').delete().eq('id', brandId)
+  if (brandErr) throw new Error(`Failed to delete brand: ${brandErr.message}`)
 
   revalidatePath('/')
   redirect('/')
@@ -1104,18 +1228,28 @@ export async function addProfitEngineer(name: string) {
   if (!user) redirect('/login')
   if (!canEdit(user.email)) throw new Error('Not authorized.')
 
-  await supabase.from('profit_engineers').insert({ name: name.trim() })
-  revalidatePath('/', 'layout')
+  const { error } = await supabase.from('profit_engineers').insert({ name: name.trim() })
+  if (error) throw new Error(`Failed to add profit engineer: ${error.message}`)
+  // The dropdown that consumes this list only appears on brand pages.
+  revalidatePath('/brands', 'layout')
 }
 
-export async function addInternalNote(projectId: string, brandId: string, content: string, displayName: string) {
+export async function addInternalNote(
+  projectId: string,
+  brandId: string,
+  content: string,
+  displayName: string,
+  attachmentUrls?: string[] | null,
+) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
 
   const name = displayName.trim() || user.email?.split('@')[0] || 'Team'
+  const cleanedAttachments = (attachmentUrls ?? []).filter(u => typeof u === 'string' && u.length > 0)
 
-  await supabase.from('project_comments').insert({
+  const { error } = await supabase.from('project_comments').insert({
     project_id: projectId,
     author_name: name,
     content: content.trim(),
@@ -1124,7 +1258,9 @@ export async function addInternalNote(projectId: string, brandId: string, conten
     pin_x: null,
     pin_y: null,
     section_tag: null,
+    attachment_urls: cleanedAttachments.length > 0 ? cleanedAttachments : null,
   })
+  if (error) throw new Error(`Failed to add note: ${error.message}`)
 
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)
 }
@@ -1135,11 +1271,12 @@ export async function lockProjectOffer(projectId: string, brandId: string) {
   if (!user) redirect('/login')
   if (!canEdit(user.email)) throw new Error('Not authorized.')
 
-  await supabase.from('projects').update({
+  const { error } = await supabase.from('projects').update({
     offer_locked: true,
     offer_locked_at: new Date().toISOString(),
     offer_locked_by: user.email,
   }).eq('id', projectId)
+  if (error) throw new Error(`Failed to lock offer: ${error.message}`)
 
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)
 }
@@ -1150,11 +1287,12 @@ export async function unlockProjectOffer(projectId: string, brandId: string) {
   if (!user) redirect('/login')
   if (!canEdit(user.email)) throw new Error('Not authorized.')
 
-  await supabase.from('projects').update({
+  const { error } = await supabase.from('projects').update({
     offer_locked: false,
     offer_locked_at: null,
     offer_locked_by: null,
   }).eq('id', projectId)
+  if (error) throw new Error(`Failed to unlock offer: ${error.message}`)
 
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)
 }
@@ -1169,11 +1307,12 @@ export async function confirmOfferByClient(token: string) {
     .single()
   if (!project) throw new Error('Invalid review link.')
 
-  await supabase.from('projects').update({
+  const { error } = await supabase.from('projects').update({
     offer_locked: true,
     offer_locked_at: new Date().toISOString(),
     offer_locked_by: 'client',
   }).eq('id', project.id)
+  if (error) throw new Error(`Failed to confirm offer: ${error.message}`)
 
   revalidatePath(`/review/${token}`)
 }
@@ -1187,7 +1326,8 @@ export async function generateClientToken(brandId: string): Promise<string> {
   const { randomBytes } = await import('crypto')
   const token = randomBytes(20).toString('hex')
 
-  await supabase.from('brands').update({ client_token: token }).eq('id', brandId)
+  const { error } = await supabase.from('brands').update({ client_token: token }).eq('id', brandId)
+  if (error) throw new Error(`Failed to save client token: ${error.message}`)
   revalidatePath(`/brands/${brandId}`)
   return token
 }
@@ -1198,10 +1338,11 @@ export async function renameJourney(journeyId: string, brandId: string, newName:
   if (!user) redirect('/login')
   if (!canEdit(user.email)) throw new Error('Not authorized.')
 
-  await supabase
+  const { error } = await supabase
     .from('journeys')
     .update({ name: newName.trim() })
     .eq('id', journeyId)
+  if (error) throw new Error(`Failed to rename journey: ${error.message}`)
 
   revalidatePath(`/brands/${brandId}`)
 }
@@ -1219,7 +1360,8 @@ export async function deleteJourney(journeyId: string, brandId: string) {
 
   if ((count ?? 0) > 0) throw new Error('Cannot delete a journey that still has projects assigned to it.')
 
-  await supabase.from('journeys').delete().eq('id', journeyId)
+  const { error } = await supabase.from('journeys').delete().eq('id', journeyId)
+  if (error) throw new Error(`Failed to delete journey: ${error.message}`)
 
   revalidatePath(`/brands/${brandId}`)
 }
@@ -1230,13 +1372,13 @@ export async function updateProjectDetails(
   values: {
     name: string
     due_date: string | null
+    stage_brief_due_date: string | null
+    stage_in_progress_due_date: string | null
+    stage_internal_review_due_date: string | null
+    stage_client_review_due_date: string | null
     offer_description: string | null
-    inspiration: string | null
     offer: string | null
     cta: string | null
-    discount: string | null
-    tiered_offer: string | null
-    offer_type: string | null
     headline: string | null
     body_copy: string | null
     supporting_message: string | null
@@ -1244,6 +1386,18 @@ export async function updateProjectDetails(
     marketing_moment: 1 | 2 | null
     page_type: string | null
     product_featured: string | null
+    product_description: string | null
+    retail_price: string | null
+    offer_dynamics_type: string | null
+    competitor_reference: string | null
+    client_ad_inspiration: string | null
+    ad_copy_primary_text: string | null
+    ad_copy_description: string | null
+    ad_copy_url: string | null
+    ad_headlines: string[] | null
+    ad_subcopies: string[] | null
+    ad_eyebrows: string[] | null
+    product_images_link: string | null
     lp_url: string | null
     creatives_notes: string | null
     shopify_coupon_code: string | null
@@ -1254,10 +1408,11 @@ export async function updateProjectDetails(
   if (!user) redirect('/login')
   if (!canEdit(user.email)) throw new Error('Not authorized.')
 
-  await supabase
+  const { error } = await supabase
     .from('projects')
     .update(values)
     .eq('id', projectId)
+  if (error) throw new Error(`Failed to update project: ${error.message}`)
 
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)
   revalidatePath('/')
@@ -1267,4 +1422,130 @@ export async function signOut() {
   const supabase = await createClient()
   await supabase.auth.signOut()
   redirect('/login')
+}
+
+// Brand DNA — Gemini-driven research + synthesis pass. Writes a new active row
+// on `brand_dna` and flips any prior active row to is_active=false, so there's
+// exactly one active version per brand. Expected runtime 30-90s; the brand
+// page carries `maxDuration = 120` to accommodate.
+//
+// Returns { ok, error } instead of throwing: thrown errors from server actions
+// are redacted to a generic "Server Components render" message in production,
+// so the panel could never surface the real cause. Same pattern used by
+// createProject above.
+export async function buildBrandDna(
+  brandId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!canEdit(user.email)) return { ok: false, error: 'Not authorized.' }
+
+  try {
+    const { data: brand } = await supabase
+      .from('brands')
+      .select('name, website')
+      .eq('id', brandId)
+      .single()
+    if (!brand) return { ok: false, error: 'Brand not found.' }
+    if (!brand.website) return { ok: false, error: 'Brand website is required to research DNA.' }
+
+    const { researchBrandDna, synthesizeBrandDna } = await import('@/lib/ai/gemini')
+    const { TEXT_FIELDS } = await import('@/lib/ai/brand-dna-schema')
+
+    const { dossier, urls } = await researchBrandDna(brand.name, brand.website)
+    const dna = await synthesizeBrandDna(dossier, urls)
+
+    const normalized: Record<string, unknown> = { ...dna }
+    for (const field of TEXT_FIELDS) {
+      if (normalized[field] === '') normalized[field] = null
+    }
+
+    const { data: prevActive } = await supabase
+      .from('brand_dna')
+      .select('id, version, logo_url')
+      .eq('brand_id', brandId)
+      .eq('is_active', true)
+      .maybeSingle()
+
+    if (prevActive) {
+      const { error: flipErr } = await supabase.from('brand_dna').update({ is_active: false }).eq('id', prevActive.id)
+      if (flipErr) return { ok: false, error: `Failed to deactivate prior Brand DNA: ${flipErr.message}` }
+    }
+
+    const insertRow = {
+      ...normalized,
+      brand_id: brandId,
+      version: (prevActive?.version ?? 0) + 1,
+      is_active: true,
+      logo_url: prevActive?.logo_url ?? null,
+    }
+
+    const { error } = await supabase.from('brand_dna').insert(insertRow)
+    if (error) return { ok: false, error: `Failed to save Brand DNA: ${error.message}` }
+
+    revalidatePath(`/brands/${brandId}`)
+    return { ok: true }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.error('[buildBrandDna]', brandId, msg, e)
+    return { ok: false, error: msg }
+  }
+}
+
+export async function uploadBrandLogo(
+  formData: FormData,
+): Promise<{ ok: true; logoUrl: string } | { ok: false; error: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!canEdit(user.email)) return { ok: false, error: 'Not authorized.' }
+
+  try {
+    const brandId = formData.get('brand_id') as string | null
+    const file = formData.get('file') as File | null
+    if (!brandId) return { ok: false, error: 'brand_id is required.' }
+    if (!file) return { ok: false, error: 'No file provided.' }
+
+    const ext = (file.name.split('.').pop() || 'png').toLowerCase().replace(/[^a-z0-9]/g, '') || 'png'
+    const path = `brand-logos/${brandId}-${Date.now()}.${ext}`
+
+    const buffer = Buffer.from(await file.arrayBuffer())
+    const { error: uploadError } = await supabase.storage
+      .from('project-images')
+      .upload(path, buffer, { contentType: file.type || 'image/png', upsert: false })
+    if (uploadError) return { ok: false, error: `Storage upload failed: ${uploadError.message}` }
+
+    const { data: { publicUrl } } = supabase.storage.from('project-images').getPublicUrl(path)
+
+    const { data: active } = await supabase
+      .from('brand_dna')
+      .select('id')
+      .eq('brand_id', brandId)
+      .eq('is_active', true)
+      .maybeSingle()
+
+    if (active) {
+      const { error } = await supabase.from('brand_dna').update({ logo_url: publicUrl }).eq('id', active.id)
+      if (error) return { ok: false, error: `Failed to save logo URL: ${error.message}` }
+    } else {
+      // No DNA row yet — create a stub active row that just holds the logo, so
+      // the panel has somewhere to persist the upload. A later Build pass will
+      // supersede this with version=2.
+      const { error } = await supabase.from('brand_dna').insert({
+        brand_id: brandId,
+        version: 1,
+        is_active: true,
+        logo_url: publicUrl,
+      })
+      if (error) return { ok: false, error: `Failed to save logo URL: ${error.message}` }
+    }
+
+    revalidatePath(`/brands/${brandId}`)
+    return { ok: true, logoUrl: publicUrl }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.error('[uploadBrandLogo]', msg, e)
+    return { ok: false, error: msg }
+  }
 }

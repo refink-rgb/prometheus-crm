@@ -112,6 +112,7 @@ function InternalLightbox({
             <img
               src={mainImage}
               alt={asset.name ?? 'Creative'}
+              decoding="async"
               style={{
                 maxWidth: '100%',
                 maxHeight: 'calc(100vh - 130px)',
@@ -163,6 +164,10 @@ function InternalLightbox({
               <img
                 src={originalThumb}
                 alt="Original"
+                loading="lazy"
+                decoding="async"
+                width={120}
+                height={120}
                 style={{ width: 120, height: 120, objectFit: 'cover', display: 'block' }}
               />
             </div>
@@ -184,7 +189,7 @@ function InternalLightbox({
           {hasComments ? (
             <>
               <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12, lineHeight: 1.6 }}>
-                {comments.length} comment{comments.length !== 1 ? 's' : ''} will be compiled into an edit prompt for GPT Image 2.
+                {comments.length} comment{comments.length !== 1 ? 's' : ''} will be compiled into an edit prompt for GPT Image 1.
                 {hasRevision && <span style={{ color: 'var(--accent)', display: 'block', marginTop: 4 }}>A revision already exists. Generating again will replace it.</span>}
               </div>
 
@@ -598,6 +603,8 @@ function AssetThumb({
         <img
           src={displayUrl}
           alt={asset.name ?? `Image ${index + 1}`}
+          loading="lazy"
+          decoding="async"
           style={{
             width: '100%', aspectRatio: '1', objectFit: 'cover',
             borderRadius: 8, display: 'block',

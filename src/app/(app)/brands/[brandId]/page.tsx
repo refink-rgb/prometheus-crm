@@ -1,15 +1,22 @@
-import { redirect, notFound } from 'next/navigation'
+import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
-import Nav from '@/components/Nav'
 import { canEdit } from '@/lib/permissions'
 import { updateBrandDetails, deleteBrand } from '@/lib/actions'
 import ConfirmDeleteForm from '@/components/ConfirmDeleteForm'
 import ProfitEngineerSelect from '@/components/ProfitEngineerSelect'
 import ClientPortalButton from '@/components/ClientPortalButton'
-import type { Brand, Project, Journey } from '@/lib/types'
-import { STAGE_LABELS, PIPELINE_STATUS_LABELS, PIPELINE_STATUS_ORDER } from '@/lib/types'
+import OnboardingTranscriptField from '@/components/OnboardingTranscriptField'
+import type { Brand, Project, Journey, PipelineStatus, BrandDna } from '@/lib/types'
+import { PIPELINE_STATUS_LABELS, PIPELINE_STATUS_ORDER } from '@/lib/types'
 import JourneyHeader from '@/components/JourneyHeader'
+import ProjectCard from '@/components/ProjectCard'
+import BrandDnaPanel from '@/components/BrandDnaPanel'
+
+// Two-step Gemini research + synthesis for Brand DNA can run 30-90s. Vercel's
+// default function timeout would cut it off — mirror the pattern used on the
+// project pages for the AI image-edit flows.
+export const maxDuration = 120
 
 export default async function BrandPage({ params }: { params: Promise<{ brandId: string }> }) {
   const { brandId } = await params
@@ -25,16 +32,25 @@ export default async function BrandPage({ params }: { params: Promise<{ brandId:
 
   if (!brand) notFound()
 
-  const [{ data: projects }, { data: peRows }, { data: journeyRows }] = await Promise.all([
-    supabase.from('projects').select('*').eq('brand_id', brandId).order('due_date', { ascending: true }),
+  // Brand page renders ProjectCard for each row and reads only these fields.
+  // The big JSON copy columns (ad_headlines/ad_subcopies/ad_eyebrows/body_copy)
+  // and the full ad-brief fields belong to the project detail page, not here.
+  const [{ data: projects }, { data: peRows }, { data: journeyRows }, { data: dnaRow }] = await Promise.all([
+    supabase
+      .from('projects')
+      .select('id, name, brand_id, due_date, is_complete, journey_id, marketing_moment, lp_stage, creatives_stage, lp_approved, creatives_approved, share_token')
+      .eq('brand_id', brandId)
+      .order('due_date', { ascending: true }),
     supabase.from('profit_engineers').select('name').order('name', { ascending: true }),
     supabase.from('journeys').select('*').eq('brand_id', brandId).order('created_at', { ascending: false }),
+    supabase.from('brand_dna').select('*').eq('brand_id', brandId).eq('is_active', true).maybeSingle(),
   ])
 
   const b = brand as Brand
   const allProjects = (projects ?? []) as Project[]
   const engineerNames = (peRows ?? []).map((r: { name: string }) => r.name)
   const journeys = (journeyRows ?? []) as Journey[]
+  const dna = (dnaRow ?? null) as BrandDna | null
 
   const active = allProjects.filter(p => !p.is_complete)
   const done = allProjects.filter(p => p.is_complete)
@@ -65,12 +81,13 @@ export default async function BrandPage({ params }: { params: Promise<{ brandId:
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--background)' }}>
-      <Nav email={user?.email} />
-      <main style={{ maxWidth: 1000, margin: '0 auto', padding: '40px 24px' }}>
+      <main style={{ maxWidth: 1080, margin: '0 auto', padding: '28px 32px 40px' }}>
         {/* Breadcrumb */}
-        <Link href="/" style={{ fontSize: 13, color: 'var(--text-muted)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4, marginBottom: 24 }}>
-          ← Dashboard
-        </Link>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-muted)', marginBottom: 20 }}>
+          <Link href="/brands" style={{ color: 'var(--text-muted)', textDecoration: 'none' }}>← Brands</Link>
+          <span style={{ opacity: 0.5 }}>/</span>
+          <span style={{ color: 'var(--text-primary)' }}>{b.name}</span>
+        </div>
 
         {/* Brand header */}
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 40, gap: 16 }}>
@@ -105,17 +122,7 @@ export default async function BrandPage({ params }: { params: Promise<{ brandId:
                     {clientNumStr}
                   </span>
                 )}
-                {b.pipeline_status !== 'active' && (
-                  <span style={{
-                    fontSize: 11, fontWeight: 600,
-                    color: 'var(--warning)',
-                    background: 'rgba(249,115,22,0.1)',
-                    border: '1px solid rgba(249,115,22,0.25)',
-                    borderRadius: 6, padding: '2px 8px',
-                  }}>
-                    {PIPELINE_STATUS_LABELS[b.pipeline_status]}
-                  </span>
-                )}
+                <BDStageBadge status={b.pipeline_status} />
               </div>
               <a
                 href={b.website}
@@ -278,6 +285,11 @@ export default async function BrandPage({ params }: { params: Promise<{ brandId:
                 />
               </div>
 
+              {/* Onboarding meeting transcript */}
+              <div style={{ marginBottom: 20 }}>
+                <OnboardingTranscriptField initialValue={b.onboarding_transcript ?? null} />
+              </div>
+
               <button type="submit" className="btn-secondary" style={{ fontSize: 13 }}>
                 Save account details
               </button>
@@ -294,6 +306,10 @@ export default async function BrandPage({ params }: { params: Promise<{ brandId:
               <ClientPortalButton brandId={brandId} initialToken={b.client_token ?? null} />
             </div>
           </div>
+        )}
+
+        {isAuthorized && (
+          <BrandDnaPanel brandId={brandId} dna={dna} />
         )}
 
         {/* Show brand notes (read-only) for non-editors */}
@@ -357,21 +373,34 @@ export default async function BrandPage({ params }: { params: Promise<{ brandId:
                       </div>
                     )}
 
-                    {/* Moment 1 then Moment 2 */}
+                    {/* Moment 1 then Moment 2 then unassigned */}
                     {[1, 2, null].map(moment => {
                       const momentProjects = moment !== null
                         ? jProjects.filter(p => p.marketing_moment === moment)
                         : jProjects.filter(p => p.marketing_moment === null)
                       if (momentProjects.length === 0) return null
+                      const momentLabel = moment === null
+                        ? 'No Moment Assigned'
+                        : `Moment ${moment} · ${moment === 1 ? '1st half of month' : '2nd half of month'}`
                       return (
                         <div key={String(moment)} style={{ marginBottom: 12 }}>
-                          {moment !== null && (
-                            <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8, paddingLeft: 4 }}>
-                              Moment {moment} · {moment === 1 ? '1st half of month' : '2nd half of month'}
-                            </div>
-                          )}
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                            {momentProjects.map(p => <ProjectRow key={p.id} project={p} brandId={brandId} />)}
+                          <div style={{
+                            fontSize: 10, fontWeight: 600,
+                            color: 'var(--text-muted)',
+                            textTransform: 'uppercase', letterSpacing: '0.07em',
+                            marginBottom: 8, paddingLeft: 4,
+                          }}>
+                            {momentLabel}
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            {momentProjects.map(p => (
+                              <ProjectCard
+                                key={p.id}
+                                project={p}
+                                journeyName={journey?.name ?? null}
+                                href={`/brands/${brandId}/projects/${p.id}`}
+                              />
+                            ))}
                           </div>
                         </div>
                       )
@@ -380,8 +409,14 @@ export default async function BrandPage({ params }: { params: Promise<{ brandId:
                 ))}
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {active.map(p => <ProjectRow key={p.id} project={p} brandId={brandId} />)}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {active.map(p => (
+                  <ProjectCard
+                    key={p.id}
+                    project={p}
+                    href={`/brands/${brandId}/projects/${p.id}`}
+                  />
+                ))}
               </div>
             )}
           </section>
@@ -392,8 +427,14 @@ export default async function BrandPage({ params }: { params: Promise<{ brandId:
             <h2 style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 16 }}>
               Completed ({done.length})
             </h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, opacity: 0.6 }}>
-              {done.map(p => <ProjectRow key={p.id} project={p} brandId={brandId} />)}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, opacity: 0.6 }}>
+              {done.map(p => (
+                <ProjectCard
+                  key={p.id}
+                  project={p}
+                  href={`/brands/${brandId}/projects/${p.id}`}
+                />
+              ))}
             </div>
           </section>
         )}
@@ -402,119 +443,28 @@ export default async function BrandPage({ params }: { params: Promise<{ brandId:
   )
 }
 
-const STAGES = ['brief', 'in_progress', 'internal_review', 'client_review', 'live', 'done'] as const
-const STAGE_COLORS: Record<string, string> = {
-  brief:           'var(--text-muted)',
-  in_progress:     'var(--accent)',
-  internal_review: '#a855f7',
-  client_review:   'var(--warning)',
-  live:            '#14b8a6',
-  done:            'var(--success)',
+const BD_COLORS: Record<PipelineStatus, string> = {
+  intro_contact:  'var(--bd-intro)',
+  discovery_call: 'var(--bd-discovery)',
+  offer_prep:     'var(--bd-offer)',
+  active:         'var(--bd-active)',
 }
 
-function ProjectRow({ project, brandId }: { project: Project; brandId: string }) {
-  const due = project.due_date ? new Date(project.due_date) : null
-  const start = project.created_at ? new Date(project.created_at) : null
-  const now = new Date()
-  const daysLeft = due ? Math.ceil((due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)) : null
-  const isOverdue = daysLeft !== null && daysLeft < 0 && !project.is_complete
-  const startStr = start ? start.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
-  const dueStr = due ? due.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
-
-  let daysLabel = '—'
-  let daysColor = 'var(--text-muted)'
-  if (daysLeft !== null && !project.is_complete) {
-    if (daysLeft < 0) { daysLabel = `${Math.abs(daysLeft)}d overdue`; daysColor = 'var(--danger)' }
-    else if (daysLeft === 0) { daysLabel = 'Due today'; daysColor = 'var(--danger)' }
-    else if (daysLeft <= 3) { daysLabel = `${daysLeft}d left`; daysColor = 'var(--danger)' }
-    else if (daysLeft <= 7) { daysLabel = `${daysLeft}d left`; daysColor = 'var(--warning)' }
-    else { daysLabel = `${daysLeft}d left`; daysColor = 'var(--text-muted)' }
-  } else if (project.is_complete) {
-    daysLabel = 'Complete'; daysColor = 'var(--success)'
-  }
-
+function BDStageBadge({ status }: { status: PipelineStatus }) {
+  const color = BD_COLORS[status]
   return (
-    <Link href={`/brands/${brandId}/projects/${project.id}`} style={{ textDecoration: 'none' }}>
-      <div className="card" style={{ cursor: 'pointer', padding: '16px 20px', transition: 'border-color 0.15s' }}>
-
-        {/* Top row: name + badges + dates */}
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 20, marginBottom: 14 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
-              <span style={{ fontWeight: 600, fontSize: 15, color: 'var(--text-primary)' }}>
-                {project.name}
-              </span>
-              {project.is_complete && <span className="badge badge-done">Complete</span>}
-              {project.needs_revisions && (
-                <span style={{
-                  fontSize: 11, fontWeight: 600, color: 'var(--warning)',
-                  background: 'rgba(249,115,22,0.12)', border: '1px solid rgba(249,115,22,0.3)',
-                  borderRadius: 5, padding: '2px 7px',
-                }}>
-                  ↩ Revisions
-                </span>
-              )}
-              {project.page_type && (
-                <span style={{
-                  fontSize: 11, color: 'var(--text-muted)',
-                  background: 'var(--surface-raised)', border: '1px solid var(--border)',
-                  borderRadius: 5, padding: '2px 7px',
-                }}>
-                  {project.page_type}
-                </span>
-              )}
-            </div>
-            <div style={{ display: 'flex', gap: 16, fontSize: 12, color: 'var(--text-muted)' }}>
-              {project.product_featured && <span>📦 {project.product_featured}</span>}
-              {!project.product_featured && project.offer && <span>🎁 {project.offer}</span>}
-              {project.discount && <span>💸 {project.discount}</span>}
-            </div>
-          </div>
-
-          {/* Date meta */}
-          <div style={{ display: 'flex', gap: 20, flexShrink: 0 }}>
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>Started</div>
-              <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{startStr}</div>
-            </div>
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>Due</div>
-              <div style={{ fontSize: 12, color: isOverdue ? 'var(--danger)' : 'var(--text-secondary)', fontWeight: isOverdue ? 600 : 400 }}>{isOverdue ? '⚠ ' : ''}{dueStr}</div>
-            </div>
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>Remaining</div>
-              <div style={{ fontSize: 12, fontWeight: 600, color: daysColor }}>{daysLabel}</div>
-            </div>
-          </div>
-
-          <span style={{ color: 'var(--text-muted)', fontSize: 16, alignSelf: 'center' }}>›</span>
-        </div>
-
-        {/* Progress bars */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-          <TrackBar label="Landing Page" stage={project.lp_stage} />
-          <TrackBar label="Creatives" stage={project.creatives_stage} />
-        </div>
-      </div>
-    </Link>
-  )
-}
-
-function TrackBar({ label, stage }: { label: string; stage: string }) {
-  const idx = STAGES.indexOf(stage as typeof STAGES[number])
-  const color = STAGE_COLORS[stage] ?? 'var(--text-muted)'
-  return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-        <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</span>
-        <span style={{ fontSize: 10, fontWeight: 700, color }}>{STAGE_LABELS[stage as keyof typeof STAGE_LABELS]}</span>
-      </div>
-      <div style={{ display: 'flex', gap: 4 }}>
-        {STAGES.map((s, i) => {
-          const bg = i < idx ? 'var(--success)' : i === idx ? color : 'var(--border)'
-          return <div key={s} style={{ flex: 1, height: 5, borderRadius: 3, background: bg, transition: 'background 0.2s' }} />
-        })}
-      </div>
-    </div>
+    <span style={{
+      fontSize: 14,
+      fontWeight: 700,
+      color,
+      background: `color-mix(in srgb, ${color} 14%, transparent)`,
+      border: `1px solid color-mix(in srgb, ${color} 30%, transparent)`,
+      padding: '6px 16px',
+      borderRadius: 20,
+      letterSpacing: '0.02em',
+      whiteSpace: 'nowrap',
+    }}>
+      {PIPELINE_STATUS_LABELS[status]}
+    </span>
   )
 }

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useDeferredValue, useMemo, useTransition } from 'react'
+import { memo, useState, useEffect, useDeferredValue, useMemo, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   DndContext, DragOverlay,
@@ -10,7 +10,8 @@ import {
   type DragStartEvent, type DragOverEvent, type DragEndEvent,
 } from '@dnd-kit/core'
 import { STAGE_ORDER, STAGE_LABELS, type Stage, type Project } from '@/lib/types'
-import { updateProjectStage } from '@/lib/actions'
+import { updateProjectStagesBoth } from '@/lib/actions'
+import { isProjectOverdue } from '@/lib/stageColors'
 import KanbanCard from './KanbanCard'
 
 type PipelineProject = Project & { brands: { id: string; name: string } }
@@ -65,10 +66,9 @@ export default function KanbanView({ pipeline }: { pipeline: PipelineProject[] }
 
   const displayed = useMemo(() => {
     const q = deferredSearch.trim().toLowerCase()
-    const now = Date.now()
     return localProjects.filter(p => {
       if (q && !p.brands.name.toLowerCase().includes(q)) return false
-      if (status === 'overdue' && !(p.due_date && new Date(p.due_date).getTime() < now && !p.is_complete)) return false
+      if (status === 'overdue' && !isProjectOverdue(p.due_date, p.is_complete, p.lp_stage, p.creatives_stage)) return false
       if (status === 'in_review' && !(p.lp_stage === 'client_review' || p.creatives_stage === 'client_review')) return false
       if (filterWaiting && !isWaitingOnClient(p)) return false
       return true
@@ -114,10 +114,7 @@ export default function KanbanView({ pipeline }: { pipeline: PipelineProject[] }
 
     startTransition(async () => {
       try {
-        await Promise.all([
-          updateProjectStage(card.id, card.brands.id, 'lp_stage', targetStage),
-          updateProjectStage(card.id, card.brands.id, 'creatives_stage', targetStage),
-        ])
+        await updateProjectStagesBoth(card.id, card.brands.id, targetStage)
         router.refresh()
       } catch {
         setLocalProjects(snapshot)
@@ -131,7 +128,7 @@ export default function KanbanView({ pipeline }: { pipeline: PipelineProject[] }
   }
 
   return (
-    <section style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 320px)' }}>
+    <section style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       {/* Filter bar */}
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', flexShrink: 0 }}>
         <input
@@ -206,10 +203,12 @@ export default function KanbanView({ pipeline }: { pipeline: PipelineProject[] }
           {/* Board */}
           <div style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(6, minmax(200px, 1fr))',
+            gridTemplateColumns: 'repeat(6, minmax(260px, 1fr))',
+            gridTemplateRows: 'minmax(0, 1fr)',
             gap: 12,
             height: '100%',
             overflowX: 'auto',
+            overflowY: 'hidden',
           }}>
             {columns.map(({ stage, cards }) => (
               <KanbanColumn
@@ -236,7 +235,12 @@ export default function KanbanView({ pipeline }: { pipeline: PipelineProject[] }
   )
 }
 
-function KanbanColumn({
+// Memoized so that a pointer-driven `overId` change on the parent only
+// re-renders the columns whose `isOver` actually flipped (the leaving column
+// and the entering one), instead of all six on every mousemove.
+const KanbanColumn = memo(KanbanColumnInner)
+
+function KanbanColumnInner({
   stage,
   cards,
   isOver,
@@ -263,6 +267,9 @@ function KanbanColumn({
         borderTop: `2px solid ${color}`,
         borderRadius: 8,
         flexShrink: 0,
+        position: 'sticky',
+        top: 0,
+        zIndex: 2,
       }}>
         <span style={{
           fontSize: 11, fontWeight: 700, color,
@@ -317,7 +324,11 @@ function KanbanColumn({
         ) : (
           cards
             .filter(p => p.id !== draggedCardId)
-            .map(p => <KanbanCard key={p.id} p={p} />)
+            .map(p => (
+              <div key={p.id} style={{ flexShrink: 0 }}>
+                <KanbanCard p={p} />
+              </div>
+            ))
         )}
       </div>
     </div>

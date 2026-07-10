@@ -1,7 +1,6 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
-import Nav from '@/components/Nav'
 import StageTracker from '@/components/StageTracker'
 import { markProjectComplete, updateProjectDeliverable, deleteProject, lockProjectOffer, unlockProjectOffer } from '@/lib/actions'
 import CreativeAssetsManager from '@/components/CreativeAssetsManager'
@@ -10,7 +9,8 @@ import ConfirmDeleteForm from '@/components/ConfirmDeleteForm'
 import ShareButton from '@/components/ShareButton'
 import RevisionsToggle from '@/components/RevisionsToggle'
 import NotesThread from '@/components/NotesThread'
-import type { Project, Brand, ProjectImage, Journey, CreativeAsset, ProjectComment, Stage } from '@/lib/types'
+import type { Project, Brand, ProjectImage, Journey, CreativeAsset, ProjectComment } from '@/lib/types'
+import { calcDaysUntil, isProjectOverdue, overallProgress, parseDueDate } from '@/lib/stageColors'
 import ProjectEditForm from '@/components/ProjectEditForm'
 import OpenEditFormButton from '@/components/OpenEditFormButton'
 
@@ -35,14 +35,16 @@ export default async function ProjectPage({
 
   if (!project) notFound()
 
+  // This page only renders the brand's name in the breadcrumb; no need to pull
+  // onboarding_transcript / brand_notes / client_token / etc.
   const { data: brand } = await supabase
     .from('brands')
-    .select('*')
+    .select('id, name')
     .eq('id', brandId)
     .single()
 
   const [{ data: images }, { data: creativeAssetsRaw }, { data: imageCommentsRaw }, { data: notesRaw }, { data: brandJourneysRaw }] = await Promise.all([
-    supabase.from('project_images').select('*').eq('project_id', projectId),
+    supabase.from('project_images').select('id, storage_url').eq('project_id', projectId),
     supabase.from('creative_assets').select('*').eq('project_id', projectId).order('sort_order'),
     supabase.from('project_comments').select('*').eq('project_id', projectId).eq('track', 'image').order('created_at'),
     supabase.from('project_comments').select('*').eq('project_id', projectId).eq('track', 'note').order('created_at'),
@@ -70,79 +72,218 @@ export default async function ProjectPage({
     journey = jData as Journey | null
   }
 
-  const due = p.due_date ? new Date(p.due_date) : null
-  const isOverdue = due && due < new Date() && !p.is_complete
+  const due = parseDueDate(p.due_date)
+  const daysUntil = calcDaysUntil(p.due_date)
+  const isOverdue = isProjectOverdue(p.due_date, p.is_complete, p.lp_stage, p.creatives_stage)
   const dueStr = due ? due.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '—'
 
   const bothDone = p.lp_stage === 'done' && p.creatives_stage === 'done'
-
-  const STAGE_PCT: Record<Stage, number> = { brief: 17, in_progress: 33, internal_review: 50, client_review: 67, live: 83, done: 100 }
-  const overallPct = Math.round((STAGE_PCT[p.lp_stage] + STAGE_PCT[p.creatives_stage]) / 2)
+  const overallPct = overallProgress(p.lp_stage, p.creatives_stage)
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--background)' }}>
-      <Nav email={user?.email} />
-      <main style={{ maxWidth: 1000, margin: '0 auto', padding: '40px 24px' }}>
+      <main style={{ maxWidth: 1080, margin: '0 auto', padding: '28px 32px 40px' }}>
         {/* Breadcrumb */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 28, fontSize: 13, color: 'var(--text-muted)' }}>
-          <Link href="/" style={{ color: 'var(--text-muted)', textDecoration: 'none' }}>Dashboard</Link>
-          <span>/</span>
-          <Link href={`/brands/${brandId}`} style={{ color: 'var(--text-muted)', textDecoration: 'none' }}>{b?.name}</Link>
-          <span>/</span>
-          <span style={{ color: 'var(--text-primary)' }}>{p.name}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-muted)', marginBottom: 20, flexWrap: 'wrap' }}>
+          <Link href="/brands" style={{ color: 'var(--text-muted)', textDecoration: 'none' }}>← Brands</Link>
+          <span style={{ opacity: 0.5 }}>/</span>
+          <Link href={`/brands/${brandId}`} style={{ color: 'var(--text-muted)', textDecoration: 'none' }}>
+            {b?.name ?? 'Brand'}
+          </Link>
+          <span style={{ opacity: 0.5 }}>/</span>
+          <span style={{ color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
         </div>
 
-        {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 16 }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6, flexWrap: 'wrap' }}>
-              <h1 style={{ fontSize: 26, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.03em' }}>
-                {p.name}
-              </h1>
-              {p.is_complete && <span className="badge badge-done">✓ Complete</span>}
-              {p.lp_approved && <span className="badge badge-done">✓ LP Approved</span>}
-              {p.creatives_approved && <span className="badge badge-done">✓ Creatives Approved</span>}
-              {p.needs_revisions && (
-                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--warning)', background: 'rgba(249,115,22,0.1)', border: '1px solid rgba(249,115,22,0.3)', padding: '3px 8px', borderRadius: 6 }}>
-                  ↩ Revisions Needed
-                </span>
-              )}
-              {!p.is_complete && isOverdue && <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--danger)', background: 'rgba(239,68,68,0.1)', padding: '3px 8px', borderRadius: 6 }}>OVERDUE</span>}
+        {/* ── HERO: Project Status ── */}
+        <div style={{
+          background: 'var(--surface-1)',
+          border: '1px solid var(--border)',
+          borderRadius: 12,
+          padding: 24,
+          marginBottom: 24,
+        }}>
+          {/* Title row */}
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 8, flexWrap: 'wrap' }}>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6, flexWrap: 'wrap' }}>
+                <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
+                  {p.name}
+                </h1>
+                {p.needs_revisions && (
+                  <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--warning)', background: 'rgba(234,179,8,0.12)', border: '1px solid rgba(234,179,8,0.3)', padding: '2px 8px', borderRadius: 20 }}>
+                    ↩ Revisions
+                  </span>
+                )}
+                {p.is_complete && (
+                  <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--stage-done-text)', background: 'var(--stage-done-bg)', border: '1px solid color-mix(in srgb, #10B981 30%, transparent)', padding: '2px 8px', borderRadius: 20 }}>
+                    ✓ Complete
+                  </span>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', fontSize: 13, color: 'var(--text-muted)' }}>
+                {journey && (
+                  <span>🗓 {journey.name}{p.marketing_moment ? ` · Moment ${p.marketing_moment}` : ''}</span>
+                )}
+                {p.page_type && (
+                  <span style={{ background: 'var(--surface-raised)', border: '1px solid var(--border)', borderRadius: 6, padding: '2px 8px' }}>
+                    {p.page_type}
+                  </span>
+                )}
+              </div>
             </div>
-            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
-              <p style={{ color: 'var(--text-muted)', fontSize: 14, margin: 0 }}>
-                Due: <span style={{ color: isOverdue ? 'var(--danger)' : 'var(--text-secondary)', fontWeight: isOverdue ? 600 : 400 }}>{dueStr}</span>
-              </p>
-              {journey && (
-                <span style={{ fontSize: 13, color: 'var(--accent)' }}>
-                  🗓 {journey.name}{p.marketing_moment ? ` · Moment ${p.marketing_moment}` : ''}
-                </span>
-              )}
-              {p.page_type && (
-                <span style={{ fontSize: 12, color: 'var(--text-muted)', background: 'var(--surface-raised)', border: '1px solid var(--border)', borderRadius: 6, padding: '2px 8px' }}>
-                  {p.page_type}
-                </span>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 2 }}>Due</div>
+                <div style={{
+                  fontSize: 14,
+                  fontWeight: 600,
+                  color: isOverdue ? 'var(--urgent-overdue)' : 'var(--text-primary)',
+                }}>
+                  {isOverdue && '⚠ '}{dueStr}
+                </div>
+                {daysUntil !== null && !p.is_complete && (
+                  <div style={{ fontSize: 11, color: isOverdue ? 'var(--urgent-overdue)' : daysUntil <= 4 ? 'var(--urgent-soon)' : 'var(--text-muted)', marginTop: 2 }}>
+                    {isOverdue
+                      ? `${Math.abs(daysUntil)} day${Math.abs(daysUntil) === 1 ? '' : 's'} overdue`
+                      : daysUntil === 0
+                        ? 'Due today'
+                        : `${daysUntil} day${daysUntil === 1 ? '' : 's'} left`}
+                  </div>
+                )}
+              </div>
+              {isAuthorized && (
+                <ConfirmDeleteForm
+                  action={deleteProject.bind(null, projectId, brandId)}
+                  message={`Delete "${p.name}"? This cannot be undone.`}
+                >
+                  <button type="submit" style={{
+                    background: 'transparent',
+                    color: 'var(--danger)',
+                    border: '1px solid rgba(239,68,68,0.25)',
+                    borderRadius: 8,
+                    padding: '6px 12px',
+                    fontSize: 12,
+                    fontWeight: 500,
+                    cursor: 'pointer',
+                  }}>
+                    Delete
+                  </button>
+                </ConfirmDeleteForm>
               )}
             </div>
           </div>
-          {isAuthorized && (
-            <ConfirmDeleteForm
-              action={deleteProject.bind(null, projectId, brandId)}
-              message={`Delete "${p.name}"? This cannot be undone.`}
-            >
-              <button type="submit" style={{
-                background: 'transparent',
-                color: 'var(--danger)',
-                border: '1px solid rgba(239,68,68,0.25)',
-                borderRadius: 8,
-                padding: '8px 14px',
-                fontSize: 13,
-                fontWeight: 500,
-                cursor: 'pointer',
-              }}>
-                Delete project
-              </button>
-            </ConfirmDeleteForm>
+
+          {/* Overall progress meter — small */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4, marginBottom: 20 }}>
+            <div style={{ flex: 1, height: 4, background: 'var(--border)', borderRadius: 2, overflow: 'hidden' }}>
+              <div style={{
+                height: '100%',
+                width: `${overallPct}%`,
+                background: overallPct === 100 ? 'var(--stage-done)' : 'var(--accent)',
+                transition: 'width 0.4s ease',
+              }} />
+            </div>
+            <span style={{
+              fontSize: 13,
+              fontWeight: 700,
+              color: overallPct === 100 ? 'var(--stage-done-text)' : 'var(--text-primary)',
+              minWidth: 40,
+              textAlign: 'right',
+            }}>
+              {overallPct}%
+            </span>
+          </div>
+
+          {/* ── Stage trackers — DOMINANT ── */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+            <StageTracker
+              projectId={projectId}
+              brandId={brandId}
+              track="lp_stage"
+              currentStage={p.lp_stage}
+              label="Landing Page"
+              disabled={p.is_complete || !isAuthorized}
+            />
+            <StageTracker
+              projectId={projectId}
+              brandId={brandId}
+              track="creatives_stage"
+              currentStage={p.creatives_stage}
+              label="Creatives / Statics"
+              disabled={p.is_complete || !isAuthorized}
+            />
+          </div>
+
+          {/* Hairline */}
+          <div style={{ height: 1, background: 'var(--border)', margin: '20px 0 14px' }} />
+
+          {/* Client status bar */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, fontSize: 11 }}>
+            <StatusItem
+              tone={p.lp_approved ? 'ok' : 'muted'}
+              label={p.lp_approved ? '✓ LP approved' : '○ LP: not yet reviewed'}
+            />
+            <span style={{ color: 'var(--text-muted)' }}>·</span>
+            <StatusItem
+              tone={p.creatives_approved ? 'ok' : 'muted'}
+              label={p.creatives_approved ? '✓ Creatives approved' : '○ Creatives: pending'}
+            />
+            <span style={{ color: 'var(--text-muted)' }}>·</span>
+            <StatusItem
+              tone={p.offer_locked ? 'ok' : 'muted'}
+              label={p.offer_locked ? '🔒 Offer locked' : '○ Offer not confirmed'}
+            />
+          </div>
+
+          {/* Mark complete banner */}
+          {!p.is_complete && bothDone && isAuthorized && (
+            <div style={{
+              marginTop: 18,
+              background: 'rgba(16,185,129,0.08)',
+              border: '1px solid rgba(16,185,129,0.25)',
+              borderRadius: 10,
+              padding: '14px 18px',
+              display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap',
+            }}>
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--stage-done-text)', marginBottom: 2 }}>
+                  Both tracks are done
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                  Mark complete to archive and surface deliverables.
+                </div>
+              </div>
+              <form action={markProjectComplete.bind(null, projectId, brandId)}>
+                <button type="submit" style={{
+                  background: 'var(--stage-done)',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 8,
+                  padding: '8px 16px',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}>
+                  ✓ Mark project complete
+                </button>
+              </form>
+            </div>
+          )}
+
+          {p.is_complete && (
+            <div style={{
+              marginTop: 18,
+              background: 'rgba(16,185,129,0.08)',
+              border: '1px solid rgba(16,185,129,0.25)',
+              borderRadius: 10,
+              padding: '12px 16px',
+              fontSize: 13,
+              color: 'var(--stage-done-text)',
+              fontWeight: 600,
+            }}>
+              🎉 Project complete — all deliverables are below.
+            </div>
           )}
         </div>
 
@@ -155,13 +296,13 @@ export default async function ProjectPage({
             initial={{
               name: p.name,
               due_date: p.due_date,
+              stage_brief_due_date: p.stage_brief_due_date,
+              stage_in_progress_due_date: p.stage_in_progress_due_date,
+              stage_internal_review_due_date: p.stage_internal_review_due_date,
+              stage_client_review_due_date: p.stage_client_review_due_date,
               offer_description: p.offer_description,
-              inspiration: p.inspiration,
               offer: p.offer,
               cta: p.cta,
-              discount: p.discount,
-              tiered_offer: p.tiered_offer,
-              offer_type: p.offer_type,
               headline: p.headline,
               body_copy: p.body_copy,
               supporting_message: p.supporting_message,
@@ -169,6 +310,18 @@ export default async function ProjectPage({
               marketing_moment: p.marketing_moment,
               page_type: p.page_type,
               product_featured: p.product_featured,
+              product_description: p.product_description,
+              retail_price: p.retail_price,
+              offer_dynamics_type: p.offer_dynamics_type,
+              competitor_reference: p.competitor_reference,
+              client_ad_inspiration: p.client_ad_inspiration,
+              ad_copy_primary_text: p.ad_copy_primary_text,
+              ad_copy_description: p.ad_copy_description,
+              ad_copy_url: p.ad_copy_url,
+              ad_headlines: p.ad_headlines,
+              ad_subcopies: p.ad_subcopies,
+              ad_eyebrows: p.ad_eyebrows,
+              product_images_link: p.product_images_link,
               lp_url: p.lp_url,
               creatives_notes: p.creatives_notes,
               shopify_coupon_code: p.shopify_coupon_code,
@@ -176,78 +329,7 @@ export default async function ProjectPage({
           />
         )}
 
-        {/* ── Progress Banner — visible to everyone ── */}
-        <div className="card" style={{ marginBottom: 28 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-              Project Progress
-            </span>
-            <span style={{
-              fontSize: 24, fontWeight: 800, letterSpacing: '-0.03em',
-              color: overallPct === 100 ? 'var(--success)' : 'var(--accent)',
-            }}>
-              {overallPct}%
-            </span>
-          </div>
-
-          {/* Overall fill bar */}
-          <div style={{ height: 6, background: 'var(--border)', borderRadius: 3, marginBottom: 24, overflow: 'hidden' }}>
-            <div style={{
-              height: '100%', borderRadius: 3,
-              width: `${overallPct}%`,
-              background: overallPct === 100 ? 'var(--success)' : 'var(--accent)',
-              transition: 'width 0.4s ease',
-            }} />
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
-            <TrackSteps label="Landing Page" stage={p.lp_stage} />
-            <TrackSteps label="Creatives & Statics" stage={p.creatives_stage} />
-          </div>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 24, alignItems: 'start' }}>
-          {/* Left column */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-
-            {/* Complete banner */}
-            {p.is_complete && (
-              <div style={{
-                background: 'rgba(34,197,94,0.08)',
-                border: '1px solid rgba(34,197,94,0.2)',
-                borderRadius: 12,
-                padding: '20px 24px',
-              }}>
-                <h3 style={{ fontWeight: 700, color: 'var(--success)', marginBottom: 8, fontSize: 16 }}>
-                  🎉 Project Complete
-                </h3>
-                <p style={{ color: 'var(--text-secondary)', fontSize: 14 }}>
-                  Both tracks are done. All deliverables are below.
-                </p>
-              </div>
-            )}
-
-            {/* Mark complete CTA */}
-            {!p.is_complete && bothDone && isAuthorized && (
-              <div style={{
-                background: 'rgba(249,115,22,0.08)',
-                border: '1px solid rgba(249,115,22,0.2)',
-                borderRadius: 12,
-                padding: '20px 24px',
-              }}>
-                <h3 style={{ fontWeight: 700, color: 'var(--accent)', marginBottom: 8, fontSize: 16 }}>
-                  Both tracks are done!
-                </h3>
-                <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 16 }}>
-                  Mark this project complete to archive it and surface all deliverables for the strategist.
-                </p>
-                <form action={markProjectComplete.bind(null, projectId, brandId)}>
-                  <button type="submit" className="btn-primary">
-                    ✓ Mark project complete
-                  </button>
-                </form>
-              </div>
-            )}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
             {/* Project Meta — product featured + revisions */}
             {(p.product_featured || isAuthorized) && (
@@ -511,6 +593,8 @@ export default async function ProjectPage({
                       <img
                         src={img.storage_url}
                         alt={`Product ${i + 1}`}
+                        loading="lazy"
+                        decoding="async"
                         style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: 8, border: '1px solid var(--border)' }}
                       />
                     </a>
@@ -518,101 +602,15 @@ export default async function ProjectPage({
                 </div>
               </div>
             )}
-          </div>
-
-          {/* Right column — stage trackers */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16, position: 'sticky', top: 76 }}>
-            <h3 style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 4 }}>
-              Progress Tracking
-            </h3>
-            <StageTracker
-              projectId={projectId}
-              brandId={brandId}
-              track="lp_stage"
-              currentStage={p.lp_stage}
-              label="Landing Page"
-              disabled={p.is_complete || !isAuthorized}
-            />
-            <StageTracker
-              projectId={projectId}
-              brandId={brandId}
-              track="creatives_stage"
-              currentStage={p.creatives_stage}
-              label="Creatives / Statics"
-              disabled={p.is_complete || !isAuthorized}
-            />
-          </div>
         </div>
       </main>
     </div>
   )
 }
 
-// ─── TrackSteps ──────────────────────────────────────────────────────────────
-
-const TRACK_STEPS: Array<{ key: Stage; label: string }> = [
-  { key: 'brief',           label: 'Brief\nReceived'    },
-  { key: 'in_progress',     label: 'In\nProduction'     },
-  { key: 'internal_review', label: 'Internal\nReview'   },
-  { key: 'client_review',   label: 'Client\nReview'     },
-  { key: 'live',            label: 'Live'               },
-  { key: 'done',            label: 'Done'               },
-]
-
-function TrackSteps({ label, stage }: { label: string; stage: Stage }) {
-  const idx = TRACK_STEPS.findIndex(s => s.key === stage)
-
-  // Build a flat array of dots + connector lines to avoid Fragment+key headaches
-  const nodes: React.ReactNode[] = []
-  TRACK_STEPS.forEach((step, i) => {
-    const complete = i < idx || (i === idx && stage === 'done')
-    const current  = i === idx && stage !== 'done'
-    const dotBg     = complete ? 'var(--success)' : current ? 'var(--accent)' : 'transparent'
-    const dotBorder = complete ? 'var(--success)' : current ? 'var(--accent)' : 'var(--border)'
-
-    nodes.push(
-      <div key={step.key} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
-        <div style={{
-          width: 28, height: 28, borderRadius: '50%',
-          background: dotBg,
-          border: `2px solid ${dotBorder}`,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          color: complete || current ? 'white' : 'var(--text-muted)',
-          fontSize: 11, fontWeight: 700,
-        }}>
-          {complete ? '✓' : i + 1}
-        </div>
-        <div style={{
-          fontSize: 10, marginTop: 5, textAlign: 'center', lineHeight: 1.3, maxWidth: 52,
-          color: complete ? 'var(--success)' : current ? 'var(--accent)' : 'var(--text-muted)',
-          fontWeight: current || complete ? 600 : 400,
-          whiteSpace: 'pre-line',
-        }}>
-          {step.label}
-        </div>
-      </div>
-    )
-    if (i < TRACK_STEPS.length - 1) {
-      nodes.push(
-        <div key={`line-${i}`} style={{
-          flex: 1, height: 2, marginBottom: 22,
-          background: i < idx ? 'var(--success)' : 'var(--border)',
-        }} />
-      )
-    }
-  })
-
+function StatusItem({ tone, label }: { tone: 'ok' | 'muted'; label: string }) {
+  const color = tone === 'ok' ? 'var(--client-approved)' : 'var(--text-muted)'
   return (
-    <div>
-      <div style={{
-        fontSize: 10, fontWeight: 600, color: 'var(--text-muted)',
-        textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 12,
-      }}>
-        {label}
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center' }}>
-        {nodes}
-      </div>
-    </div>
+    <span style={{ color, fontWeight: tone === 'ok' ? 600 : 400 }}>{label}</span>
   )
 }

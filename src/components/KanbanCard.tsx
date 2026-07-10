@@ -1,9 +1,11 @@
 'use client'
 
+import { memo } from 'react'
 import Link from 'next/link'
 import { useDraggable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
 import { STAGE_LABELS, type Stage, type Project } from '@/lib/types'
+import { isProjectOverdue, parseAndDaysUntil } from '@/lib/stageColors'
 
 type PipelineProject = Project & { brands: { id: string; name: string } }
 
@@ -21,7 +23,7 @@ interface KanbanCardProps {
   isGhost?: boolean
 }
 
-export default function KanbanCard({ p, isGhost = false }: KanbanCardProps) {
+function KanbanCardInner({ p, isGhost = false }: KanbanCardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: p.id,
     disabled: isGhost,
@@ -32,11 +34,9 @@ export default function KanbanCard({ p, isGhost = false }: KanbanCardProps) {
   const cardIdx = Math.min(lpIdx, crIdx)
   const aligned = p.lp_stage === p.creatives_stage
 
-  const now = Date.now()
-  const due = p.due_date ? new Date(p.due_date) : null
-  const daysLeft = due ? Math.ceil((due.getTime() - now) / (1000 * 60 * 60 * 24)) : null
-  const isOverdue = daysLeft !== null && daysLeft < 0 && !p.is_complete
-  const isUrgent = daysLeft !== null && daysLeft >= 0 && daysLeft <= 7
+  const { due, daysUntil: daysLeft } = parseAndDaysUntil(p.due_date)
+  const isOverdue = isProjectOverdue(p.due_date, p.is_complete, p.lp_stage, p.creatives_stage)
+  const isUrgent = !isOverdue && daysLeft !== null && daysLeft >= 0 && daysLeft <= 7
 
   const progress = Math.round(((lpIdx + crIdx) / (5 * 2)) * 100)
 
@@ -128,7 +128,7 @@ export default function KanbanCard({ p, isGhost = false }: KanbanCardProps) {
                   width: 5, height: 5, borderRadius: '50%', flexShrink: 0,
                   background: isOverdue ? 'var(--danger)' : isUrgent ? 'var(--warning)' : 'var(--text-muted)',
                 }} />
-                {new Date(p.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                {due?.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
               </span>
             </div>
           )}
@@ -149,6 +149,12 @@ export default function KanbanCard({ p, isGhost = false }: KanbanCardProps) {
     </div>
   )
 }
+
+// Memoized so drag-over/pointer-move events on the parent board don't force
+// every card in every column to re-render. `p` is a stable reference between
+// renders (comes straight from server data), so shallow-equal props is enough.
+const KanbanCard = memo(KanbanCardInner)
+export default KanbanCard
 
 function TrackBadge({ label, stage, approved }: { label: string; stage: Stage; approved: boolean }) {
   const color = STAGE_COLORS[stage]

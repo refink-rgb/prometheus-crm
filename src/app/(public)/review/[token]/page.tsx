@@ -1,10 +1,12 @@
 import { notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { canEdit } from '@/lib/permissions'
 import LpReviewPanel from '@/components/LpReviewPanel'
 import ImageReviewPanel from '@/components/ImageReviewPanel'
 import NotesThread from '@/components/NotesThread'
 import ConfirmOfferButton from '@/components/ConfirmOfferButton'
 import type { Project, Brand, ProjectImage, ProjectComment, CreativeAsset } from '@/lib/types'
+import { parseDueDate } from '@/lib/stageColors'
 
 export default async function ReviewPage({
   params,
@@ -24,14 +26,19 @@ export default async function ReviewPage({
 
   const p = projectRaw as Project
 
+  // Only authenticated editors (agency staff) can delete comments — anonymous
+  // clients viewing this link cannot. The flag is passed down to the panels.
+  const { data: { user } } = await supabase.auth.getUser()
+  const canDeleteComments = canEdit(user?.email)
+
   const [
     { data: brandRaw },
     { data: images },
     { data: allComments },
     { data: assetsRaw },
   ] = await Promise.all([
-    supabase.from('brands').select('*').eq('id', p.brand_id).single(),
-    supabase.from('project_images').select('*').eq('project_id', p.id).order('created_at'),
+    supabase.from('brands').select('id, name').eq('id', p.brand_id).single(),
+    supabase.from('project_images').select('id, storage_url, created_at').eq('project_id', p.id).order('created_at'),
     // Client review must NEVER show internal-only comments — exclude audience='internal'.
     supabase.from('project_comments').select('*').eq('project_id', p.id).neq('audience', 'internal').order('created_at'),
     supabase.from('creative_assets').select('*').eq('project_id', p.id).eq('is_hidden', false).eq('client_visible', true).order('sort_order'),
@@ -46,7 +53,7 @@ export default async function ReviewPage({
   const imageComments = comments.filter(c => c.track === 'image')
   const notes = comments.filter(c => c.track === 'note')
 
-  const due = p.due_date ? new Date(p.due_date) : null
+  const due = parseDueDate(p.due_date)
   const dueStr = due?.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
 
   return (
@@ -103,6 +110,7 @@ export default async function ReviewPage({
             lpUrl={p.lp_url}
             lpApproved={p.lp_approved}
             initialComments={lpComments}
+            canDelete={canDeleteComments}
           />
         </section>
 
@@ -133,6 +141,7 @@ export default async function ReviewPage({
               assets={assets}
               creativesApproved={p.creatives_approved}
               initialComments={imageComments}
+              canDelete={canDeleteComments}
             />
           ) : (
             <div className="card">
@@ -246,6 +255,8 @@ export default async function ReviewPage({
                   <img
                     src={img.storage_url}
                     alt={`Product ${i + 1}`}
+                    loading="lazy"
+                    decoding="async"
                     style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: 10, border: '1px solid var(--border)', display: 'block' }}
                   />
                 </a>
@@ -262,6 +273,7 @@ export default async function ReviewPage({
               notes={notes}
               mode="client"
               token={token}
+              canDelete={canDeleteComments}
             />
           </div>
         </section>

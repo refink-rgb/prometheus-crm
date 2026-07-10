@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { addProjectComment, approveProject } from '@/lib/actions'
+import { addProjectComment, approveProject, deleteProjectComment } from '@/lib/actions'
 import { LP_SECTIONS } from '@/lib/types'
 import type { ProjectComment } from '@/lib/types'
 
@@ -22,11 +22,13 @@ export default function LpReviewPanel({
   lpUrl,
   lpApproved,
   initialComments,
+  canDelete = false,
 }: {
   token: string
   lpUrl: string | null
   lpApproved: boolean
   initialComments: ProjectComment[]
+  canDelete?: boolean
 }) {
   const router = useRouter()
   const iframeRef = useRef<HTMLIFrameElement>(null)
@@ -101,6 +103,7 @@ export default function LpReviewPanel({
       pin_y: null,
       section_tag: sectionTag,
       audience: 'client',
+      attachment_urls: null,
     }
     setComments(prev => [optimistic, ...prev])
 
@@ -114,6 +117,18 @@ export default function LpReviewPanel({
       setComments(prev => prev.filter(c => c.id !== optimistic.id))
     } finally {
       setPosting(false)
+    }
+  }
+
+  async function handleDelete(id: string) {
+    if (id.startsWith('temp-')) return
+    if (!confirm('Delete this comment? This cannot be undone.')) return
+    const prev = comments
+    setComments(cs => cs.filter(c => c.id !== id))
+    try {
+      await deleteProjectComment(id, token)
+    } catch {
+      setComments(prev)
     }
   }
 
@@ -435,6 +450,21 @@ export default function LpReviewPanel({
                       <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
                         {new Date(c.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                       </span>
+                      {canDelete && (
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(c.id)}
+                          aria-label="Delete comment"
+                          title="Delete comment"
+                          style={{
+                            marginLeft: 'auto', background: 'none', border: 'none',
+                            color: 'var(--text-muted)', cursor: 'pointer',
+                            fontSize: 14, padding: '0 4px', lineHeight: 1,
+                          }}
+                        >
+                          ×
+                        </button>
+                      )}
                     </div>
                     {c.section_tag && c.section_tag !== 'General' && (
                       <span style={{

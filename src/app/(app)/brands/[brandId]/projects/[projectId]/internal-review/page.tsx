@@ -1,7 +1,7 @@
 import { notFound, redirect } from 'next/navigation'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { canEdit } from '@/lib/permissions'
-import Nav from '@/components/Nav'
 import InternalReviewPanel from '@/components/InternalReviewPanel'
 import type { Project, CreativeAsset, ProjectComment } from '@/lib/types'
 
@@ -54,8 +54,16 @@ export default async function InternalReviewPage({
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--background)' }}>
-      <Nav email={user.email} />
-      <main style={{ maxWidth: 1400, margin: '0 auto', padding: '32px 24px 80px' }}>
+      <main style={{ maxWidth: 1400, margin: '0 auto', padding: '28px 32px 80px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-muted)', marginBottom: 20, flexWrap: 'wrap' }}>
+          <Link href="/brands" style={{ color: 'var(--text-muted)', textDecoration: 'none' }}>← Brands</Link>
+          <span style={{ opacity: 0.5 }}>/</span>
+          <Link href={`/brands/${brandId}`} style={{ color: 'var(--text-muted)', textDecoration: 'none' }}>Brand</Link>
+          <span style={{ opacity: 0.5 }}>/</span>
+          <Link href={`/brands/${brandId}/projects/${projectId}`} style={{ color: 'var(--text-muted)', textDecoration: 'none' }}>{project.name}</Link>
+          <span style={{ opacity: 0.5 }}>/</span>
+          <span style={{ color: 'var(--text-primary)' }}>Internal review</span>
+        </div>
         <InternalReviewPanel
           projectId={projectId}
           brandId={brandId}

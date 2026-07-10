@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import type { Brand, Project, Journey } from '@/lib/types'
 import { STAGE_LABELS } from '@/lib/types'
+import { isProjectOverdue, parseDueDate } from '@/lib/stageColors'
 
 export default async function ClientPortalPage({
   params,
@@ -14,7 +15,7 @@ export default async function ClientPortalPage({
 
   const { data: brandRaw } = await supabase
     .from('brands')
-    .select('*')
+    .select('id, name')
     .eq('client_token', token)
     .single()
 
@@ -23,8 +24,8 @@ export default async function ClientPortalPage({
   const brand = brandRaw as Brand
 
   const [{ data: projectsRaw }, { data: journeysRaw }] = await Promise.all([
-    supabase.from('projects').select('*').eq('brand_id', brand.id).order('due_date', { ascending: false }),
-    supabase.from('journeys').select('*').eq('brand_id', brand.id).order('created_at', { ascending: false }),
+    supabase.from('projects').select('id, name, brand_id, due_date, is_complete, journey_id, marketing_moment, lp_stage, creatives_stage, page_type, share_token, offer_locked').eq('brand_id', brand.id).order('due_date', { ascending: false }),
+    supabase.from('journeys').select('id, name').eq('brand_id', brand.id).order('created_at', { ascending: false }),
   ])
 
   const projects = (projectsRaw ?? []) as Project[]
@@ -138,9 +139,9 @@ export default async function ClientPortalPage({
 }
 
 function ProjectCard({ project: p, compact = false }: { project: Project; compact?: boolean }) {
-  const due = p.due_date ? new Date(p.due_date) : null
+  const due = parseDueDate(p.due_date)
   const dueStr = due?.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-  const isOverdue = due && due < new Date() && !p.is_complete
+  const isOverdue = isProjectOverdue(p.due_date, p.is_complete, p.lp_stage, p.creatives_stage)
 
   const overallStage = p.is_complete
     ? 'Complete'

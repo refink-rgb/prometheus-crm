@@ -1,13 +1,10 @@
-import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
-import Nav from '@/components/Nav'
 import { createBrand } from '@/lib/actions'
 import ProfitEngineerSelect from '@/components/ProfitEngineerSelect'
 
 export default async function NewBrandPage() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
 
   const { data: peRows } = await supabase
     .from('profit_engineers')
@@ -17,13 +14,14 @@ export default async function NewBrandPage() {
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--background)' }}>
-      <Nav email={user?.email} />
-      <main style={{ maxWidth: 600, margin: '0 auto', padding: '40px 24px' }}>
+      <main style={{ maxWidth: 600, margin: '0 auto', padding: '28px 32px 40px' }}>
         <div style={{ marginBottom: 32 }}>
-          <Link href="/" style={{ fontSize: 13, color: 'var(--text-muted)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4, marginBottom: 20 }}>
-            ← Dashboard
-          </Link>
-          <h1 style={{ fontSize: 24, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.03em', marginBottom: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
+            <Link href="/brands" style={{ color: 'var(--text-muted)', textDecoration: 'none' }}>← Brands</Link>
+            <span style={{ opacity: 0.5 }}>/</span>
+            <span style={{ color: 'var(--text-primary)' }}>New brand</span>
+          </div>
+          <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.02em', marginBottom: 6 }}>
             Create a brand
           </h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: 14 }}>
@@ -52,7 +50,7 @@ export default async function NewBrandPage() {
               <button type="submit" className="btn-primary" style={{ flex: 1, justifyContent: 'center' }}>
                 Create brand →
               </button>
-              <Link href="/" className="btn-secondary" style={{ justifyContent: 'center', padding: '10px 20px' }}>
+              <Link href="/brands" className="btn-secondary" style={{ justifyContent: 'center', padding: '10px 20px' }}>
                 Cancel
               </Link>
             </div>

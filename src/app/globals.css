@@ -3,8 +3,11 @@
 :root {
   --background: #0d0d0d;
   --surface: #161616;
+  --surface-1: #161616;
+  --surface-2: #1a1a1a;
   --surface-raised: #1f1f1f;
   --border: #2a2a2a;
+  --border-strong: #3a3a3a;
   --border-hover: #3a3a3a;
   --text-primary: #f5f5f5;
   --text-secondary: #888888;
@@ -15,6 +18,113 @@
   --success: #22c55e;
   --warning: #eab308;
   --danger: #ef4444;
+
+  /* ── Prometheus stage color system ── */
+
+  /* Stage 1: Brief */
+  --stage-brief:        #94A3B8;
+  --stage-brief-bg:     rgba(148, 163, 184, 0.14);
+  --stage-brief-text:   #94A3B8;
+
+  /* Stage 2: In Progress */
+  --stage-progress:     #3B82F6;
+  --stage-progress-bg:  rgba(59, 130, 246, 0.14);
+  --stage-progress-text:#60A5FA;
+
+  /* Stage 3: Internal Review */
+  --stage-internal:     #6366F1;
+  --stage-internal-bg:  rgba(99, 102, 241, 0.14);
+  --stage-internal-text:#818CF8;
+
+  /* Stage 4: Client Review */
+  --stage-client:       #F59E0B;
+  --stage-client-bg:    rgba(245, 158, 11, 0.14);
+  --stage-client-text:  #FCD34D;
+
+  /* Stage 5: Live */
+  --stage-live:         #65A30D;
+  --stage-live-bg:      rgba(101, 163, 13, 0.16);
+  --stage-live-text:    #A3E635;
+
+  /* Stage 6: Done */
+  --stage-done:         #10B981;
+  --stage-done-bg:      rgba(16, 185, 129, 0.16);
+  --stage-done-text:    #34D399;
+
+  /* ── Urgency ── */
+  --urgent-overdue:     #EF4444;
+  --urgent-overdue-bg:  rgba(239, 68, 68, 0.14);
+  --urgent-soon:        #F97316;
+  --urgent-soon-bg:     rgba(249, 115, 22, 0.14);
+
+  /* ── BD Pipeline ── */
+  --bd-intro:           #A78BFA;
+  --bd-discovery:       #818CF8;
+  --bd-offer:           #F59E0B;
+  --bd-active:          #10B981;
+
+  /* ── Client status ── */
+  --client-approved:    #10B981;
+  --client-flagged:     #EF4444;
+  --client-pending:     #94A3B8;
+
+  /* ── Sidebar ── */
+  --sidebar-bg:         #0a0a0a;
+  --sidebar-border:     rgba(255, 255, 255, 0.08);
+
+  /* Scrollbar thumb (dark theme). Overridden in .theme-light. */
+  --scrollbar-thumb:    #3a3a3a;
+
+  /* Card-grid hover ring — theme-aware alternative to hardcoded rgba(255,255,255,x). */
+  --hover-ring:         rgba(255, 255, 255, 0.2);
+  --hover-shadow:       rgba(0, 0, 0, 0.4);
+}
+
+/* ── Light theme ── Overrides only what needs to change. Accents, stage
+ * colors, and urgency colors keep their hue so identity stays consistent
+ * across both themes.
+ */
+html.theme-light {
+  --background:         #f7f7f5;
+  --surface:            #ffffff;
+  --surface-1:          #ffffff;
+  --surface-2:          #f4f4f2;
+  --surface-raised:     #fafaf9;
+  --border:             #e5e5e5;
+  --border-strong:      #d4d4d4;
+  --border-hover:       #b8b8b8;
+  --text-primary:       #171717;
+  --text-secondary:     #525252;
+  --text-muted:         #737373;
+
+  /* Slightly stronger accent tint so orange-on-white doesn't wash out. */
+  --accent-muted:       rgba(249, 115, 22, 0.14);
+
+  /* Stage backgrounds: bump alpha up so tints stay legible on white. */
+  --stage-brief-bg:     rgba(148, 163, 184, 0.20);
+  --stage-progress-bg:  rgba(59, 130, 246, 0.14);
+  --stage-internal-bg:  rgba(99, 102, 241, 0.14);
+  --stage-client-bg:    rgba(245, 158, 11, 0.18);
+  --stage-live-bg:      rgba(101, 163, 13, 0.18);
+  --stage-done-bg:      rgba(16, 185, 129, 0.16);
+
+  /* Stage text on light: use the darker border color (was tuned for dark). */
+  --stage-brief-text:   #475569;
+  --stage-progress-text:#1e40af;
+  --stage-internal-text:#4338ca;
+  --stage-client-text:  #b45309;
+  --stage-live-text:    #4d7c0f;
+  --stage-done-text:    #047857;
+
+  --urgent-overdue-bg:  rgba(239, 68, 68, 0.12);
+  --urgent-soon-bg:     rgba(249, 115, 22, 0.14);
+
+  --sidebar-bg:         #f0efec;
+  --sidebar-border:     rgba(0, 0, 0, 0.08);
+
+  --scrollbar-thumb:    #b8b8b8;
+  --hover-ring:         rgba(0, 0, 0, 0.15);
+  --hover-shadow:       rgba(0, 0, 0, 0.12);
 }
 
 * {
@@ -38,7 +148,7 @@ body {
   height: 6px;
 }
 ::-webkit-scrollbar-track { background: var(--surface); }
-::-webkit-scrollbar-thumb { background: var(--border-hover); border-radius: 3px; }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 3px; }
 
 input, textarea, select {
   background-color: var(--surface-raised);
@@ -152,7 +262,36 @@ label {
 }
 .kanban-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 6px 20px var(--hover-shadow);
+}
+
+/* Project card hover */
+.project-card:hover {
+  background: var(--surface-2);
+}
+
+/* Brand grid card — elevated hover */
+.brand-grid-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--hover-ring) !important;
+  box-shadow: 0 4px 20px var(--hover-shadow);
+}
+
+/* Overdue row hover */
+.overdue-row:hover {
+  background: var(--surface-2);
+}
+
+/* Responsive: dashboard grid stacks under 900px, KPI strip becomes 2×2 under 768px */
+@media (max-width: 900px) {
+  .dashboard-grid { grid-template-columns: 1fr !important; }
+}
+@media (max-width: 768px) {
+  .kpi-strip { grid-template-columns: repeat(2, 1fr) !important; }
+  .bd-kanban-grid { grid-template-columns: repeat(4, minmax(180px, 1fr)) !important; }
+  .app-sidebar { display: none !important; }
+  .app-mobile-nav { display: flex !important; }
+  .app-main { margin-left: 0 !important; padding-bottom: 64px !important; }
 }
 
 /* Tab loading sweep bar */

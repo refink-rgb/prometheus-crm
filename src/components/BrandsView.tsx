@@ -3,6 +3,7 @@
 import { useState, useDeferredValue, useMemo } from 'react'
 import Link from 'next/link'
 import type { Brand, Project } from '@/lib/types'
+import { isProjectOverdue } from '@/lib/stageColors'
 
 type BrandWithProjects = Brand & { projects: Project[] }
 type PEGroup = { pe: string; brands: BrandWithProjects[] }
@@ -26,13 +27,12 @@ export default function BrandsView({
 
   const filteredBrands = useMemo(() => {
     const q = deferredSearch.trim().toLowerCase()
-    const now = Date.now()
     return allBrands.filter(brand => {
       if (q && !brand.name.toLowerCase().includes(q)) return false
       if (pe && brand.profit_engineer !== pe) return false
       if (status === 'overdue') {
-        const hasOverdue = brand.projects.some(
-          p => !p.is_complete && p.due_date && new Date(p.due_date).getTime() < now
+        const hasOverdue = brand.projects.some(p =>
+          isProjectOverdue(p.due_date, p.is_complete, p.lp_stage, p.creatives_stage)
         )
         if (!hasOverdue) return false
       }
@@ -182,8 +182,7 @@ function BrandCard({ brand }: { brand: BrandWithProjects }) {
 }
 
 function MiniProjectRow({ project }: { project: Project }) {
-  const due = project.due_date ? new Date(project.due_date) : null
-  const isOverdue = due && due < new Date() && !project.is_complete
+  const isOverdue = isProjectOverdue(project.due_date, project.is_complete, project.lp_stage, project.creatives_stage)
   return (
     <div style={{ background: 'var(--surface-raised)', borderRadius: 8, padding: '8px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
       <span style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>

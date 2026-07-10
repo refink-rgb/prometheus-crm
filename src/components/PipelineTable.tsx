@@ -4,6 +4,7 @@ import { useState, useDeferredValue, useMemo } from 'react'
 import Link from 'next/link'
 import type { Project, Stage } from '@/lib/types'
 import { STAGE_LABELS } from '@/lib/types'
+import { isProjectOverdue, parseAndDaysUntil } from '@/lib/stageColors'
 
 type PipelineProject = Project & { brands: { id: string; name: string } }
 
@@ -40,10 +41,9 @@ export default function PipelineTable({ pipeline }: { pipeline: PipelineProject[
 
   const displayed = useMemo(() => {
     const q = deferredSearch.trim().toLowerCase()
-    const now = Date.now()
     return pipeline.filter(p => {
       if (q && !p.brands.name.toLowerCase().includes(q)) return false
-      if (status === 'overdue' && !(p.due_date && new Date(p.due_date).getTime() < now && !p.is_complete)) return false
+      if (status === 'overdue' && !isProjectOverdue(p.due_date, p.is_complete, p.lp_stage, p.creatives_stage)) return false
       if (status === 'in_review' && !(p.lp_stage === 'client_review' || p.creatives_stage === 'client_review')) return false
       if (filterWaiting && !isWaitingOnClient(p)) return false
       return true
@@ -150,7 +150,10 @@ export default function PipelineTable({ pipeline }: { pipeline: PipelineProject[
                 <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {p.name}
                 </span>
-                <DueBadge dueDate={p.due_date} isComplete={p.is_complete} />
+                <DueBadge
+                  dueDate={p.due_date}
+                  isOverdue={isProjectOverdue(p.due_date, p.is_complete, p.lp_stage, p.creatives_stage)}
+                />
                 <TrackProgress stage={p.lp_stage} approved={p.lp_approved} />
                 <TrackProgress stage={p.creatives_stage} approved={p.creatives_approved} />
               </div>
@@ -162,13 +165,10 @@ export default function PipelineTable({ pipeline }: { pipeline: PipelineProject[
   )
 }
 
-function DueBadge({ dueDate, isComplete }: { dueDate: string | null; isComplete: boolean }) {
-  if (!dueDate) return <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>—</span>
-  const due = new Date(dueDate)
-  const now = new Date()
-  const daysUntil = Math.ceil((due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
-  const isOverdue = daysUntil < 0 && !isComplete
-  const isUrgent = daysUntil >= 0 && daysUntil <= 7 && !isComplete
+function DueBadge({ dueDate, isOverdue }: { dueDate: string | null; isOverdue: boolean }) {
+  const { due, daysUntil } = parseAndDaysUntil(dueDate)
+  if (!due || daysUntil === null) return <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>—</span>
+  const isUrgent = !isOverdue && daysUntil >= 0 && daysUntil <= 7
   const color = isOverdue ? 'var(--danger)' : isUrgent ? 'var(--warning)' : 'var(--text-muted)'
   const dueStr = due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
   return (
