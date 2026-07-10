@@ -51,6 +51,7 @@ interface Props {
     lp_url: string | null
     creatives_notes: string | null
     shopify_coupon_code: string | null
+    assigned_designer: string | null
   }
 }
 
@@ -253,6 +254,7 @@ export default function ProjectEditForm({ projectId, brandId, journeys, initial 
         lp_url: trimmed('lp_url'),
         creatives_notes: trimmed('creatives_notes'),
         shopify_coupon_code: trimmed('shopify_coupon_code'),
+        assigned_designer: s('assigned_designer') || null,
       })
       setEditing(false)
       router.refresh()
@@ -336,6 +338,14 @@ export default function ProjectEditForm({ projectId, brandId, journeys, initial 
               <input type="date" name="due_date" defaultValue={initial.due_date ?? ''} />
             </Field>
           </div>
+
+          <Field label="Assigned designer" optional>
+            <select name="assigned_designer" defaultValue={initial.assigned_designer ?? ''}>
+              <option value="">Unassigned</option>
+              <option value="Janella">Janella</option>
+              <option value="Jaspen">Jaspen</option>
+            </select>
+          </Field>
 
           <Field label="Journey" optional>
             <select name="journey_id" defaultValue={initial.journey_id ?? ''}>

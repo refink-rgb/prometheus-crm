@@ -16,6 +16,7 @@ import KanbanCard from './KanbanCard'
 
 type PipelineProject = Project & { brands: { id: string; name: string } }
 type StatusFilter = 'all' | 'overdue' | 'in_review'
+type DesignerFilter = 'all' | 'Janella' | 'Jaspen' | 'unassigned'
 
 const STAGE_COLORS: Record<Stage, string> = {
   brief:           'var(--text-muted)',
@@ -49,6 +50,7 @@ export default function KanbanView({ pipeline }: { pipeline: PipelineProject[] }
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState<StatusFilter>('all')
   const [filterWaiting, setFilterWaiting] = useState(false)
+  const [designer, setDesigner] = useState<DesignerFilter>('all')
   const deferredSearch = useDeferredValue(search)
 
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -71,9 +73,12 @@ export default function KanbanView({ pipeline }: { pipeline: PipelineProject[] }
       if (status === 'overdue' && !isProjectOverdue(p.due_date, p.is_complete, p.lp_stage, p.creatives_stage)) return false
       if (status === 'in_review' && !(p.lp_stage === 'client_review' || p.creatives_stage === 'client_review')) return false
       if (filterWaiting && !isWaitingOnClient(p)) return false
+      if (designer === 'unassigned' && p.assigned_designer) return false
+      if (designer === 'Janella' && p.assigned_designer !== 'Janella') return false
+      if (designer === 'Jaspen' && p.assigned_designer !== 'Jaspen') return false
       return true
     })
-  }, [localProjects, deferredSearch, status, filterWaiting])
+  }, [localProjects, deferredSearch, status, filterWaiting, designer])
 
   const columns = useMemo(
     () => STAGE_ORDER.map(stage => ({
@@ -153,6 +158,28 @@ export default function KanbanView({ pipeline }: { pipeline: PipelineProject[] }
                   borderColor: active ? 'var(--accent)' : 'var(--border)',
                   background: active ? 'var(--accent-muted)' : 'transparent',
                   color: active ? 'var(--accent)' : 'var(--text-muted)',
+                }}
+              >
+                {labels[opt]}
+              </button>
+            )
+          })}
+        </div>
+
+        <div style={{ display: 'flex', gap: 4 }}>
+          {(['all', 'Janella', 'Jaspen', 'unassigned'] as const).map(opt => {
+            const active = designer === opt
+            const labels: Record<DesignerFilter, string> = { all: 'All', Janella: 'Janella', Jaspen: 'Jaspen', unassigned: 'Unassigned' }
+            return (
+              <button
+                key={opt}
+                onClick={() => setDesigner(opt)}
+                style={{
+                  ...pillBase,
+                  fontWeight: active ? 600 : 400,
+                  borderColor: active ? '#a855f7' : 'var(--border)',
+                  background: active ? 'rgba(168,85,247,0.1)' : 'transparent',
+                  color: active ? '#a855f7' : 'var(--text-muted)',
                 }}
               >
                 {labels[opt]}

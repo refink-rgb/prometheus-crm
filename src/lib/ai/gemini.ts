@@ -66,6 +66,51 @@ export async function researchBrandDna(brandName: string, websiteUrl: string): P
   return { dossier, urls: Array.from(urls) }
 }
 
+export type CopyDeck = {
+  headlines: string[]
+  eyebrows: string[]
+  subheads: string[]
+}
+
+export async function generateAdCopy(
+  offer: string,
+  brandName: string,
+  promptModifier: string,
+): Promise<CopyDeck> {
+  const ai = client()
+  const voiceHint = promptModifier.trim()
+    ? `\nBrand voice / visual direction: ${promptModifier}`
+    : ''
+
+  const prompt = `You are a direct-response copywriter specializing in Meta/Instagram ads.
+
+Brand: ${brandName}${voiceHint}
+
+Offer: ${offer}
+
+Generate ad copy in exactly this JSON format — no commentary, just the object:
+{
+  "headlines": [8 strings, 5-9 words each, punchy, benefit-first, varied angles: value/curiosity/social proof/urgency],
+  "eyebrows": [5 strings, 1-4 words each, ALL-CAPS style, e.g. "LIMITED OFFER", "NEW ARRIVAL"],
+  "subheads": [4 strings, 10-18 words each, one supporting benefit or reason-to-believe per line]
+}`
+
+  const res = await ai.models.generateContent({
+    model: MODEL,
+    contents: prompt,
+    config: { responseMimeType: 'application/json' },
+  })
+
+  const text = res.text ?? ''
+  if (!text.trim()) throw new Error('Gemini copy generation returned empty text.')
+
+  try {
+    return JSON.parse(text) as CopyDeck
+  } catch {
+    throw new Error('Gemini copy generation returned invalid JSON.')
+  }
+}
+
 export async function synthesizeBrandDna(dossier: string, urls: string[]): Promise<BrandDnaJson> {
   const ai = client()
   const urlBlock = urls.length

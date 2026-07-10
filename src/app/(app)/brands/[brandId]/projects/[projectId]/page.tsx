@@ -13,6 +13,7 @@ import type { Project, Brand, ProjectImage, Journey, CreativeAsset, ProjectComme
 import { calcDaysUntil, isProjectOverdue, overallProgress, parseDueDate } from '@/lib/stageColors'
 import ProjectEditForm from '@/components/ProjectEditForm'
 import OpenEditFormButton from '@/components/OpenEditFormButton'
+import CopyDeckPanel from '@/components/CopyDeckPanel'
 
 // AI revision/edit Server Actions (gpt-image-2) run ~60-90s. Without this they hit
 // Vercel's default function timeout and the client gets "unexpected response from
@@ -127,6 +128,11 @@ export default async function ProjectPage({
                 {p.page_type && (
                   <span style={{ background: 'var(--surface-raised)', border: '1px solid var(--border)', borderRadius: 6, padding: '2px 8px' }}>
                     {p.page_type}
+                  </span>
+                )}
+                {p.assigned_designer && (
+                  <span style={{ background: 'rgba(168,85,247,0.1)', border: '1px solid rgba(168,85,247,0.25)', borderRadius: 6, padding: '2px 8px', color: '#a855f7', fontWeight: 500 }}>
+                    ✏ {p.assigned_designer}
                   </span>
                 )}
               </div>
@@ -325,6 +331,7 @@ export default async function ProjectPage({
               lp_url: p.lp_url,
               creatives_notes: p.creatives_notes,
               shopify_coupon_code: p.shopify_coupon_code,
+              assigned_designer: p.assigned_designer,
             }}
           />
         )}
@@ -465,9 +472,23 @@ export default async function ProjectPage({
               )}
             </div>
 
+            {/* Copy Deck */}
+            <CopyDeckPanel
+              projectId={projectId}
+              brandId={brandId}
+              initialHeadlines={p.ad_headlines ?? []}
+              initialEyebrows={p.ad_eyebrows ?? []}
+              initialSubcopies={p.ad_subcopies ?? []}
+            />
+
             {/* Deliverables */}
             <div className="card">
-              <h3 style={{ fontWeight: 700, fontSize: 15, marginBottom: 20, color: 'var(--text-primary)' }}>Deliverables</h3>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+                <h3 style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)', margin: 0 }}>Deliverables</h3>
+                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', background: 'var(--surface-raised)', border: '1px solid var(--border)', borderRadius: 6, padding: '3px 9px', letterSpacing: '0.04em' }}>
+                  4×5
+                </span>
+              </div>
               <form action={updateProjectDeliverable}>
                 <input type="hidden" name="project_id" value={projectId} />
                 <input type="hidden" name="brand_id" value={brandId} />

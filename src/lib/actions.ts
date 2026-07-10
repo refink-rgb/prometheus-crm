@@ -1401,6 +1401,7 @@ export async function updateProjectDetails(
     lp_url: string | null
     creatives_notes: string | null
     shopify_coupon_code: string | null
+    assigned_designer: string | null
   }
 ) {
   const supabase = await createClient()
@@ -1416,6 +1417,61 @@ export async function updateProjectDetails(
 
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)
   revalidatePath('/')
+}
+
+export async function saveProjectCopy(
+  projectId: string,
+  brandId: string,
+  copy: { ad_headlines: string[]; ad_eyebrows: string[]; ad_subcopies: string[] }
+): Promise<void> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  const { error } = await supabase
+    .from('projects')
+    .update(copy)
+    .eq('id', projectId)
+  if (error) throw new Error(`Failed to save copy: ${error.message}`)
+
+  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+}
+
+export async function generateProjectCopy(
+  projectId: string,
+): Promise<{ ok: true; headlines: string[]; eyebrows: string[]; subheads: string[] } | { ok: false; error: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  try {
+    const { data: project } = await supabase
+      .from('projects')
+      .select('offer, offer_description, brand_id')
+      .eq('id', projectId)
+      .single()
+
+    if (!project) return { ok: false, error: 'Project not found.' }
+
+    const offerText = [project.offer, project.offer_description].filter(Boolean).join('\n')
+    if (!offerText.trim()) return { ok: false, error: 'Please fill in the offer fields before generating copy.' }
+
+    const [{ data: brand }, { data: dna }] = await Promise.all([
+      supabase.from('brands').select('name').eq('id', project.brand_id).single(),
+      supabase.from('brand_dna').select('prompt_modifier').eq('brand_id', project.brand_id).eq('is_active', true).maybeSingle(),
+    ])
+
+    const { generateAdCopy } = await import('@/lib/ai/gemini')
+    const deck = await generateAdCopy(
+      offerText,
+      brand?.name ?? 'Brand',
+      dna?.prompt_modifier ?? '',
+    )
+
+    return { ok: true, headlines: deck.headlines, eyebrows: deck.eyebrows, subheads: deck.subheads }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'Unknown error.' }
+  }
 }
 
 export async function signOut() {
