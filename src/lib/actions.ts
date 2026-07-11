@@ -1419,6 +1419,25 @@ export async function updateProjectDetails(
   revalidatePath('/')
 }
 
+export async function assignProjectDesigner(
+  projectId: string,
+  brandId: string,
+  designer: string | null,
+): Promise<void> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  const { error } = await supabase
+    .from('projects')
+    .update({ assigned_designer: designer })
+    .eq('id', projectId)
+  if (error) throw new Error(`Failed to assign designer: ${error.message}`)
+
+  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+  revalidatePath('/')
+}
+
 export async function saveProjectCopy(
   projectId: string,
   brandId: string,

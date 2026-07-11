@@ -14,6 +14,7 @@ import { calcDaysUntil, isProjectOverdue, overallProgress, parseDueDate } from '
 import ProjectEditForm from '@/components/ProjectEditForm'
 import OpenEditFormButton from '@/components/OpenEditFormButton'
 import CopyDeckPanel from '@/components/CopyDeckPanel'
+import AssignedDesignerPicker from '@/components/AssignedDesignerPicker'
 
 // AI revision/edit Server Actions (gpt-image-2) run ~60-90s. Without this they hit
 // Vercel's default function timeout and the client gets "unexpected response from
@@ -338,11 +339,19 @@ export default async function ProjectPage({
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
-            {/* Project Meta — product featured + revisions */}
-            {(p.product_featured || isAuthorized) && (
+            {/* Project Meta — assignment + product + revisions */}
+            {(p.product_featured || p.assigned_designer !== undefined || isAuthorized) && (
               <div className="card">
                 <h3 style={{ fontWeight: 700, fontSize: 15, marginBottom: 16, color: 'var(--text-primary)' }}>Project Info</h3>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Assigned Designer</div>
+                    <AssignedDesignerPicker
+                      projectId={projectId}
+                      brandId={brandId}
+                      current={p.assigned_designer}
+                    />
+                  </div>
                   {p.product_featured && (
                     <div>
                       <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Product Featured</div>
