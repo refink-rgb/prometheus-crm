@@ -22,6 +22,10 @@ export const PAGE_TYPE_OPTIONS = [
 
 export type PageType = typeof PAGE_TYPE_OPTIONS[number]
 
+// Static editors who can be assigned to a project's creative work.
+// Single source of truth for the new-project form and the inline picker.
+export const DESIGNERS = ['Janella', 'Jaspen'] as const
+
 export interface Brand {
   id: string
   name: string
@@ -114,6 +118,8 @@ export interface Project {
   lp_url: string | null
   creatives_notes: string | null
   shopify_coupon_code: string | null
+  // Motion share link holding the videos the static editors work on
+  motion_link: string | null
   is_complete: boolean
   created_at: string
   created_by: string

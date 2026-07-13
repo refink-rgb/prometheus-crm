@@ -516,6 +516,27 @@ export default async function ProjectPage({
                   )}
                 </div>
                 <div style={{ marginBottom: 16 }}>
+                  <label htmlFor="motion_link">
+                    Motion link{' '}
+                    <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>
+                      videos for the editors
+                    </span>
+                  </label>
+                  <input
+                    id="motion_link"
+                    name="motion_link"
+                    type="url"
+                    defaultValue={p.motion_link ?? ''}
+                    placeholder="https://app.motionapp.com/…"
+                    disabled={!isAuthorized}
+                  />
+                  {p.motion_link && (
+                    <a href={p.motion_link} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-block', marginTop: 6, fontSize: 13, color: 'var(--accent)' }}>
+                      Open videos in Motion ↗
+                    </a>
+                  )}
+                </div>
+                <div style={{ marginBottom: 16 }}>
                   <label htmlFor="shopify_coupon_code">
                     Shopify coupon code{' '}
                     <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>

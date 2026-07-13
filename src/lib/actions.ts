@@ -139,6 +139,7 @@ export async function createProject(formData: FormData): Promise<{ redirect: str
       ad_subcopies: jsonArr('ad_subcopies'),
       ad_eyebrows: jsonArr('ad_eyebrows'),
       product_images_link: str('product_images_link'),
+      assigned_designer: str('assigned_designer'),
       created_by: user?.id ?? null,
     })
     .select()
@@ -219,6 +220,7 @@ export async function updateProjectDeliverable(formData: FormData) {
       lp_url: formData.get('lp_url') as string || null,
       creatives_notes: formData.get('creatives_notes') as string || null,
       shopify_coupon_code: (formData.get('shopify_coupon_code') as string)?.trim() || null,
+      motion_link: (formData.get('motion_link') as string)?.trim() || null,
     })
     .eq('id', projectId)
 
