@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, getCachedUser } from '@/lib/supabase/server'
 import NewProjectForm from '@/components/NewProjectForm'
 import type { Journey } from '@/lib/types'
 
@@ -10,7 +10,7 @@ export default async function NewProjectPage({
 }) {
   const { brandId } = await params
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getCachedUser()
   if (!user) redirect('/login')
 
   const { data: journeyRows } = await supabase

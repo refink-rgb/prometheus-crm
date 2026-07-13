@@ -1,10 +1,9 @@
-import { createClient } from '@/lib/supabase/server'
+import { getCachedUser } from '@/lib/supabase/server'
 import { canEdit } from '@/lib/permissions'
 import Sidebar from '@/components/Sidebar'
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getCachedUser()
   const isEditor = canEdit(user?.email)
 
   return (

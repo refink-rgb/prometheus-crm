@@ -1,6 +1,6 @@
 import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, getCachedUser } from '@/lib/supabase/server'
 import { canEdit } from '@/lib/permissions'
 import InternalReviewPanel from '@/components/InternalReviewPanel'
 import type { Project, CreativeAsset, ProjectComment } from '@/lib/types'
@@ -17,7 +17,7 @@ export default async function InternalReviewPage({
 }) {
   const { brandId, projectId } = await params
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getCachedUser()
   if (!user) redirect('/login')
   if (!canEdit(user.email)) redirect(`/brands/${brandId}/projects/${projectId}`)
 

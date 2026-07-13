@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, getCachedUser } from '@/lib/supabase/server'
 import { canEdit } from '@/lib/permissions'
 import type { Brand, PipelineStatus } from '@/lib/types'
 import { PIPELINE_STATUS_LABELS, PIPELINE_STATUS_ORDER } from '@/lib/types'
@@ -26,7 +26,7 @@ const BD_COLORS: Record<PipelineStatus, string> = {
 
 export default async function FinancialsPage() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getCachedUser()
   if (!canEdit(user?.email)) {
     redirect('/')
   }

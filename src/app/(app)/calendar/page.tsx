@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, getCachedUser } from '@/lib/supabase/server'
 import CalendarView, { type CalendarProject } from '@/components/CalendarView'
 
 function parseMonth(param: string | undefined): { year: number; month: number } {
@@ -25,7 +25,7 @@ export default async function CalendarPage({
   searchParams: Promise<{ month?: string }>
 }) {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getCachedUser()
   if (!user) redirect('/login')
 
   const { month: monthParam } = await searchParams

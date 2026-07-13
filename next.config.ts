@@ -8,6 +8,15 @@ const nextConfig: NextConfig = {
   // browser bundle. lucide-react is the biggest win — un-optimized it ships
   // the entire icon set.
   experimental: {
+    // Client router cache: re-visiting a page within 30s reuses the last
+    // payload instead of re-rendering on the server (an ocean round-trip from
+    // SEA). Server Actions call revalidatePath, which busts this cache, so
+    // edits still show up immediately.
+    staleTimes: {
+      dynamic: 30,
+      static: 180,
+    },
+
     optimizePackageImports: [
       'lucide-react',
       'recharts',

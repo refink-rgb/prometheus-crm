@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import {
   addInternalAssetComment,
   updateAssetStatusInternal,
@@ -293,8 +294,9 @@ export default function InternalReviewPanel({
                 background: 'var(--surface-raised)',
               }}
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={thumb} alt="" loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+              {/* next/image: revision_url is a full-size (1-3 MB) Supabase PNG —
+                  let Vercel's optimizer serve a 64px WebP instead. */}
+              <Image src={thumb} alt="" width={64} height={64} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
               {/* Client-visibility dot: filled green = live to client, hollow = internal only */}
               <div title={a.client_visible ? 'Live to client' : 'Internal only'} style={{
                 position: 'absolute', top: 3, right: 3, width: 10, height: 10, borderRadius: '50%',

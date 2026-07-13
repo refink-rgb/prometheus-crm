@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Image from 'next/image'
 import { syncDriveImages, toggleAssetVisibility, applyAiEdits, approveAndPublishRevision, publishAssets } from '@/lib/actions'
 import { useRouter } from 'next/navigation'
 import type { CreativeAsset, ProjectComment } from '@/lib/types'
@@ -599,14 +600,16 @@ function AssetThumb({
         onClick={onClick}
         style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'block', width: '100%' }}
       >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
+        {/* next/image: revision_url is a full-size (1-3 MB) Supabase PNG —
+            let Vercel's optimizer serve a grid-sized WebP instead. */}
+        <Image
           src={displayUrl}
           alt={asset.name ?? `Image ${index + 1}`}
+          width={400}
+          height={400}
           loading="lazy"
-          decoding="async"
           style={{
-            width: '100%', aspectRatio: '1', objectFit: 'cover',
+            width: '100%', height: 'auto', aspectRatio: '1', objectFit: 'cover',
             borderRadius: 8, display: 'block',
             border: `1px solid ${asset.revision_url ? 'var(--accent)' : 'var(--border)'}`,
             opacity: asset.is_hidden ? 0.35 : 1,

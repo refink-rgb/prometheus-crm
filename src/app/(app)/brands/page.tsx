@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, getCachedUser } from '@/lib/supabase/server'
 import { canEdit } from '@/lib/permissions'
 import type { Brand, Project } from '@/lib/types'
 import BrandsGrid from '@/components/BrandsGrid'
@@ -8,7 +8,7 @@ type BrandWithProjects = Brand & { projects: Project[] }
 
 export default async function BrandsPage() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getCachedUser()
   const isEditor = canEdit(user?.email)
 
   // Grid reads brand.name/website/profit_engineer/id, the Active/Trial/Inactive

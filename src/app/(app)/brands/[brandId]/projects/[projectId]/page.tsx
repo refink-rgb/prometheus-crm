@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, getCachedUser } from '@/lib/supabase/server'
 import StageTracker from '@/components/StageTracker'
 import { markProjectComplete, updateProjectDeliverable, deleteProject, lockProjectOffer, unlockProjectOffer } from '@/lib/actions'
 import CreativeAssetsManager from '@/components/CreativeAssetsManager'
@@ -28,30 +28,33 @@ export default async function ProjectPage({
 }) {
   const { brandId, projectId } = await params
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  const { data: project } = await supabase
-    .from('projects')
-    .select('*')
-    .eq('id', projectId)
-    .single()
+  const user = await getCachedUser()
 
-  if (!project) notFound()
-
-  // This page only renders the brand's name in the breadcrumb; no need to pull
-  // onboarding_transcript / brand_notes / client_token / etc.
-  const { data: brand } = await supabase
-    .from('brands')
-    .select('id, name')
-    .eq('id', brandId)
-    .single()
-
-  const [{ data: images }, { data: creativeAssetsRaw }, { data: imageCommentsRaw }, { data: notesRaw }, { data: brandJourneysRaw }] = await Promise.all([
+  // Everything below is keyed only by projectId/brandId from the URL, so it
+  // can all go out in ONE parallel batch. This used to be a 4-step sequential
+  // waterfall (project → brand → batch → journey), each step paying a full
+  // round-trip to the database.
+  const [
+    { data: project },
+    { data: brand },
+    { data: images },
+    { data: creativeAssetsRaw },
+    { data: imageCommentsRaw },
+    { data: notesRaw },
+    { data: brandJourneysRaw },
+  ] = await Promise.all([
+    supabase.from('projects').select('*').eq('id', projectId).single(),
+    // Breadcrumb only renders the brand's name; no need to pull
+    // onboarding_transcript / brand_notes / client_token / etc.
+    supabase.from('brands').select('id, name').eq('id', brandId).single(),
     supabase.from('project_images').select('id, storage_url').eq('project_id', projectId),
     supabase.from('creative_assets').select('*').eq('project_id', projectId).order('sort_order'),
     supabase.from('project_comments').select('*').eq('project_id', projectId).eq('track', 'image').order('created_at'),
     supabase.from('project_comments').select('*').eq('project_id', projectId).eq('track', 'note').order('created_at'),
     supabase.from('journeys').select('*').eq('brand_id', brandId).order('created_at', { ascending: true }),
   ])
+
+  if (!project) notFound()
 
   const p = project as Project
   const b = brand as Brand
@@ -63,16 +66,11 @@ export default async function ProjectPage({
   const isAuthorized = canEdit(user?.email)
   const userDisplayName = user?.email?.split('@')[0] ?? 'Team'
 
-  // Fetch journey if project has one
-  let journey: Journey | null = null
-  if (p.journey_id) {
-    const { data: jData } = await supabase
-      .from('journeys')
-      .select('*')
-      .eq('id', p.journey_id)
-      .single()
-    journey = jData as Journey | null
-  }
+  // The project's journey (if any) belongs to this brand, and we already
+  // fetched every journey for the brand above — no extra query needed.
+  const journey: Journey | null = p.journey_id
+    ? brandJourneys.find(j => j.id === p.journey_id) ?? null
+    : null
 
   const due = parseDueDate(p.due_date)
   const daysUntil = calcDaysUntil(p.due_date)

@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { createClient, getCachedUser } from '@/lib/supabase/server'
 import { canEdit } from '@/lib/permissions'
 import type { Project } from '@/lib/types'
 import { isProjectOverdue } from '@/lib/stageColors'
@@ -15,7 +15,7 @@ function fmtCurrency(n: number) {
 
 export default async function DashboardPage() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getCachedUser()
 
   // Dashboard only needs MRR + brand count from brands, and a narrow slice of
   // projects to render KPIs / pipeline table / overdue panel. Avoid `select('*')`

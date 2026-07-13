@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, getCachedUser } from '@/lib/supabase/server'
 import { canEdit } from '@/lib/permissions'
 import type { Project } from '@/lib/types'
 import KanbanView from '@/components/KanbanView'
@@ -8,17 +8,20 @@ type PipelineProject = Project & { brands: { id: string; name: string } }
 
 export default async function PipelinePage() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getCachedUser()
   if (!user) redirect('/login')
   const isEditor = canEdit(user.email)
 
+  // Kanban cards read exactly these fields. `select('*')` was dragging the
+  // JSONB copy banks + brief fields for every active project (~110 KB vs ~7 KB
+  // measured) on every board load.
   const { data: pipelineRaw } = await supabase
     .from('projects')
-    .select('*, brands(id, name)')
+    .select('id, name, brand_id, due_date, is_complete, lp_stage, creatives_stage, lp_approved, creatives_approved, assigned_designer, brands(id, name)')
     .eq('is_complete', false)
     .order('due_date', { ascending: true })
 
-  const pipeline = (pipelineRaw ?? []) as PipelineProject[]
+  const pipeline = (pipelineRaw ?? []) as unknown as PipelineProject[]
 
   return (
     <div style={{
