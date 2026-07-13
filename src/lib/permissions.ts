@@ -4,6 +4,9 @@ const ALLOWED_EDITORS = [
   'jan@commonthreadglobal.com',
   'joy@commonthreadglobal.com',
   'giovane@commonthreadglobal.com',
+  // Static editors
+  'jaspen@commonthreadglobal.com',
+  'janella@commonthreadglobal.com',
 ]
 
 export function canEdit(email: string | undefined | null): boolean {
