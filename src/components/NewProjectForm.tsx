@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import ImageUploader from '@/components/ImageUploader'
 import { createProject } from '@/lib/actions'
-import { PAGE_TYPE_OPTIONS } from '@/lib/types'
+import { PAGE_TYPE_OPTIONS, DESIGNERS } from '@/lib/types'
 import type { Journey } from '@/lib/types'
 
 interface UploadedImage {
@@ -270,6 +270,16 @@ export default function NewProjectForm({
                   </label>
                 ))}
               </div>
+            </Field>
+
+            {/* Assigned editor */}
+            <Field label="Assigned editor" optional>
+              <select name="assigned_designer" defaultValue="" style={{ width: '100%' }}>
+                <option value="">Unassigned</option>
+                {DESIGNERS.map(d => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
             </Field>
           </Section>
 

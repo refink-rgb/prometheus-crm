@@ -2,14 +2,13 @@
 
 import { useState, useTransition } from 'react'
 import { assignProjectDesigner } from '@/lib/actions'
+import { DESIGNERS } from '@/lib/types'
 
 interface Props {
   projectId: string
   brandId: string
   current: string | null
 }
-
-const DESIGNERS = ['Janella', 'Jaspen']
 
 export default function AssignedDesignerPicker({ projectId, brandId, current }: Props) {
   const [value, setValue] = useState(current ?? '')
