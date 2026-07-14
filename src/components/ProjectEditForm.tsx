@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, memo, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { updateProjectDetails } from '@/lib/actions'
+import Spinner from '@/components/Spinner'
 import { PAGE_TYPE_OPTIONS } from '@/lib/types'
 import type { Journey } from '@/lib/types'
 
@@ -57,11 +58,11 @@ interface Props {
 
 function Section({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return (
-    <div style={{ borderTop: '1px solid var(--border)', paddingTop: 20, marginTop: 20 }}>
-      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: subtitle ? 4 : 16 }}>
+    <div style={{ borderTop: '1px solid var(--border)', paddingTop: 'var(--space-5)', marginTop: 'var(--space-5)' }}>
+      <div style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: subtitle ? 'var(--space-1)' : 'var(--space-4)' }}>
         {title}
       </div>
-      {subtitle && <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16 }}>{subtitle}</p>}
+      {subtitle && <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', marginBottom: 'var(--space-4)' }}>{subtitle}</p>}
       {children}
     </div>
   )
@@ -69,10 +70,10 @@ function Section({ title, subtitle, children }: { title: string; subtitle?: stri
 
 function Field({ label, optional, children }: { label: string; optional?: boolean; children: React.ReactNode }) {
   return (
-    <div style={{ marginBottom: 14 }}>
-      <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+    <div style={{ marginBottom: 'var(--space-4)' }}>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-2)' }}>
         <span>{label}</span>
-        {optional && <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>optional</span>}
+        {optional && <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>optional</span>}
       </label>
       {children}
     </div>
@@ -305,8 +306,8 @@ export default function ProjectEditForm({ projectId, brandId, journeys, initial 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
         <h3 style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>Edit Project</h3>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={save} disabled={saving} className="btn-primary" style={{ fontSize: 13 }}>
-            {saving ? 'Saving…' : 'Save changes'}
+          <button onClick={save} disabled={saving} className="btn-primary" aria-live="polite" style={{ fontSize: 13 }}>
+            {saving ? <><Spinner size="sm" /> Saving…</> : 'Save changes'}
           </button>
           <button onClick={cancel} disabled={saving} className="btn-secondary" style={{ fontSize: 13 }}>
             Cancel
@@ -330,7 +331,7 @@ export default function ProjectEditForm({ projectId, brandId, journeys, initial 
       >
         {/* ── Basics ── */}
         <Section title="Basics">
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <div className="form-grid-2">
             <Field label="Project name">
               <input type="text" name="name" defaultValue={initial.name} />
             </Field>
@@ -363,7 +364,7 @@ export default function ProjectEditForm({ projectId, brandId, journeys, initial 
 
         {/* ── Stage timeline ── */}
         <Section title="Stage timeline" subtitle="Target dates per phase — informational, not enforced.">
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <div className="form-grid-2">
             <Field label="Brief due" optional>
               <input type="date" name="stage_brief_due_date" defaultValue={initial.stage_brief_due_date ?? ''} />
             </Field>
@@ -485,9 +486,9 @@ export default function ProjectEditForm({ projectId, brandId, journeys, initial 
         </Section>
       </form>
 
-      <div style={{ display: 'flex', gap: 8, marginTop: 20 }}>
-        <button onClick={save} disabled={saving} className="btn-primary" style={{ fontSize: 13 }}>
-          {saving ? 'Saving…' : 'Save changes'}
+      <div style={{ display: 'flex', gap: 'var(--space-2)', marginTop: 'var(--space-5)' }}>
+        <button onClick={save} disabled={saving} className="btn-primary" aria-live="polite" style={{ fontSize: 13 }}>
+          {saving ? <><Spinner size="sm" /> Saving…</> : 'Save changes'}
         </button>
         <button onClick={cancel} disabled={saving} className="btn-secondary" style={{ fontSize: 13 }}>
           Cancel

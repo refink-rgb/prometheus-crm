@@ -1,6 +1,6 @@
 'use client'
 
-import { memo, useState, useEffect, useDeferredValue, useMemo, useTransition } from 'react'
+import { memo, useCallback, useState, useEffect, useDeferredValue, useMemo, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   DndContext, DragOverlay,
@@ -11,21 +11,12 @@ import {
 } from '@dnd-kit/core'
 import { STAGE_ORDER, STAGE_LABELS, type Stage, type Project } from '@/lib/types'
 import { updateProjectStagesBoth } from '@/lib/actions'
-import { isProjectOverdue } from '@/lib/stageColors'
+import { isProjectOverdue, STAGE_COLORS } from '@/lib/stageColors'
 import KanbanCard from './KanbanCard'
 
 type PipelineProject = Project & { brands: { id: string; name: string } }
 type StatusFilter = 'all' | 'overdue' | 'in_review'
 type DesignerFilter = 'all' | 'Janella' | 'Jaspen' | 'unassigned'
-
-const STAGE_COLORS: Record<Stage, string> = {
-  brief:           'var(--text-muted)',
-  in_progress:     'var(--accent)',
-  internal_review: '#a855f7',
-  client_review:   'var(--warning)',
-  live:            '#14b8a6',
-  done:            'var(--success)',
-}
 
 function cardColumn(p: PipelineProject): Stage {
   const lpIdx = STAGE_ORDER.indexOf(p.lp_stage)
@@ -90,6 +81,27 @@ export default function KanbanView({ pipeline }: { pipeline: PipelineProject[] }
 
   const activeCard = activeId ? localProjects.find(p => p.id === activeId) ?? null : null
 
+  // Shared by mouse/touch drag-drop (handleDragEnd) and the keyboard-operable
+  // move buttons on each card (KanbanCard's prev/next stage fallback), so both
+  // input methods move a card the same way.
+  const moveCard = useCallback((card: PipelineProject, targetStage: Stage) => {
+    if (cardColumn(card) === targetStage) return
+    const snapshot = [...localProjects]
+    setLocalProjects(prev => prev.map(p =>
+      p.id === card.id
+        ? { ...p, lp_stage: targetStage, creatives_stage: targetStage }
+        : p
+    ))
+    startTransition(async () => {
+      try {
+        await updateProjectStagesBoth(card.id, card.brands.id, targetStage)
+        router.refresh()
+      } catch {
+        setLocalProjects(snapshot)
+      }
+    })
+  }, [localProjects, router, startTransition])
+
   function handleDragStart(event: DragStartEvent) {
     setActiveId(event.active.id as string)
   }
@@ -108,40 +120,24 @@ export default function KanbanView({ pipeline }: { pipeline: PipelineProject[] }
     if (!card) return
     const targetStage = over.id as Stage
     if (!STAGE_ORDER.includes(targetStage)) return
-    if (cardColumn(card) === targetStage) return
-
-    const snapshot = [...localProjects]
-    setLocalProjects(prev => prev.map(p =>
-      p.id === card.id
-        ? { ...p, lp_stage: targetStage, creatives_stage: targetStage }
-        : p
-    ))
-
-    startTransition(async () => {
-      try {
-        await updateProjectStagesBoth(card.id, card.brands.id, targetStage)
-        router.refresh()
-      } catch {
-        setLocalProjects(snapshot)
-      }
-    })
+    moveCard(card, targetStage)
   }
 
   const pillBase: React.CSSProperties = {
-    padding: '5px 12px', borderRadius: 20, fontSize: 12,
+    padding: 'var(--space-2) var(--space-3)', borderRadius: 20, fontSize: 'var(--text-sm)',
     cursor: 'pointer', transition: 'all 0.15s', border: '1px solid',
   }
 
   return (
     <section style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       {/* Filter bar */}
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', flexShrink: 0 }}>
+      <div style={{ display: 'flex', gap: 'var(--space-3)', alignItems: 'center', marginBottom: 'var(--space-4)', flexWrap: 'wrap', flexShrink: 0 }}>
         <input
           type="text"
           placeholder="Search by brand…"
           value={search}
           onChange={e => setSearch(e.target.value)}
-          style={{ width: 190, fontSize: 13 }}
+          style={{ width: 190, fontSize: 'var(--text-base)' }}
         />
 
         <div style={{ display: 'flex', gap: 4 }}>
@@ -152,6 +148,7 @@ export default function KanbanView({ pipeline }: { pipeline: PipelineProject[] }
               <button
                 key={opt}
                 onClick={() => setStatus(opt)}
+                className="focus-ring-pill"
                 style={{
                   ...pillBase,
                   fontWeight: active ? 600 : 400,
@@ -174,6 +171,7 @@ export default function KanbanView({ pipeline }: { pipeline: PipelineProject[] }
               <button
                 key={opt}
                 onClick={() => setDesigner(opt)}
+                className="focus-ring-pill"
                 style={{
                   ...pillBase,
                   fontWeight: active ? 600 : 400,
@@ -190,6 +188,7 @@ export default function KanbanView({ pipeline }: { pipeline: PipelineProject[] }
 
         <button
           onClick={() => setFilterWaiting(!filterWaiting)}
+          className="focus-ring-pill"
           style={{
             ...pillBase,
             display: 'inline-flex', alignItems: 'center', gap: 6,
@@ -214,8 +213,8 @@ export default function KanbanView({ pipeline }: { pipeline: PipelineProject[] }
         </button>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16, flexShrink: 0 }}>
-        <h2 style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 'var(--space-4)', flexShrink: 0 }}>
+        <h2 style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
           Active Pipeline — {displayed.length}{displayed.length !== localProjects.length ? ` of ${localProjects.length}` : ''} project{displayed.length !== 1 ? 's' : ''}
         </h2>
       </div>
@@ -228,7 +227,7 @@ export default function KanbanView({ pipeline }: { pipeline: PipelineProject[] }
           onDragEnd={handleDragEnd}
         >
           {/* Board */}
-          <div style={{
+          <div className="kanban-board" style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(6, minmax(260px, 1fr))',
             gridTemplateRows: 'minmax(0, 1fr)',
@@ -245,6 +244,7 @@ export default function KanbanView({ pipeline }: { pipeline: PipelineProject[] }
                 isOver={overId === stage}
                 isDragging={activeId !== null}
                 draggedCardId={activeId}
+                onMove={moveCard}
               />
             ))}
           </div>
@@ -273,12 +273,14 @@ function KanbanColumnInner({
   isOver,
   isDragging,
   draggedCardId,
+  onMove,
 }: {
   stage: Stage
   cards: PipelineProject[]
   isOver: boolean
   isDragging: boolean
   draggedCardId: string | null
+  onMove: (card: PipelineProject, targetStage: Stage) => void
 }) {
   const color = STAGE_COLORS[stage]
   const { setNodeRef } = useDroppable({ id: stage })
@@ -291,7 +293,7 @@ function KanbanColumnInner({
         padding: '9px 14px', marginBottom: 10,
         background: 'var(--surface)',
         border: '1px solid var(--border)',
-        borderTop: `2px solid ${color}`,
+        borderTop: `2px solid ${color.border}`,
         borderRadius: 8,
         flexShrink: 0,
         position: 'sticky',
@@ -299,14 +301,14 @@ function KanbanColumnInner({
         zIndex: 2,
       }}>
         <span style={{
-          fontSize: 11, fontWeight: 700, color,
+          fontSize: 'var(--text-xs)', fontWeight: 700, color: color.text,
           textTransform: 'uppercase', letterSpacing: '0.08em',
         }}>
           {STAGE_LABELS[stage]}
         </span>
         <span style={{
-          fontSize: 11, fontWeight: 700, color,
-          background: `color-mix(in srgb, ${color} 15%, transparent)`,
+          fontSize: 'var(--text-xs)', fontWeight: 700, color: color.text,
+          background: color.bg,
           borderRadius: 12, padding: '1px 8px',
         }}>
           {cards.length}
@@ -353,7 +355,7 @@ function KanbanColumnInner({
             .filter(p => p.id !== draggedCardId)
             .map(p => (
               <div key={p.id} style={{ flexShrink: 0 }}>
-                <KanbanCard p={p} />
+                <KanbanCard p={p} columnStage={stage} onMove={onMove} />
               </div>
             ))
         )}

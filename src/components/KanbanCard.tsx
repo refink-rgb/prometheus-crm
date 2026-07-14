@@ -4,33 +4,38 @@ import { memo } from 'react'
 import Link from 'next/link'
 import { useDraggable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
-import { STAGE_LABELS, type Stage, type Project } from '@/lib/types'
-import { isProjectOverdue, parseAndDaysUntil } from '@/lib/stageColors'
+import { STAGE_ORDER, STAGE_LABELS, type Stage, type Project } from '@/lib/types'
+import { isProjectOverdue, parseAndDaysUntil, STAGE_COLORS } from '@/lib/stageColors'
 
 type PipelineProject = Project & { brands: { id: string; name: string } }
 
-const STAGE_COLORS: Record<Stage, string> = {
-  brief:           'var(--text-muted)',
-  in_progress:     'var(--accent)',
-  internal_review: '#a855f7',
-  client_review:   'var(--warning)',
-  live:            '#14b8a6',
-  done:            'var(--success)',
+const moveBtnStyle: React.CSSProperties = {
+  background: 'transparent',
+  border: '1px solid var(--border)',
+  color: 'var(--text-muted)',
+  borderRadius: 6,
+  width: 22,
+  height: 18,
+  lineHeight: 1,
+  fontSize: 'var(--text-sm)',
+  cursor: 'pointer',
 }
 
 interface KanbanCardProps {
   p: PipelineProject
   isGhost?: boolean
+  columnStage?: Stage
+  onMove?: (card: PipelineProject, targetStage: Stage) => void
 }
 
-function KanbanCardInner({ p, isGhost = false }: KanbanCardProps) {
+function KanbanCardInner({ p, isGhost = false, columnStage, onMove }: KanbanCardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: p.id,
     disabled: isGhost,
   })
 
-  const lpIdx = ['brief', 'in_progress', 'internal_review', 'client_review', 'live', 'done'].indexOf(p.lp_stage)
-  const crIdx = ['brief', 'in_progress', 'internal_review', 'client_review', 'live', 'done'].indexOf(p.creatives_stage)
+  const lpIdx = STAGE_ORDER.indexOf(p.lp_stage)
+  const crIdx = STAGE_ORDER.indexOf(p.creatives_stage)
   const cardIdx = Math.min(lpIdx, crIdx)
   const aligned = p.lp_stage === p.creatives_stage
 
@@ -40,8 +45,14 @@ function KanbanCardInner({ p, isGhost = false }: KanbanCardProps) {
 
   const progress = Math.round(((lpIdx + crIdx) / (5 * 2)) * 100)
 
-  const stageKey = ['brief', 'in_progress', 'internal_review', 'client_review', 'live', 'done'][cardIdx] as Stage
-  const leftBorderColor = isOverdue ? 'var(--danger)' : STAGE_COLORS[stageKey]
+  const stageKey = STAGE_ORDER[cardIdx]
+  const leftBorderColor = isOverdue ? 'var(--danger)' : STAGE_COLORS[stageKey].border
+
+  // Keyboard-operable equivalent to the mouse/touch drag: moves the card to
+  // the adjacent column, mirroring StageTracker's Advance/Back pattern.
+  const columnIdx = columnStage ? STAGE_ORDER.indexOf(columnStage) : -1
+  const prevStage = columnIdx > 0 ? STAGE_ORDER[columnIdx - 1] : null
+  const nextStage = columnIdx >= 0 && columnIdx < STAGE_ORDER.length - 1 ? STAGE_ORDER[columnIdx + 1] : null
 
   const laggingMsg = !aligned
     ? lpIdx < crIdx
@@ -135,6 +146,37 @@ function KanbanCardInner({ p, isGhost = false }: KanbanCardProps) {
         </div>
       </Link>
 
+      {/* Keyboard-operable move controls — equivalent to mouse/touch drag.
+          Sits outside the Link (not nested inside an anchor) and stops
+          pointerdown propagation so it never engages the drag sensor. */}
+      {onMove && (prevStage || nextStage) && !isGhost && (
+        <div
+          onPointerDown={e => e.stopPropagation()}
+          style={{ display: 'flex', justifyContent: 'space-between', padding: '0 8px 8px' }}
+        >
+          <button
+            type="button"
+            className="focus-ring-pill"
+            aria-label={prevStage ? `Move to ${STAGE_LABELS[prevStage]}` : 'Already in the first stage'}
+            disabled={!prevStage}
+            onClick={() => prevStage && onMove(p, prevStage)}
+            style={moveBtnStyle}
+          >
+            ‹
+          </button>
+          <button
+            type="button"
+            className="focus-ring-pill"
+            aria-label={nextStage ? `Move to ${STAGE_LABELS[nextStage]}` : 'Already in the last stage'}
+            disabled={!nextStage}
+            onClick={() => nextStage && onMove(p, nextStage)}
+            style={moveBtnStyle}
+          >
+            ›
+          </button>
+        </div>
+      )}
+
       {/* Progress bar — full width at bottom */}
       <div style={{ height: 3, background: 'var(--border)' }}>
         <div style={{
@@ -162,9 +204,9 @@ function TrackBadge({ label, stage, approved }: { label: string; stage: Stage; a
   const icon = inReview ? (approved ? ' ✓' : ' ⏳') : ''
   return (
     <span style={{
-      fontSize: 10, fontWeight: 600, color,
-      background: `color-mix(in srgb, ${color} 12%, transparent)`,
-      border: `1px solid color-mix(in srgb, ${color} 25%, transparent)`,
+      fontSize: 'var(--text-2xs)', fontWeight: 600, color: color.text,
+      background: color.bg,
+      border: `1px solid color-mix(in srgb, ${color.border} 25%, transparent)`,
       borderRadius: 5, padding: '2px 6px',
       whiteSpace: 'nowrap',
     }}>

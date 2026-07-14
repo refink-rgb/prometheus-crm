@@ -51,12 +51,12 @@ export default async function DashboardPage() {
   const projectsWithBrand = pipeline.map(p => ({ ...p, brand_name: p.brands.name }))
 
   return (
-    <div style={{ padding: '28px 32px 40px' }}>
-      <div style={{ marginBottom: 20 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.02em', marginBottom: 4 }}>
+    <div style={{ padding: 'var(--space-6) 32px 40px' }}>
+      <div style={{ marginBottom: 'var(--space-5)' }}>
+        <h1 style={{ fontSize: 'var(--text-xl)', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.02em', marginBottom: 'var(--space-1)' }}>
           Dashboard
         </h1>
-        <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+        <p style={{ fontSize: 'var(--text-base)', color: 'var(--text-muted)' }}>
           {allBrands.length} brand{allBrands.length !== 1 ? 's' : ''} · {activeProjectsCount} active project{activeProjectsCount !== 1 ? 's' : ''}
         </p>
       </div>
@@ -65,8 +65,8 @@ export default async function DashboardPage() {
       <div className="kpi-strip" style={{
         display: 'grid',
         gridTemplateColumns: `repeat(${isAuthorized ? 4 : 3}, 1fr)`,
-        gap: 12,
-        marginBottom: 24,
+        gap: 'var(--space-3)',
+        marginBottom: 'var(--space-6)',
       }}>
         {isAuthorized && (
           <KPICard label="MRR" value={fmtCurrency(mrr)} tone="accent" />
@@ -85,7 +85,7 @@ export default async function DashboardPage() {
       </div>
 
       {/* Stage distribution chart */}
-      <div style={{ marginBottom: 24 }}>
+      <div style={{ marginBottom: 'var(--space-6)' }}>
         <StageDistributionChart projects={pipeline} />
       </div>
 
@@ -93,7 +93,7 @@ export default async function DashboardPage() {
       <div className="dashboard-grid" style={{
         display: 'grid',
         gridTemplateColumns: 'minmax(0, 65fr) minmax(0, 35fr)',
-        gap: 20,
+        gap: 'var(--space-5)',
       }}>
         <div>
           <PipelineTable pipeline={pipeline} />
@@ -127,19 +127,19 @@ function KPICard({
       background: s.bg,
       border: `1px solid ${s.border}`,
       borderRadius: 10,
-      padding: '14px 18px',
+      padding: 'var(--space-3) var(--space-4)',
     }}>
       <div style={{
-        fontSize: 12, fontWeight: 600,
+        fontSize: 'var(--text-sm)', fontWeight: 600,
         color: 'var(--text-muted)',
         textTransform: 'uppercase',
         letterSpacing: '0.07em',
-        marginBottom: 6,
+        marginBottom: 'var(--space-1)',
       }}>
         {label}
       </div>
       <div style={{
-        fontSize: 24, fontWeight: 700,
+        fontSize: 'var(--text-2xl)', fontWeight: 700,
         color: s.color,
         letterSpacing: '-0.02em',
         lineHeight: 1.1,

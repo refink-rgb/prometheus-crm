@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import ImageUploader from '@/components/ImageUploader'
+import Spinner from '@/components/Spinner'
 import { createProject } from '@/lib/actions'
 import { PAGE_TYPE_OPTIONS, DESIGNERS } from '@/lib/types'
 import type { Journey } from '@/lib/types'
@@ -29,14 +30,14 @@ function Section({ title, subtitle, children }: { title: string; subtitle?: stri
       background: 'var(--surface)',
       border: '1px solid var(--border)',
       borderRadius: 12,
-      padding: '24px',
-      marginBottom: 16,
+      padding: 'var(--space-6)',
+      marginBottom: 'var(--space-4)',
     }}>
-      <h2 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: subtitle ? 4 : 20 }}>
+      <h2 style={{ fontSize: 'var(--text-base)', fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: subtitle ? 'var(--space-1)' : 'var(--space-5)' }}>
         {title}
       </h2>
       {subtitle && (
-        <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 20 }}>{subtitle}</p>
+        <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', marginBottom: 'var(--space-5)' }}>{subtitle}</p>
       )}
       {children}
     </div>
@@ -45,10 +46,10 @@ function Section({ title, subtitle, children }: { title: string; subtitle?: stri
 
 function Field({ label, optional, children }: { label: string; optional?: boolean; children: React.ReactNode }) {
   return (
-    <div style={{ marginBottom: 18 }}>
-      <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+    <div style={{ marginBottom: 'var(--space-4)' }}>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-2)' }}>
         <span>{label}</span>
-        {optional && <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>optional</span>}
+        {optional && <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>optional</span>}
       </label>
       {children}
     </div>
@@ -166,9 +167,10 @@ export default function NewProjectForm({
           form="project-form"
           className="btn-primary"
           disabled={submitting}
+          aria-live="polite"
           style={{ padding: '8px 20px' }}
         >
-          {submitting ? 'Submitting…' : '🚀 Submit project'}
+          {submitting ? <><Spinner size="sm" /> Submitting…</> : '🚀 Submit project'}
         </button>
       </div>
 
@@ -186,7 +188,7 @@ export default function NewProjectForm({
 
           {/* Basics */}
           <Section title="Basics">
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 4 }}>
+            <div className="form-grid-2" style={{ marginBottom: 'var(--space-1)' }}>
               <Field label="Marketing moment name *">
                 <input name="name" type="text" placeholder="e.g. Memorial Day Sale 2025" required autoFocus />
               </Field>
@@ -285,7 +287,7 @@ export default function NewProjectForm({
 
           {/* Stage timeline */}
           <Section title="Stage timeline" subtitle="Target dates per phase — informational, not enforced. All optional.">
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <div className="form-grid-2">
               <Field label="Brief due" optional>
                 <input name="stage_brief_due_date" type="date" />
               </Field>

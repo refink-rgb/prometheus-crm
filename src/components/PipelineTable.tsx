@@ -3,21 +3,10 @@
 import { useState, useDeferredValue, useMemo } from 'react'
 import Link from 'next/link'
 import type { Project, Stage } from '@/lib/types'
-import { STAGE_LABELS } from '@/lib/types'
-import { isProjectOverdue, parseAndDaysUntil } from '@/lib/stageColors'
+import { STAGE_ORDER, STAGE_LABELS } from '@/lib/types'
+import { isProjectOverdue, parseAndDaysUntil, STAGE_COLORS } from '@/lib/stageColors'
 
 type PipelineProject = Project & { brands: { id: string; name: string } }
-
-const STAGES: Stage[] = ['brief', 'in_progress', 'internal_review', 'client_review', 'live', 'done']
-
-const STAGE_COLORS: Record<Stage, string> = {
-  brief:           'var(--text-muted)',
-  in_progress:     'var(--accent)',
-  internal_review: '#a855f7',
-  client_review:   'var(--warning)',
-  live:            '#14b8a6',
-  done:            'var(--success)',
-}
 
 function isWaitingOnClient(p: PipelineProject): boolean {
   return (
@@ -51,20 +40,20 @@ export default function PipelineTable({ pipeline }: { pipeline: PipelineProject[
   }, [pipeline, deferredSearch, status, filterWaiting])
 
   const pillBase = {
-    padding: '5px 12px', borderRadius: 20, fontSize: 12,
+    padding: 'var(--space-2) var(--space-3)', borderRadius: 20, fontSize: 'var(--text-sm)',
     cursor: 'pointer', transition: 'all 0.15s', border: '1px solid',
   }
 
   return (
     <section>
       {/* Filter bar */}
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 'var(--space-3)', alignItems: 'center', marginBottom: 'var(--space-4)', flexWrap: 'wrap' }}>
         <input
           type="text"
           placeholder="Search by brand…"
           value={search}
           onChange={e => setSearch(e.target.value)}
-          style={{ width: 190, fontSize: 13 }}
+          style={{ width: 190, fontSize: 'var(--text-base)' }}
         />
 
         <div style={{ display: 'flex', gap: 4 }}>
@@ -75,6 +64,7 @@ export default function PipelineTable({ pipeline }: { pipeline: PipelineProject[
               <button
                 key={opt}
                 onClick={() => setStatus(opt)}
+                className="focus-ring-pill"
                 style={{
                   ...pillBase,
                   fontWeight: active ? 600 : 400,
@@ -91,6 +81,7 @@ export default function PipelineTable({ pipeline }: { pipeline: PipelineProject[
 
         <button
           onClick={() => setFilterWaiting(!filterWaiting)}
+          className="focus-ring-pill"
           style={{
             ...pillBase,
             display: 'inline-flex', alignItems: 'center', gap: 6,
@@ -115,8 +106,8 @@ export default function PipelineTable({ pipeline }: { pipeline: PipelineProject[
         </button>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
-        <h2 style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
+        <h2 style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
           Active Pipeline — {displayed.length}{displayed.length !== pipeline.length ? ` of ${pipeline.length}` : ''} project{displayed.length !== 1 ? 's' : ''}
         </h2>
       </div>
@@ -183,12 +174,12 @@ function DueBadge({ dueDate, isOverdue }: { dueDate: string | null; isOverdue: b
 }
 
 function TrackProgress({ stage, approved }: { stage: Stage; approved: boolean }) {
-  const idx = STAGES.indexOf(stage)
+  const idx = STAGE_ORDER.indexOf(stage)
   const waitingReview = stage === 'client_review' && !approved
   return (
     <div style={{ minWidth: 90 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 5 }}>
-        <span style={{ fontSize: 10, fontWeight: 600, color: STAGE_COLORS[stage], letterSpacing: '0.04em' }}>
+        <span style={{ fontSize: 'var(--text-2xs)', fontWeight: 600, color: STAGE_COLORS[stage].text, letterSpacing: '0.04em' }}>
           {STAGE_LABELS[stage]}
         </span>
         {waitingReview && (
@@ -203,8 +194,8 @@ function TrackProgress({ stage, approved }: { stage: Stage; approved: boolean })
         )}
       </div>
       <div style={{ display: 'flex', gap: 3 }}>
-        {STAGES.map((s, i) => {
-          const bg = i < idx ? 'var(--success)' : i === idx ? STAGE_COLORS[stage] : 'var(--border)'
+        {STAGE_ORDER.map((s, i) => {
+          const bg = i < idx ? 'var(--success)' : i === idx ? STAGE_COLORS[stage].text : 'var(--border)'
           return <div key={s} style={{ width: 14, height: 5, borderRadius: 3, background: bg, transition: 'background 0.2s' }} />
         })}
       </div>
