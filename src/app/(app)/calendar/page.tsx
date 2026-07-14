@@ -65,12 +65,12 @@ export default async function CalendarPage({
   const projects = ((raw ?? []) as unknown) as CalendarProject[]
 
   return (
-    <div style={{ padding: '28px 32px 40px' }}>
-      <div style={{ marginBottom: 20 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.02em', marginBottom: 4 }}>
+    <div style={{ padding: 'var(--space-6) 32px 40px' }}>
+      <div style={{ marginBottom: 'var(--space-5)' }}>
+        <h1 style={{ fontSize: 'var(--text-xl)', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.02em', marginBottom: 'var(--space-1)' }}>
           Calendar
         </h1>
-        <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+        <p style={{ fontSize: 'var(--text-base)', color: 'var(--text-muted)' }}>
           Per-stage target dates across the month.
         </p>
       </div>

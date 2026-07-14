@@ -1,5 +1,7 @@
 'use client'
 
+import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import Link from 'next/link'
 import type { Stage } from '@/lib/types'
 import { STAGE_LABELS } from '@/lib/types'
@@ -33,6 +35,9 @@ const MONTH_NAMES = [
 ]
 
 const DAY_HEADERS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+// Max markers shown inline in a day cell before collapsing into "+N more".
+const VISIBLE_MARKERS = 3
 
 // Which project column maps to which stage marker. Existing `due_date` = LIVE.
 type DateField =
@@ -68,6 +73,13 @@ function monthParam(year: number, month0: number): string {
   return `${year}-${String(month0 + 1).padStart(2, '0')}`
 }
 
+// Parses a `YYYY-MM-DD` key as a local-midnight Date (avoids the UTC-parse
+// off-by-one-day bug that plain `new Date(iso)` has west of UTC).
+function parseISODateLocal(iso: string): Date {
+  const [y, m, d] = iso.split('-').map(Number)
+  return new Date(y, m - 1, d)
+}
+
 export default function CalendarView({
   year,
   month,
@@ -77,6 +89,8 @@ export default function CalendarView({
   month: number // 0-indexed
   projects: CalendarProject[]
 }) {
+  const [selectedDate, setSelectedDate] = useState<string | null>(null)
+
   // Bucket markers by ISO date string.
   const markersByDate = new Map<string, Marker[]>()
   for (const p of projects) {
@@ -117,78 +131,230 @@ export default function CalendarView({
   return (
     <div>
       {/* Header controls */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-4)', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
           <Link
             href={`/calendar?month=${monthParam(prev.y, prev.m)}`}
-            style={navBtnStyle}
+            className="btn-secondary btn-icon focus-ring-pill"
             aria-label="Previous month"
           >‹</Link>
           <Link
             href={`/calendar?month=${monthParam(next.y, next.m)}`}
-            style={navBtnStyle}
+            className="btn-secondary btn-icon focus-ring-pill"
             aria-label="Next month"
           >›</Link>
-          <Link href="/calendar" style={{ ...navBtnStyle, padding: '6px 12px', fontSize: 12 }}>Today</Link>
-          <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginLeft: 8 }}>
+          <Link href="/calendar" className="btn-secondary btn-sm focus-ring-pill">Today</Link>
+          <div style={{ fontSize: 'var(--text-lg)', fontWeight: 700, color: 'var(--text-primary)', marginLeft: 'var(--space-2)' }}>
             {MONTH_NAMES[month]} {year}
           </div>
         </div>
         <StageLegend />
       </div>
 
-      {/* Weekday header */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1, marginBottom: 4 }}>
-        {DAY_HEADERS.map(d => (
-          <div key={d} style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', padding: '4px 8px' }}>
-            {d}
+      {/* Grid — its own horizontal scroll container so a narrow viewport
+          scrolls the calendar instead of the whole page overflowing. */}
+      <div style={{ overflowX: 'auto' }}>
+        <div style={{ minWidth: 700 }}>
+          {/* Weekday header */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 1, marginBottom: 'var(--space-1)' }}>
+            {DAY_HEADERS.map(d => (
+              <div key={d} style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', padding: '4px 8px' }}>
+                {d}
+              </div>
+            ))}
           </div>
-        ))}
+
+          {/* Grid */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 1, background: 'var(--border)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+            {cells.map(cell => {
+              const iso = toISODate(cell)
+              const inMonth = cell.getMonth() === month
+              const isToday = iso === today
+              const markers = markersByDate.get(iso) ?? []
+              const hiddenCount = Math.max(0, markers.length - VISIBLE_MARKERS)
+              return (
+                <div key={iso} style={{
+                  minWidth: 0,
+                  minHeight: 108,
+                  background: inMonth ? 'var(--surface)' : 'var(--surface-raised)',
+                  padding: 'var(--space-2)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 'var(--space-1)',
+                  opacity: inMonth ? 1 : 0.55,
+                }}>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedDate(iso)}
+                    className="focus-ring-pill"
+                    aria-label={`View all deliverables for ${cell.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`}
+                    style={{
+                      alignSelf: 'flex-start',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      background: isToday ? 'var(--accent)' : 'transparent',
+                      border: 'none',
+                      borderRadius: 5,
+                      padding: isToday ? '1px 7px' : '1px 4px',
+                      cursor: 'pointer',
+                      fontSize: 'var(--text-sm)',
+                      fontWeight: isToday ? 700 : 500,
+                      color: isToday ? '#fff' : inMonth ? 'var(--text-primary)' : 'var(--text-muted)',
+                    }}
+                  >
+                    {cell.getDate()}
+                  </button>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
+                    {markers.slice(0, VISIBLE_MARKERS).map((m, i) => (
+                      <MarkerPill key={i} marker={m} />
+                    ))}
+                    {hiddenCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedDate(iso)}
+                        className="focus-ring-pill"
+                        style={{
+                          fontSize: 'var(--text-2xs)',
+                          fontWeight: 600,
+                          color: 'var(--text-muted)',
+                          background: 'transparent',
+                          border: 'none',
+                          padding: '2px 4px',
+                          textAlign: 'left',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        +{hiddenCount} more
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
       </div>
 
-      {/* Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1, background: 'var(--border)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
-        {cells.map(cell => {
-          const iso = toISODate(cell)
-          const inMonth = cell.getMonth() === month
-          const isToday = iso === today
-          const markers = markersByDate.get(iso) ?? []
-          return (
-            <div key={iso} style={{
-              minHeight: 96,
-              background: inMonth ? 'var(--surface)' : 'var(--surface-raised)',
-              padding: '6px 8px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 4,
-              opacity: inMonth ? 1 : 0.55,
-            }}>
-              <div style={{
-                fontSize: 12,
-                fontWeight: isToday ? 700 : 500,
-                color: isToday ? 'var(--accent)' : inMonth ? 'var(--text-primary)' : 'var(--text-muted)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4,
-              }}>
-                {isToday && <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--accent)' }} />}
-                {cell.getDate()}
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                {markers.slice(0, 4).map((m, i) => (
-                  <MarkerPill key={i} marker={m} />
-                ))}
-                {markers.length > 4 && (
-                  <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
-                    +{markers.length - 4} more
-                  </span>
-                )}
-              </div>
-            </div>
-          )
-        })}
-      </div>
+      {selectedDate && (
+        <DayDetailModal
+          iso={selectedDate}
+          markers={markersByDate.get(selectedDate) ?? []}
+          onClose={() => setSelectedDate(null)}
+        />
+      )}
     </div>
+  )
+}
+
+function DayDetailModal({
+  iso,
+  markers,
+  onClose,
+}: {
+  iso: string
+  markers: Marker[]
+  onClose: () => void
+}) {
+  const closeButtonRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    closeButtonRef.current?.focus()
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [onClose])
+
+  if (typeof document === 'undefined') return null
+
+  const dateLabel = parseISODateLocal(iso).toLocaleDateString('en-US', {
+    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+  })
+
+  return createPortal(
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.5)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 1000,
+        padding: 'var(--space-4)',
+      }}
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="day-detail-title"
+        className="card"
+        style={{ width: '100%', maxWidth: 420, maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}
+        onClick={e => e.stopPropagation()}
+      >
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 'var(--space-3)', marginBottom: 'var(--space-4)' }}>
+          <h2 id="day-detail-title" style={{ fontSize: 'var(--text-md)', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
+            {dateLabel}
+          </h2>
+          <button
+            ref={closeButtonRef}
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="focus-ring-pill"
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--text-muted)',
+              fontSize: 'var(--text-lg)',
+              lineHeight: 1,
+              cursor: 'pointer',
+              padding: 4,
+            }}
+          >
+            ×
+          </button>
+        </div>
+
+        {markers.length === 0 ? (
+          <p style={{ fontSize: 'var(--text-base)', color: 'var(--text-muted)' }}>No deliverables due this day.</p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', overflowY: 'auto' }}>
+            {markers.map((m, i) => {
+              const colors = STAGE_COLORS[m.stage]
+              return (
+                <Link
+                  key={i}
+                  href={`/brands/${m.brandId}/projects/${m.projectId}`}
+                  className="focus-ring-pill calendar-event-link"
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 2,
+                    borderLeft: `3px solid ${colors.border}`,
+                    background: colors.bg,
+                    borderRadius: 6,
+                    padding: 'var(--space-2) var(--space-3)',
+                    textDecoration: 'none',
+                  }}
+                >
+                  <span style={{ fontSize: 'var(--text-base)', fontWeight: 600, color: 'var(--text-primary)' }}>
+                    {m.projectName}
+                  </span>
+                  <span style={{ fontSize: 'var(--text-xs)', color: colors.text, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    {m.brandName} · {STAGE_LABELS[m.stage]}
+                  </span>
+                </Link>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </div>,
+    document.body
   )
 }
 
@@ -198,8 +364,9 @@ function MarkerPill({ marker }: { marker: Marker }) {
     <Link
       href={`/brands/${marker.brandId}/projects/${marker.projectId}`}
       title={`${marker.brandName} — ${marker.projectName} · ${STAGE_LABELS[marker.stage]}`}
+      className="focus-ring-pill calendar-event-link"
       style={{
-        fontSize: 11,
+        fontSize: 'var(--text-xs)',
         color: colors.text,
         background: colors.bg,
         borderLeft: `3px solid ${colors.border}`,
@@ -211,6 +378,7 @@ function MarkerPill({ marker }: { marker: Marker }) {
         textOverflow: 'ellipsis',
         whiteSpace: 'nowrap',
         lineHeight: 1.3,
+        minWidth: 0,
       }}
     >
       {marker.projectName}
@@ -221,7 +389,7 @@ function MarkerPill({ marker }: { marker: Marker }) {
 function StageLegend() {
   const stages: Stage[] = ['brief', 'in_progress', 'internal_review', 'client_review', 'live']
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, fontSize: 11 }}>
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-3)', fontSize: 'var(--text-xs)' }}>
       {stages.map(s => (
         <div key={s} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
           <span style={{
@@ -233,20 +401,4 @@ function StageLegend() {
       ))}
     </div>
   )
-}
-
-const navBtnStyle: React.CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  minWidth: 30,
-  height: 30,
-  padding: '6px 10px',
-  background: 'var(--surface)',
-  border: '1px solid var(--border)',
-  borderRadius: 6,
-  color: 'var(--text-primary)',
-  fontSize: 14,
-  textDecoration: 'none',
-  cursor: 'pointer',
 }

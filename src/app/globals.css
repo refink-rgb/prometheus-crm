@@ -348,6 +348,15 @@ label {
   background: var(--surface-2);
 }
 
+/* Calendar event links (day-cell pills + day-detail modal rows) — brightness
+ * bump works regardless of the per-stage tint each one is colored with. */
+.calendar-event-link {
+  transition: filter 0.12s;
+}
+.calendar-event-link:hover {
+  filter: brightness(1.15);
+}
+
 /* Two-column form field row that collapses to one column on small screens. */
 .form-grid-2 {
   display: grid;
