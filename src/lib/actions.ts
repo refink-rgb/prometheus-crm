@@ -412,6 +412,35 @@ export async function deleteProjectComment(commentId: string, token: string) {
   revalidatePath(`/brands/${project.brand_id}/projects/${project.id}/internal-review`)
 }
 
+// Delete a note from the internal project view — same underlying row as
+// deleteProjectComment, but scoped by projectId instead of a share token so
+// it works even when no client review link has been generated yet. Deleting
+// here removes the note from the client portal too (same DB row).
+export async function deleteInternalNote(commentId: string, projectId: string, brandId: string) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authorized.')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
+
+  const { data: comment } = await supabase
+    .from('project_comments')
+    .select('project_id')
+    .eq('id', commentId)
+    .single()
+  if (!comment || comment.project_id !== projectId) {
+    throw new Error('Note does not belong to this project.')
+  }
+
+  const { error } = await supabase
+    .from('project_comments')
+    .delete()
+    .eq('id', commentId)
+  if (error) throw new Error(error.message)
+
+  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+  revalidatePath('/review', 'layout')
+}
+
 export async function syncDriveImages(projectId: string, brandId: string, folderUrl: string): Promise<number> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()

@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { addInternalNote, addProjectComment, deleteProjectComment } from '@/lib/actions'
+import { addInternalNote, addProjectComment, deleteProjectComment, deleteInternalNote } from '@/lib/actions'
 import { createClient } from '@/lib/supabase/client'
 import type { ProjectComment } from '@/lib/types'
 
@@ -44,10 +44,15 @@ export default function NotesThread({
   }, [notes.length])
 
   async function handleDelete(id: string) {
-    if (!token) return
     if (!confirm('Delete this note? This cannot be undone.')) return
     try {
-      await deleteProjectComment(id, token)
+      if (mode === 'client' && token) {
+        await deleteProjectComment(id, token)
+      } else if (mode === 'internal' && projectId && brandId) {
+        await deleteInternalNote(id, projectId, brandId)
+      } else {
+        return
+      }
       router.refresh()
     } catch {
       /* swallow — next refresh restores state */
@@ -159,7 +164,7 @@ export default function NotesThread({
                       )}
                     </div>
                   )}
-                  {canDelete && mode === 'client' && token && (
+                  {canDelete && ((mode === 'client' && token) || (mode === 'internal' && projectId && brandId)) && (
                     <button
                       type="button"
                       onClick={() => handleDelete(note.id)}

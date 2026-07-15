@@ -630,6 +630,7 @@ export default async function ProjectPage({
                 projectId={projectId}
                 brandId={brandId}
                 currentUserName={userDisplayName}
+                canDelete={isAuthorized}
               />
             </div>
 
