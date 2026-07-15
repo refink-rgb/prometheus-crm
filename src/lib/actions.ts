@@ -1261,6 +1261,7 @@ export async function addInternalNote(
     pin_y: null,
     section_tag: null,
     attachment_urls: cleanedAttachments.length > 0 ? cleanedAttachments : null,
+    audience: 'internal',
   })
   if (error) throw new Error(`Failed to add note: ${error.message}`)
 
