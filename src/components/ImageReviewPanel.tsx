@@ -3,6 +3,8 @@
 import { useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { addProjectComment, approveProject, deleteProjectComment, updateAssetStatus } from '@/lib/actions'
+import { useConfirm } from '@/components/ConfirmDialog'
+import { useToast } from '@/components/Toast'
 import type { CreativeAsset, ProjectComment } from '@/lib/types'
 
 // ─── Single asset row ────────────────────────────────────────────────────────
@@ -31,6 +33,8 @@ function AssetRow({
   const [posting, setPosting] = useState(false)
   const [status, setStatus] = useState<CreativeAsset['status']>(asset.status ?? 'pending')
   const [updatingStatus, setUpdatingStatus] = useState(false)
+  const confirm = useConfirm()
+  const toast = useToast()
 
   const pinnedComments = comments.filter(c => c.pin_x != null)
   const pinIndex = (c: ProjectComment) => pinnedComments.findIndex(p => p.id === c.id) + 1
@@ -74,6 +78,7 @@ function AssetRow({
       setPendingPin(null)
     } catch {
       setComments(prev => prev.filter(c => c.id !== optimistic.id))
+      toast.error("Couldn't post your comment. Please try again.")
     } finally {
       setPosting(false)
     }
@@ -81,7 +86,13 @@ function AssetRow({
 
   async function handleDelete(id: string) {
     if (id.startsWith('temp-')) return
-    if (!confirm('Delete this comment? This cannot be undone.')) return
+    const ok = await confirm({
+      title: 'Delete comment',
+      message: 'Delete this comment? This cannot be undone.',
+      confirmLabel: 'Delete',
+      danger: true,
+    })
+    if (!ok) return
     const prev = comments
     setComments(cs => cs.filter(c => c.id !== id))
     if (activePin === id) setActivePin(null)
@@ -89,6 +100,7 @@ function AssetRow({
       await deleteProjectComment(id, token)
     } catch {
       setComments(prev)
+      toast.error("Couldn't delete the comment. Please try again.")
     }
   }
 
@@ -405,17 +417,27 @@ export default function ImageReviewPanel({
     Object.fromEntries(assets.map(a => [a.id, a.status ?? 'pending']))
   )
   const [approving, setApproving] = useState(false)
+  const confirm = useConfirm()
+  const toast = useToast()
 
   function handleStatusChange(assetId: string, status: CreativeAsset['status']) {
     setAssetStatuses(prev => ({ ...prev, [assetId]: status }))
   }
 
   async function handleApproveAll() {
-    if (!confirm('Approve all creatives? This confirms you have reviewed them and are satisfied.')) return
+    const ok = await confirm({
+      title: 'Approve all creatives',
+      message: 'This confirms you have reviewed every creative and are satisfied.',
+      confirmLabel: 'Approve all',
+    })
+    if (!ok) return
     setApproving(true)
     try {
       await approveProject(token, 'creatives')
+      toast.success('Creatives approved — thank you!')
       router.refresh()
+    } catch {
+      toast.error("Couldn't approve the creatives. Please try again.")
     } finally {
       setApproving(false)
     }

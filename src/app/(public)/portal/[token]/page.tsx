@@ -1,8 +1,8 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
+import ThemeToggle from '@/components/ThemeToggle'
 import type { Brand, Project, Journey } from '@/lib/types'
-import { STAGE_LABELS } from '@/lib/types'
 import { isProjectOverdue, parseDueDate } from '@/lib/stageColors'
 
 export default async function ClientPortalPage({
@@ -58,37 +58,43 @@ export default async function ClientPortalPage({
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--background)' }}>
-      {/* Header */}
+      {/* Header — 56px sticky bar matching Nav and the review page. */}
       <div style={{
         background: 'var(--surface)',
         borderBottom: '1px solid var(--border)',
-        padding: '0 32px',
-        height: 60,
+        padding: '0 var(--space-6)',
+        height: 56,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
+        position: 'sticky',
+        top: 0,
+        zIndex: 50,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
           <div style={{
-            width: 32, height: 32, borderRadius: 8,
+            width: 28, height: 28, borderRadius: 6,
             background: brandColor,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 13, fontWeight: 700, color: 'white',
+            fontSize: 'var(--text-base)', fontWeight: 700, color: 'white', flexShrink: 0,
           }}>
             {initials}
           </div>
-          <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
+          <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
             {brand.name}
           </span>
         </div>
-        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Client Portal</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+          <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>Client Portal</span>
+          <ThemeToggle />
+        </div>
       </div>
 
-      <main style={{ maxWidth: 780, margin: '0 auto', padding: '40px 24px 80px' }}>
+      <main style={{ maxWidth: 780, margin: '0 auto', padding: 'var(--space-10) var(--space-6) 80px' }}>
 
         {/* Welcome */}
-        <div style={{ marginBottom: 40 }}>
-          <h1 style={{ fontSize: 26, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.03em', marginBottom: 8 }}>
+        <div style={{ marginBottom: 'var(--space-10)' }}>
+          <h1 style={{ fontSize: 26, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.03em', marginBottom: 'var(--space-2)' }}>
             Your Projects
           </h1>
           <p style={{ fontSize: 14, color: 'var(--text-muted)' }}>
@@ -98,12 +104,12 @@ export default async function ClientPortalPage({
 
         {/* Active projects */}
         {journeyGroups.length === 0 && (
-          <div className="card" style={{ textAlign: 'center', padding: '40px 24px' }}>
+          <div className="card" style={{ textAlign: 'center', padding: 'var(--space-10) var(--space-6)' }}>
             <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>No active projects yet. Check back soon.</p>
           </div>
         )}
 
-        {journeyGroups.map(({ journey, projects: jProjects }, gi) => (
+        {journeyGroups.map(({ journey, projects: jProjects }) => (
           <div key={journey?.id ?? 'ungrouped'} style={{ marginBottom: 36 }}>
             {journey && (
               <div style={{ marginBottom: 14 }}>
@@ -158,8 +164,8 @@ function ProjectCard({ project: p, compact = false }: { project: Project; compac
     : 'var(--text-muted)'
 
   return (
-    <div className="card" style={{ padding: compact ? '14px 16px' : '20px 24px' }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
+    <div className="card brand-card" style={{ padding: compact ? 'var(--space-3) var(--space-4)' : 'var(--space-5) var(--space-6)' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 'var(--space-4)' }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: compact ? 2 : 6, flexWrap: 'wrap' }}>
             <span style={{ fontSize: compact ? 14 : 15, fontWeight: 700, color: 'var(--text-primary)' }}>
@@ -197,14 +203,11 @@ function ProjectCard({ project: p, compact = false }: { project: Project; compac
         {p.share_token && (
           <Link
             href={`/review/${p.share_token}`}
+            className="btn-secondary btn-sm"
             style={{
-              fontSize: 13, fontWeight: 600,
               color: 'var(--accent)',
-              textDecoration: 'none',
+              borderColor: 'var(--accent)',
               whiteSpace: 'nowrap',
-              padding: '6px 14px',
-              border: '1px solid var(--accent)',
-              borderRadius: 8,
               flexShrink: 0,
             }}
           >
@@ -212,7 +215,7 @@ function ProjectCard({ project: p, compact = false }: { project: Project; compac
           </Link>
         )}
         {!p.share_token && (
-          <span style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+          <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
             Coming soon
           </span>
         )}

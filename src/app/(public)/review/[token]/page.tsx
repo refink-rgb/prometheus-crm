@@ -5,7 +5,8 @@ import LpReviewPanel from '@/components/LpReviewPanel'
 import ImageReviewPanel from '@/components/ImageReviewPanel'
 import NotesThread from '@/components/NotesThread'
 import ConfirmOfferButton from '@/components/ConfirmOfferButton'
-import type { Project, Brand, ProjectImage, ProjectComment, CreativeAsset } from '@/lib/types'
+import ThemeToggle from '@/components/ThemeToggle'
+import type { Project, Brand, ProjectComment, CreativeAsset } from '@/lib/types'
 import { parseDueDate } from '@/lib/stageColors'
 
 export default async function ReviewPage({
@@ -33,19 +34,16 @@ export default async function ReviewPage({
 
   const [
     { data: brandRaw },
-    { data: images },
     { data: allComments },
     { data: assetsRaw },
   ] = await Promise.all([
     supabase.from('brands').select('id, name').eq('id', p.brand_id).single(),
-    supabase.from('project_images').select('id, storage_url, created_at').eq('project_id', p.id).order('created_at'),
     // Client review must NEVER show internal-only comments — exclude audience='internal'.
     supabase.from('project_comments').select('*').eq('project_id', p.id).neq('audience', 'internal').order('created_at'),
     supabase.from('creative_assets').select('*').eq('project_id', p.id).eq('is_hidden', false).eq('client_visible', true).order('sort_order'),
   ])
 
   const brand = brandRaw as Brand | null
-  const imgs = (images ?? []) as ProjectImage[]
   const comments = (allComments ?? []) as ProjectComment[]
   const assets = (assetsRaw ?? []) as CreativeAsset[]
 
@@ -58,52 +56,77 @@ export default async function ReviewPage({
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--background)' }}>
-      {/* Top bar */}
+      {/* Top bar — mirrors Nav's logo mark / height / sticky behaviour so the
+          client link reads as the same product as the internal app. */}
       <div style={{
         background: 'var(--surface)',
         borderBottom: '1px solid var(--border)',
-        padding: '0 24px',
+        padding: '0 var(--space-6)',
         height: 56,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
+        position: 'sticky',
+        top: 0,
+        zIndex: 50,
       }}>
-        <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--accent)', letterSpacing: '-0.02em' }}>
-          Prometheus Studio
-        </span>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {p.lp_approved && <span className="badge badge-done" style={{ fontSize: 12 }}>✓ LP Approved</span>}
-          {p.creatives_approved && <span className="badge badge-done" style={{ fontSize: 12 }}>✓ Creatives Approved</span>}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{
+            width: 28, height: 28,
+            background: 'var(--accent)',
+            borderRadius: 6,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontWeight: 800, fontSize: 14, color: 'white', flexShrink: 0,
+          }}>P</div>
+          <span style={{ fontWeight: 700, fontSize: 16, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
+            Prometheus
+          </span>
+          <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', marginLeft: 2 }}>by CTC</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+          {p.lp_approved && <span className="badge badge-done">✓ LP Approved</span>}
+          {p.creatives_approved && <span className="badge badge-done">✓ Creatives Approved</span>}
+          <ThemeToggle />
         </div>
       </div>
 
-      <main style={{ maxWidth: 960, margin: '0 auto', padding: '40px 24px 80px' }}>
+      <main style={{ maxWidth: 960, margin: '0 auto', padding: 'var(--space-10) var(--space-6) 80px' }}>
 
         {/* Header */}
-        <div style={{ marginBottom: 36 }}>
-          <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 8 }}>
+        <div style={{ marginBottom: 'var(--space-8)' }}>
+          <p style={{ fontSize: 'var(--text-base)', color: 'var(--text-muted)', marginBottom: 'var(--space-2)' }}>
             {brand?.name} {dueStr ? `· Due ${dueStr}` : ''}
           </p>
-          <h1 style={{ fontSize: 28, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.03em', marginBottom: 16 }}>
+          <h1 style={{ fontSize: 28, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.03em', marginBottom: 'var(--space-4)' }}>
             {p.name}
           </h1>
 
           {p.lp_approved && p.creatives_approved ? (
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 16px', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)', borderRadius: 10 }}>
+            <div style={{
+              display: 'inline-flex', alignItems: 'center', gap: 'var(--space-2)',
+              padding: 'var(--space-3) var(--space-4)', borderRadius: 10,
+              background: 'color-mix(in srgb, var(--success) 10%, transparent)',
+              border: '1px solid color-mix(in srgb, var(--success) 25%, transparent)',
+            }}>
               <span style={{ fontSize: 20 }}>🎉</span>
               <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--success)' }}>Both tracks approved — thank you!</span>
             </div>
           ) : (
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 16px', background: 'rgba(249,115,22,0.08)', border: '1px solid rgba(249,115,22,0.2)', borderRadius: 10 }}>
+            <div style={{
+              display: 'inline-flex', alignItems: 'center', gap: 'var(--space-2)',
+              padding: 'var(--space-3) var(--space-4)', borderRadius: 10,
+              background: 'var(--accent-muted)',
+              border: '1px solid color-mix(in srgb, var(--accent) 20%, transparent)',
+            }}>
               <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
-                ⏳ Review the deliverables below. Approve each track when you're happy.
+                ⏳ Review the deliverables below. Approve each track when you&apos;re happy.
               </span>
             </div>
           )}
         </div>
 
         {/* Landing Page track */}
-        <section style={{ marginBottom: 32 }}>
+        <section style={{ marginBottom: 'var(--space-8)' }}>
           <SectionTitle>Landing Page</SectionTitle>
           <LpReviewPanel
             token={token}
@@ -115,8 +138,8 @@ export default async function ReviewPage({
         </section>
 
         {/* Creatives track */}
-        <section style={{ marginBottom: 32 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <section style={{ marginBottom: 'var(--space-8)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
             <SectionTitle>
               Creatives {assets.length > 0 ? `(${assets.length})` : ''}
             </SectionTitle>
@@ -125,10 +148,8 @@ export default async function ReviewPage({
                 href={`/api/review/${token}/download`}
                 download
                 title={`Download all ${assets.length} creatives as a zip`}
-                style={{
-                  fontSize: 13, fontWeight: 600, textDecoration: 'none', padding: '8px 14px', borderRadius: 8,
-                  border: '1px solid var(--accent)', background: 'var(--accent-muted)', color: 'var(--accent)',
-                }}
+                className="btn-secondary btn-sm"
+                style={{ borderColor: 'var(--accent)', color: 'var(--accent)', background: 'var(--accent-muted)' }}
               >
                 ⬇ Download all ({assets.length})
               </a>
@@ -158,9 +179,14 @@ export default async function ReviewPage({
                 </p>
               )}
               {p.creatives_approved ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.2)', borderRadius: 8 }}>
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 'var(--space-2)',
+                  padding: 'var(--space-3) var(--space-3)', borderRadius: 8,
+                  background: 'color-mix(in srgb, var(--success) 10%, transparent)',
+                  border: '1px solid color-mix(in srgb, var(--success) 20%, transparent)',
+                }}>
                   <span style={{ fontSize: 16 }}>✓</span>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--success)' }}>Creatives approved</span>
+                  <span style={{ fontSize: 'var(--text-base)', fontWeight: 600, color: 'var(--success)' }}>Creatives approved</span>
                 </div>
               ) : null}
             </div>
@@ -169,9 +195,9 @@ export default async function ReviewPage({
 
         {/* Offer Details */}
         {(p.offer_description || p.inspiration || p.headline || p.body_copy || p.supporting_message || p.offer || p.cta || p.discount || p.tiered_offer || p.product_featured) && (
-          <section style={{ marginBottom: 28 }}>
+          <section style={{ marginBottom: 'var(--space-8)' }}>
             <SectionTitle>Offer Details</SectionTitle>
-            <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+            <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
               {p.product_featured && (
                 <div>
                   <FieldLabel>Product Featured</FieldLabel>
@@ -191,14 +217,15 @@ export default async function ReviewPage({
                 </div>
               )}
               {(p.offer || p.discount || p.cta) && (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                // .form-grid-2 collapses to one column under 768px, matching the app's forms.
+                <div className="form-grid-2">
                   {p.offer && <FieldBlock label="Offer / Promo" value={p.offer} />}
                   {p.discount && <FieldBlock label="Discount" value={p.discount} />}
                   {p.cta && <FieldBlock label="Call to Action" value={p.cta} />}
                 </div>
               )}
               {p.tiered_offer && (
-                <div style={{ padding: '12px 14px', background: 'var(--surface-raised)', borderRadius: 8, border: '1px solid var(--border)' }}>
+                <div style={{ padding: 'var(--space-3)', background: 'var(--surface-raised)', borderRadius: 8, border: '1px solid var(--border)' }}>
                   <FieldLabel>Tiered Discount</FieldLabel>
                   <div style={{ fontSize: 14, color: 'var(--text-primary)', whiteSpace: 'pre-wrap' }}>{p.tiered_offer}</div>
                 </div>
@@ -223,14 +250,19 @@ export default async function ReviewPage({
               )}
 
               {/* Offer confirm/lock */}
-              <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+              <div style={{ borderTop: '1px solid var(--border)', paddingTop: 'var(--space-4)' }}>
                 {p.offer_locked ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.2)', borderRadius: 8 }}>
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 'var(--space-3)',
+                    padding: 'var(--space-3)', borderRadius: 8,
+                    background: 'color-mix(in srgb, var(--success) 8%, transparent)',
+                    border: '1px solid color-mix(in srgb, var(--success) 20%, transparent)',
+                  }}>
                     <span style={{ fontSize: 18 }}>🔒</span>
                     <div>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--success)' }}>Offer Confirmed</div>
+                      <div style={{ fontSize: 'var(--text-base)', fontWeight: 600, color: 'var(--success)' }}>Offer Confirmed</div>
                       {p.offer_locked_at && (
-                        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
                           Locked on {new Date(p.offer_locked_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
                         </div>
                       )}
@@ -244,29 +276,8 @@ export default async function ReviewPage({
           </section>
         )}
 
-        {/* Brief / Product Images */}
-        {imgs.length > 0 && (
-          <section style={{ marginBottom: 28 }}>
-            <SectionTitle>Product Images ({imgs.length})</SectionTitle>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
-              {imgs.map((img, i) => (
-                <a key={img.id} href={img.storage_url} target="_blank" rel="noopener noreferrer">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={img.storage_url}
-                    alt={`Product ${i + 1}`}
-                    loading="lazy"
-                    decoding="async"
-                    style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: 10, border: '1px solid var(--border)', display: 'block' }}
-                  />
-                </a>
-              ))}
-            </div>
-          </section>
-        )}
-
         {/* Notes thread */}
-        <section style={{ marginBottom: 28 }}>
+        <section style={{ marginBottom: 'var(--space-8)' }}>
           <SectionTitle>Notes & Messages</SectionTitle>
           <div className="card">
             <NotesThread

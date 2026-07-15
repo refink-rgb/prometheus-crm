@@ -3,6 +3,8 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { addProjectComment, approveProject, deleteProjectComment } from '@/lib/actions'
+import { useConfirm } from '@/components/ConfirmDialog'
+import { useToast } from '@/components/Toast'
 import { LP_SECTIONS } from '@/lib/types'
 import type { ProjectComment } from '@/lib/types'
 
@@ -31,6 +33,8 @@ export default function LpReviewPanel({
   canDelete?: boolean
 }) {
   const router = useRouter()
+  const confirm = useConfirm()
+  const toast = useToast()
   const iframeRef = useRef<HTMLIFrameElement>(null)
 
   const [comments, setComments] = useState<ProjectComment[]>(initialComments)
@@ -115,6 +119,7 @@ export default function LpReviewPanel({
       setCommentText('')
     } catch {
       setComments(prev => prev.filter(c => c.id !== optimistic.id))
+      toast.error("Couldn't post your comment. Please try again.")
     } finally {
       setPosting(false)
     }
@@ -122,22 +127,37 @@ export default function LpReviewPanel({
 
   async function handleDelete(id: string) {
     if (id.startsWith('temp-')) return
-    if (!confirm('Delete this comment? This cannot be undone.')) return
+    const ok = await confirm({
+      title: 'Delete comment',
+      message: 'Delete this comment? This cannot be undone.',
+      confirmLabel: 'Delete',
+      danger: true,
+    })
+    if (!ok) return
     const prev = comments
     setComments(cs => cs.filter(c => c.id !== id))
     try {
       await deleteProjectComment(id, token)
     } catch {
       setComments(prev)
+      toast.error("Couldn't delete the comment. Please try again.")
     }
   }
 
   async function handleApprove() {
-    if (!confirm('Approve the Landing Page? This confirms you have reviewed it and are satisfied.')) return
+    const ok = await confirm({
+      title: 'Approve landing page',
+      message: 'This confirms you have reviewed the landing page and are satisfied.',
+      confirmLabel: 'Approve',
+    })
+    if (!ok) return
     setApproving(true)
     try {
       await approveProject(token, 'lp')
+      toast.success('Landing page approved — thank you!')
       router.refresh()
+    } catch {
+      toast.error("Couldn't approve the landing page. Please try again.")
     } finally {
       setApproving(false)
     }
@@ -166,7 +186,7 @@ export default function LpReviewPanel({
       {/* ══════════════════════════════════════════════════════════════
           LEFT: LP Preview
       ══════════════════════════════════════════════════════════════ */}
-      <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#f5f5f5' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--surface-2)' }}>
 
         {/* Toolbar — matches Lucas's layout */}
         <div style={{
@@ -204,12 +224,8 @@ export default function LpReviewPanel({
               href={lpUrl}
               target="_blank"
               rel="noopener noreferrer"
-              style={{
-                display: 'flex', alignItems: 'center', gap: 4,
-                padding: '6px 12px', borderRadius: 7, fontSize: 12, fontWeight: 500,
-                color: 'var(--text-secondary)', textDecoration: 'none',
-                border: '1px solid var(--border)', background: 'var(--surface-raised)',
-              }}
+              className="btn-secondary btn-sm"
+              style={{ background: 'var(--surface-raised)' }}
             >
               Open live page ↗
             </a>
@@ -217,15 +233,15 @@ export default function LpReviewPanel({
         </div>
 
         {/* LP embed area */}
-        <div style={{ flex: 1, overflow: 'hidden', position: 'relative', background: lpUrl ? '#f5f5f5' : 'var(--surface)' }}>
+        <div style={{ flex: 1, overflow: 'hidden', position: 'relative', background: lpUrl ? 'var(--surface-2)' : 'var(--surface)' }}>
           {lpUrl ? (
             loadState === 'error' ? (
               // Polished fallback — replaces the iframe entirely when the LP
               // refuses framing (or fails to load within the timeout window).
               <div style={{
                 display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                height: '100%', padding: '40px 24px', textAlign: 'center', gap: 16,
-                background: '#f5f5f5',
+                height: '100%', padding: 'var(--space-10) var(--space-6)', textAlign: 'center', gap: 'var(--space-4)',
+                background: 'var(--surface-2)',
               }}>
                 <div style={{
                   width: 64, height: 64, borderRadius: '50%',
@@ -248,14 +264,7 @@ export default function LpReviewPanel({
                   href={lpUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 6,
-                    padding: '10px 18px', borderRadius: 8,
-                    fontSize: 13, fontWeight: 600,
-                    background: 'var(--text-primary)', color: 'var(--background)',
-                    textDecoration: 'none',
-                    boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
-                  }}
+                  className="btn-primary"
                 >
                   Open page in new tab ↗
                 </a>
@@ -275,7 +284,11 @@ export default function LpReviewPanel({
                     src={previewSrc ?? undefined}
                     onLoad={handleIframeLoad}
                     onError={handleIframeError}
-                    style={{ width: '100%', height: '100%', border: 'none', display: 'block', background: '#f5f5f5' }}
+                    // Stays white regardless of theme: this hosts the client's own
+                    // page, authored against a browser's white viewport default. A
+                    // themed background would show through any LP that doesn't set
+                    // its own and leave dark text on dark.
+                    style={{ width: '100%', height: '100%', border: 'none', display: 'block', background: '#ffffff' }}
                     title="Landing page preview"
                     sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
                   />
@@ -285,9 +298,9 @@ export default function LpReviewPanel({
                 {loadState === 'loading' && (
                   <div style={{
                     position: 'absolute', inset: 0, zIndex: 15,
-                    background: '#f5f5f5',
+                    background: 'var(--surface-2)',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    flexDirection: 'column', gap: 12,
+                    flexDirection: 'column', gap: 'var(--space-3)',
                   }}>
                     <div style={{ position: 'relative', width: 140, height: 2, background: 'var(--border)', borderRadius: 2, overflow: 'hidden' }}>
                       <div className="tab-loading-bar" />
@@ -358,18 +371,19 @@ export default function LpReviewPanel({
             <button
               onClick={handleApprove}
               disabled={approving}
+              className="btn-secondary btn-sm"
               style={{
                 marginLeft: 'auto',
-                padding: '5px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600,
-                cursor: 'pointer', border: '1px solid rgba(34,197,94,0.4)',
-                background: 'rgba(34,197,94,0.1)', color: 'var(--success)',
+                borderColor: 'color-mix(in srgb, var(--success) 40%, transparent)',
+                background: 'color-mix(in srgb, var(--success) 10%, transparent)',
+                color: 'var(--success)',
               }}
             >
               {approving ? '…' : '✓ Approve'}
             </button>
           )}
           {lpApproved && (
-            <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 600, color: 'var(--success)' }}>
+            <span className="badge badge-done" style={{ marginLeft: 'auto' }}>
               ✓ Approved
             </span>
           )}
@@ -405,14 +419,7 @@ export default function LpReviewPanel({
             <button
               type="submit"
               disabled={posting || !commentText.trim()}
-              style={{
-                padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600,
-                cursor: posting || !commentText.trim() ? 'not-allowed' : 'pointer',
-                border: 'none',
-                background: posting || !commentText.trim() ? 'var(--border)' : 'var(--text-primary)',
-                color: posting || !commentText.trim() ? 'var(--text-muted)' : 'var(--background)',
-                transition: 'all 0.15s',
-              }}
+              className="btn-primary btn-sm"
             >
               {posting ? 'Posting…' : 'Post comment'}
             </button>
