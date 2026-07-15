@@ -4,6 +4,8 @@ const ALLOWED_EDITORS = [
   'jan@commonthreadglobal.com',
   'joy@commonthreadglobal.com',
   'giovane@commonthreadglobal.com',
+  'aleksandrs@commonthreadglobal.com',
+  'ferran@commonthreadglobal.com',
   // Static editors
   'jaspen@commonthreadglobal.com',
   'janella@commonthreadglobal.com',
