@@ -4,8 +4,9 @@ import { useState, useEffect, useRef, memo, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { updateProjectDetails } from '@/lib/actions'
 import Spinner from '@/components/Spinner'
-import { PAGE_TYPE_OPTIONS } from '@/lib/types'
-import type { Journey } from '@/lib/types'
+import EditorPicker from '@/components/EditorPicker'
+import { PAGE_TYPE_OPTIONS, editorsFor } from '@/lib/types'
+import type { Journey, Profile } from '@/lib/types'
 
 const OFFER_DYNAMICS_OPTIONS = [
   'BOGO',
@@ -20,6 +21,7 @@ interface Props {
   projectId: string
   brandId: string
   journeys: Journey[]
+  profiles: Profile[]
   initial: {
     name: string
     due_date: string | null
@@ -52,7 +54,8 @@ interface Props {
     lp_url: string | null
     creatives_notes: string | null
     shopify_coupon_code: string | null
-    assigned_designer: string | null
+    lp_editor_id: string | null
+    creative_editor_id: string | null
   }
 }
 
@@ -161,7 +164,7 @@ const MomentPicker = memo(function MomentPicker({
   )
 })
 
-export default function ProjectEditForm({ projectId, brandId, journeys, initial }: Props) {
+export default function ProjectEditForm({ projectId, brandId, journeys, profiles, initial }: Props) {
   const router = useRouter()
   const [editing, setEditing] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -255,7 +258,8 @@ export default function ProjectEditForm({ projectId, brandId, journeys, initial 
         lp_url: trimmed('lp_url'),
         creatives_notes: trimmed('creatives_notes'),
         shopify_coupon_code: trimmed('shopify_coupon_code'),
-        assigned_designer: s('assigned_designer') || null,
+        lp_editor_id: s('lp_editor_id') || null,
+        creative_editor_id: s('creative_editor_id') || null,
       })
       setEditing(false)
       router.refresh()
@@ -340,13 +344,26 @@ export default function ProjectEditForm({ projectId, brandId, journeys, initial 
             </Field>
           </div>
 
-          <Field label="Assigned designer" optional>
-            <select name="assigned_designer" defaultValue={initial.assigned_designer ?? ''}>
-              <option value="">Unassigned</option>
-              <option value="Janella">Janella</option>
-              <option value="Jaspen">Jaspen</option>
-            </select>
-          </Field>
+          <div className="form-grid-2">
+            <Field label="LP editor" optional>
+              <EditorPicker
+                mode="form"
+                track="lp"
+                fieldName="lp_editor_id"
+                options={editorsFor(profiles, 'is_lp_editor')}
+                current={initial.lp_editor_id}
+              />
+            </Field>
+            <Field label="Creative editor" optional>
+              <EditorPicker
+                mode="form"
+                track="creative"
+                fieldName="creative_editor_id"
+                options={editorsFor(profiles, 'is_creative_editor')}
+                current={initial.creative_editor_id}
+              />
+            </Field>
+          </div>
 
           <Field label="Journey" optional>
             <select name="journey_id" defaultValue={initial.journey_id ?? ''}>

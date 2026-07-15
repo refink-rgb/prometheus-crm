@@ -1,10 +1,12 @@
 import { createClient, getCachedUser } from '@/lib/supabase/server'
+import { getCachedProfiles } from '@/lib/profiles'
 import { canEdit } from '@/lib/permissions'
 import type { Project } from '@/lib/types'
 import { isProjectOverdue } from '@/lib/stageColors'
 import StageDistributionChart from '@/components/LazyStageDistributionChart'
 import PipelineTable from '@/components/PipelineTable'
 import OverdueProjectsPanel from '@/components/OverdueProjectsPanel'
+import MyAssignmentsPanel from '@/components/MyAssignmentsPanel'
 
 type DashboardBrand = { id: string; monthly_retainer: number | null; is_active: boolean }
 type PipelineProject = Project & { brands: { id: string; name: string } }
@@ -21,21 +23,24 @@ export default async function DashboardPage() {
   // projects to render KPIs / pipeline table / overdue panel. Avoid `select('*')`
   // and the previously-nested projects(*) — both pulled huge JSON copy fields
   // that nothing on this page reads.
-  const [{ data: brands }, { data: pipelineRaw }] = await Promise.all([
+  const [{ data: brands }, { data: pipelineRaw }, profiles] = await Promise.all([
     supabase
       .from('brands')
       .select('id, monthly_retainer, is_active')
       .order('created_at', { ascending: false }),
     supabase
       .from('projects')
-      .select('id, name, brand_id, due_date, is_complete, lp_stage, creatives_stage, lp_approved, creatives_approved, brands(id, name)')
+      // lp_editor_id / creative_editor_id feed the My Work panel.
+      .select('id, name, brand_id, due_date, is_complete, lp_stage, creatives_stage, lp_approved, creatives_approved, lp_editor_id, creative_editor_id, brands(id, name)')
       .eq('is_complete', false)
       .order('due_date', { ascending: true }),
+    getCachedProfiles(),
   ])
 
   const allBrands = (brands ?? []) as DashboardBrand[]
   const pipeline = (pipelineRaw ?? []) as unknown as PipelineProject[]
   const isAuthorized = canEdit(user?.email)
+  const myProfileId = profiles.find(p => p.email === user?.email?.toLowerCase())?.id ?? null
 
   const activeClients = allBrands.filter(b => (b.monthly_retainer ?? 0) > 0 && b.is_active)
   const mrr = activeClients.reduce((sum, b) => sum + (b.monthly_retainer ?? 0), 0)
@@ -98,8 +103,14 @@ export default async function DashboardPage() {
         <div>
           <PipelineTable pipeline={pipeline} />
         </div>
-        <div>
+        {/* OverdueProjectsPanel stays at the top of this column: its 34px
+            header spacer mirrors PipelineTable's filter bar so the two cards'
+            rows line up. My Work goes underneath rather than above. */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
           <OverdueProjectsPanel projects={projectsWithBrand} />
+          {myProfileId && (
+            <MyAssignmentsPanel projects={pipeline} profileId={myProfileId} />
+          )}
         </div>
       </div>
     </div>

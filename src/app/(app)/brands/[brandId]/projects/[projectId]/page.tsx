@@ -14,7 +14,10 @@ import { calcDaysUntil, isProjectOverdue, overallProgress, parseDueDate } from '
 import ProjectEditForm from '@/components/ProjectEditForm'
 import OpenEditFormButton from '@/components/OpenEditFormButton'
 import CopyDeckPanel from '@/components/CopyDeckPanel'
-import AssignedDesignerPicker from '@/components/AssignedDesignerPicker'
+import EditorPicker from '@/components/EditorPicker'
+import Avatar from '@/components/Avatar'
+import { getCachedProfiles } from '@/lib/profiles'
+import { profileName, editorsFor } from '@/lib/types'
 import SubmitButton from '@/components/SubmitButton'
 
 // AI revision/edit Server Actions (gpt-image-2) run ~60-90s. Without this they hit
@@ -43,6 +46,7 @@ export default async function ProjectPage({
     { data: imageCommentsRaw },
     { data: notesRaw },
     { data: brandJourneysRaw },
+    profiles,
   ] = await Promise.all([
     supabase.from('projects').select('*').eq('id', projectId).single(),
     // Breadcrumb only renders the brand's name; no need to pull
@@ -53,6 +57,7 @@ export default async function ProjectPage({
     supabase.from('project_comments').select('*').eq('project_id', projectId).eq('track', 'image').order('created_at'),
     supabase.from('project_comments').select('*').eq('project_id', projectId).eq('track', 'note').order('created_at'),
     supabase.from('journeys').select('*').eq('brand_id', brandId).order('created_at', { ascending: true }),
+    getCachedProfiles(),
   ])
 
   if (!project) notFound()
@@ -66,6 +71,9 @@ export default async function ProjectPage({
   const brandJourneys = (brandJourneysRaw ?? []) as Journey[]
   const isAuthorized = canEdit(user?.email)
   const userDisplayName = user?.email?.split('@')[0] ?? 'Team'
+
+  const lpEditor = profiles.find(x => x.id === p.lp_editor_id) ?? null
+  const creativeEditor = profiles.find(x => x.id === p.creative_editor_id) ?? null
 
   // The project's journey (if any) belongs to this brand, and we already
   // fetched every journey for the brand above — no extra query needed.
@@ -130,9 +138,14 @@ export default async function ProjectPage({
                     {p.page_type}
                   </span>
                 )}
-                {p.assigned_designer && (
-                  <span style={{ background: 'rgba(168,85,247,0.1)', border: '1px solid rgba(168,85,247,0.25)', borderRadius: 6, padding: '2px 8px', color: '#a855f7', fontWeight: 500 }}>
-                    ✏ {p.assigned_designer}
+                {lpEditor && (
+                  <span title={`LP Editor: ${profileName(lpEditor)}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'color-mix(in srgb, var(--editor-lp) 10%, transparent)', border: '1px solid color-mix(in srgb, var(--editor-lp) 25%, transparent)', borderRadius: 6, padding: '2px 8px', color: 'var(--editor-lp)', fontWeight: 500 }}>
+                    LP · {profileName(lpEditor)}
+                  </span>
+                )}
+                {creativeEditor && (
+                  <span title={`Creative Editor: ${profileName(creativeEditor)}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'color-mix(in srgb, var(--editor-creative) 10%, transparent)', border: '1px solid color-mix(in srgb, var(--editor-creative) 25%, transparent)', borderRadius: 6, padding: '2px 8px', color: 'var(--editor-creative)', fontWeight: 500 }}>
+                    CR · {profileName(creativeEditor)}
                   </span>
                 )}
               </div>
@@ -296,6 +309,7 @@ export default async function ProjectPage({
             projectId={projectId}
             brandId={brandId}
             journeys={brandJourneys}
+            profiles={profiles}
             initial={{
               name: p.name,
               due_date: p.due_date,
@@ -328,7 +342,8 @@ export default async function ProjectPage({
               lp_url: p.lp_url,
               creatives_notes: p.creatives_notes,
               shopify_coupon_code: p.shopify_coupon_code,
-              assigned_designer: p.assigned_designer,
+              lp_editor_id: p.lp_editor_id,
+              creative_editor_id: p.creative_editor_id,
             }}
           />
         )}
@@ -336,18 +351,57 @@ export default async function ProjectPage({
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
 
             {/* Project Meta — assignment + product + revisions */}
-            {(p.product_featured || p.assigned_designer !== undefined || isAuthorized) && (
+            {(p.product_featured || isAuthorized) && (
               <div className="card">
                 <h3 style={{ fontWeight: 700, fontSize: 'var(--text-md)', marginBottom: 'var(--space-4)', color: 'var(--text-primary)' }}>Project Info</h3>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-                  <div>
-                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 'var(--space-2)' }}>Assigned Designer</div>
-                    <AssignedDesignerPicker
-                      projectId={projectId}
-                      brandId={brandId}
-                      current={p.assigned_designer}
-                    />
-                  </div>
+                  {isAuthorized ? (
+                    <div style={{ display: 'flex', gap: 'var(--space-4)', flexWrap: 'wrap' }}>
+                      <div>
+                        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 'var(--space-2)' }}>LP Editor</div>
+                        <EditorPicker
+                          mode="instant"
+                          track="lp"
+                          options={editorsFor(profiles, 'is_lp_editor')}
+                          current={p.lp_editor_id}
+                          projectId={projectId}
+                          brandId={brandId}
+                        />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 'var(--space-2)' }}>Creative Editor</div>
+                        <EditorPicker
+                          mode="instant"
+                          track="creative"
+                          options={editorsFor(profiles, 'is_creative_editor')}
+                          current={p.creative_editor_id}
+                          projectId={projectId}
+                          brandId={brandId}
+                        />
+                      </div>
+                    </div>
+                  ) : (lpEditor || creativeEditor) && (
+                    <div style={{ display: 'flex', gap: 'var(--space-5)', flexWrap: 'wrap' }}>
+                      {lpEditor && (
+                        <div>
+                          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 'var(--space-2)' }}>LP Editor</div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <Avatar name={profileName(lpEditor)} size={22} />
+                            <span style={{ fontSize: 14, color: 'var(--text-primary)' }}>{profileName(lpEditor)}</span>
+                          </div>
+                        </div>
+                      )}
+                      {creativeEditor && (
+                        <div>
+                          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 'var(--space-2)' }}>Creative Editor</div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <Avatar name={profileName(creativeEditor)} size={22} />
+                            <span style={{ fontSize: 14, color: 'var(--text-primary)' }}>{profileName(creativeEditor)}</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                   {p.product_featured && (
                     <div>
                       <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 'var(--space-1)' }}>Product Featured</div>

@@ -9,14 +9,20 @@ import {
   useDroppable,
   type DragStartEvent, type DragOverEvent, type DragEndEvent,
 } from '@dnd-kit/core'
-import { STAGE_ORDER, STAGE_LABELS, type Stage, type Project } from '@/lib/types'
+import { STAGE_ORDER, STAGE_LABELS, profileName, type Stage, type Project, type Profile } from '@/lib/types'
 import { updateProjectStagesBoth } from '@/lib/actions'
 import { isProjectOverdue, STAGE_COLORS } from '@/lib/stageColors'
 import KanbanCard from './KanbanCard'
 
 type PipelineProject = Project & { brands: { id: string; name: string } }
 type StatusFilter = 'all' | 'overdue' | 'in_review'
-type DesignerFilter = 'all' | 'Janella' | 'Jaspen' | 'unassigned'
+// A profile id, or one of the two sentinels. Was a hardcoded union of designer
+// names; now driven by the profiles roster.
+type EditorFilter = 'all' | 'unassigned' | (string & {})
+
+function isEditedBy(p: PipelineProject, profileId: string): boolean {
+  return p.lp_editor_id === profileId || p.creative_editor_id === profileId
+}
 
 function cardColumn(p: PipelineProject): Stage {
   const lpIdx = STAGE_ORDER.indexOf(p.lp_stage)
@@ -31,7 +37,17 @@ function isWaitingOnClient(p: PipelineProject): boolean {
   )
 }
 
-export default function KanbanView({ pipeline }: { pipeline: PipelineProject[] }) {
+export default function KanbanView({
+  pipeline,
+  editors,
+  currentProfileId,
+}: {
+  pipeline: PipelineProject[]
+  /** Anyone flagged for either track — the people who can appear on a card. */
+  editors: Profile[]
+  /** The signed-in user's profile id, or null if they have no profile row. */
+  currentProfileId: string | null
+}) {
   const router = useRouter()
   const [, startTransition] = useTransition()
 
@@ -41,8 +57,18 @@ export default function KanbanView({ pipeline }: { pipeline: PipelineProject[] }
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState<StatusFilter>('all')
   const [filterWaiting, setFilterWaiting] = useState(false)
-  const [designer, setDesigner] = useState<DesignerFilter>('all')
+  const [editor, setEditor] = useState<EditorFilter>('all')
+  const [mineOnly, setMineOnly] = useState(false)
   const deferredSearch = useDeferredValue(search)
+
+  const myCount = useMemo(
+    () => (currentProfileId ? localProjects.filter(p => isEditedBy(p, currentProfileId)).length : 0),
+    [localProjects, currentProfileId]
+  )
+
+  // Memoized so KanbanCard's memo() holds: a Map built inline would be a new
+  // reference on every render and re-render every card on the board.
+  const editorsById = useMemo(() => new Map(editors.map(p => [p.id, p])), [editors])
 
   const [activeId, setActiveId] = useState<string | null>(null)
   const [overId, setOverId] = useState<string | null>(null)
@@ -64,12 +90,12 @@ export default function KanbanView({ pipeline }: { pipeline: PipelineProject[] }
       if (status === 'overdue' && !isProjectOverdue(p.due_date, p.is_complete, p.lp_stage, p.creatives_stage)) return false
       if (status === 'in_review' && !(p.lp_stage === 'client_review' || p.creatives_stage === 'client_review')) return false
       if (filterWaiting && !isWaitingOnClient(p)) return false
-      if (designer === 'unassigned' && p.assigned_designer) return false
-      if (designer === 'Janella' && p.assigned_designer !== 'Janella') return false
-      if (designer === 'Jaspen' && p.assigned_designer !== 'Jaspen') return false
+      if (mineOnly && (!currentProfileId || !isEditedBy(p, currentProfileId))) return false
+      if (editor === 'unassigned' && (p.lp_editor_id || p.creative_editor_id)) return false
+      if (editor !== 'all' && editor !== 'unassigned' && !isEditedBy(p, editor)) return false
       return true
     })
-  }, [localProjects, deferredSearch, status, filterWaiting, designer])
+  }, [localProjects, deferredSearch, status, filterWaiting, editor, mineOnly, currentProfileId])
 
   const columns = useMemo(
     () => STAGE_ORDER.map(stage => ({
@@ -163,28 +189,46 @@ export default function KanbanView({ pipeline }: { pipeline: PipelineProject[] }
           })}
         </div>
 
-        <div style={{ display: 'flex', gap: 4 }}>
-          {(['all', 'Janella', 'Jaspen', 'unassigned'] as const).map(opt => {
-            const active = designer === opt
-            const labels: Record<DesignerFilter, string> = { all: 'All', Janella: 'Janella', Jaspen: 'Jaspen', unassigned: 'Unassigned' }
-            return (
-              <button
-                key={opt}
-                onClick={() => setDesigner(opt)}
-                className="focus-ring-pill"
-                style={{
-                  ...pillBase,
-                  fontWeight: active ? 600 : 400,
-                  borderColor: active ? '#a855f7' : 'var(--border)',
-                  background: active ? 'rgba(168,85,247,0.1)' : 'transparent',
-                  color: active ? '#a855f7' : 'var(--text-muted)',
-                }}
-              >
-                {labels[opt]}
-              </button>
-            )
-          })}
-        </div>
+        {/* Only offer "My work" to someone who has a profile and is actually on
+            something — otherwise it's a button that always yields an empty board. */}
+        {currentProfileId && myCount > 0 && (
+          <button
+            onClick={() => setMineOnly(v => !v)}
+            className="focus-ring-pill"
+            aria-pressed={mineOnly}
+            style={{
+              ...pillBase,
+              fontWeight: mineOnly ? 600 : 400,
+              borderColor: mineOnly ? 'var(--accent)' : 'var(--border)',
+              background: mineOnly ? 'var(--accent-muted)' : 'transparent',
+              color: mineOnly ? 'var(--accent)' : 'var(--text-muted)',
+            }}
+          >
+            My work ({myCount})
+          </button>
+        )}
+
+        <select
+          value={editor}
+          onChange={e => setEditor(e.target.value)}
+          aria-label="Filter by editor"
+          style={{
+            fontSize: 'var(--text-sm)',
+            padding: 'var(--space-2) var(--space-3)',
+            borderRadius: 20,
+            border: `1px solid ${editor === 'all' ? 'var(--border)' : 'var(--editor-creative)'}`,
+            background: editor === 'all' ? 'transparent' : 'color-mix(in srgb, var(--editor-creative) 10%, transparent)',
+            color: editor === 'all' ? 'var(--text-muted)' : 'var(--editor-creative)',
+            fontWeight: editor === 'all' ? 400 : 600,
+            cursor: 'pointer',
+          }}
+        >
+          <option value="all">All editors</option>
+          <option value="unassigned">Unassigned</option>
+          {editors.map(p => (
+            <option key={p.id} value={p.id}>{profileName(p)}</option>
+          ))}
+        </select>
 
         <button
           onClick={() => setFilterWaiting(!filterWaiting)}
@@ -245,6 +289,7 @@ export default function KanbanView({ pipeline }: { pipeline: PipelineProject[] }
                 isDragging={activeId !== null}
                 draggedCardId={activeId}
                 onMove={moveCard}
+                editorsById={editorsById}
               />
             ))}
           </div>
@@ -252,7 +297,7 @@ export default function KanbanView({ pipeline }: { pipeline: PipelineProject[] }
           <DragOverlay dropAnimation={null}>
             {activeCard ? (
               <div style={{ transform: 'rotate(1.5deg)', filter: 'drop-shadow(0 8px 24px rgba(0,0,0,0.5))' }}>
-                <KanbanCard p={activeCard} isGhost />
+                <KanbanCard p={activeCard} isGhost editorsById={editorsById} />
               </div>
             ) : null}
           </DragOverlay>
@@ -274,6 +319,7 @@ function KanbanColumnInner({
   isDragging,
   draggedCardId,
   onMove,
+  editorsById,
 }: {
   stage: Stage
   cards: PipelineProject[]
@@ -281,6 +327,7 @@ function KanbanColumnInner({
   isDragging: boolean
   draggedCardId: string | null
   onMove: (card: PipelineProject, targetStage: Stage) => void
+  editorsById: Map<string, Profile>
 }) {
   const color = STAGE_COLORS[stage]
   const { setNodeRef } = useDroppable({ id: stage })
@@ -355,7 +402,7 @@ function KanbanColumnInner({
             .filter(p => p.id !== draggedCardId)
             .map(p => (
               <div key={p.id} style={{ flexShrink: 0 }}>
-                <KanbanCard p={p} columnStage={stage} onMove={onMove} />
+                <KanbanCard p={p} columnStage={stage} onMove={onMove} editorsById={editorsById} />
               </div>
             ))
         )}

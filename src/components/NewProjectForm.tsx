@@ -6,8 +6,9 @@ import Link from 'next/link'
 import ImageUploader from '@/components/ImageUploader'
 import Spinner from '@/components/Spinner'
 import { createProject } from '@/lib/actions'
-import { PAGE_TYPE_OPTIONS, DESIGNERS } from '@/lib/types'
-import type { Journey } from '@/lib/types'
+import EditorPicker from '@/components/EditorPicker'
+import { PAGE_TYPE_OPTIONS, editorsFor } from '@/lib/types'
+import type { Journey, Profile } from '@/lib/types'
 
 interface UploadedImage {
   path: string
@@ -94,9 +95,11 @@ function CopyBank({
 export default function NewProjectForm({
   brandId,
   journeys,
+  profiles,
 }: {
   brandId: string
   journeys: Journey[]
+  profiles: Profile[]
 }) {
   const router = useRouter()
 
@@ -274,14 +277,24 @@ export default function NewProjectForm({
               </div>
             </Field>
 
-            {/* Assigned editor */}
-            <Field label="Assigned editor" optional>
-              <select name="assigned_designer" defaultValue="" style={{ width: '100%' }}>
-                <option value="">Unassigned</option>
-                {DESIGNERS.map(d => (
-                  <option key={d} value={d}>{d}</option>
-                ))}
-              </select>
+            {/* Editors — one per track, mirroring the LP / Creatives split */}
+            <Field label="LP editor" optional>
+              <EditorPicker
+                mode="form"
+                track="lp"
+                fieldName="lp_editor_id"
+                options={editorsFor(profiles, 'is_lp_editor')}
+                current={null}
+              />
+            </Field>
+            <Field label="Creative editor" optional>
+              <EditorPicker
+                mode="form"
+                track="creative"
+                fieldName="creative_editor_id"
+                options={editorsFor(profiles, 'is_creative_editor')}
+                current={null}
+              />
             </Field>
           </Section>
 

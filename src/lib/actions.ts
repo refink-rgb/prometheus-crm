@@ -10,7 +10,8 @@ import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { canEdit } from '@/lib/permissions'
-import type { Stage } from '@/lib/types'
+import type { EditorTrack, Stage } from '@/lib/types'
+import { EDITOR_TRACK_META } from '@/lib/types'
 import {
   ensureDeleteSubfolder,
   extractDriveFolderId,
@@ -139,7 +140,8 @@ export async function createProject(formData: FormData): Promise<{ redirect: str
       ad_subcopies: jsonArr('ad_subcopies'),
       ad_eyebrows: jsonArr('ad_eyebrows'),
       product_images_link: str('product_images_link'),
-      assigned_designer: str('assigned_designer'),
+      lp_editor_id: str('lp_editor_id'),
+      creative_editor_id: str('creative_editor_id'),
       created_by: user?.id ?? null,
     })
     .select()
@@ -1433,7 +1435,10 @@ export async function updateProjectDetails(
     lp_url: string | null
     creatives_notes: string | null
     shopify_coupon_code: string | null
-    assigned_designer: string | null
+    // FKs to profiles.id. Replaces the old assigned_designer name string, which
+    // this action no longer writes.
+    lp_editor_id: string | null
+    creative_editor_id: string | null
   }
 ) {
   const supabase = await createClient()
@@ -1451,22 +1456,49 @@ export async function updateProjectDetails(
   revalidatePath('/')
 }
 
-export async function assignProjectDesigner(
+// Assign (or clear, with profileId = null) a project's editor for one track.
+// Track-parameterized in the same shape as updateProjectStage, since LP and
+// Creative are parallel tracks everywhere else in the app.
+//
+// Replaces assignProjectDesigner, which wrote the bare name string
+// `assigned_designer` and — unlike every sibling action — checked only that
+// someone was logged in, not that they were an editor. That gate is added here.
+export async function assignProjectEditor(
   projectId: string,
   brandId: string,
-  designer: string | null,
+  track: EditorTrack,
+  profileId: string | null,
 ): Promise<void> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
+
+  const { column, capability } = EDITOR_TRACK_META[track]
+
+  // Guard the FK before writing: a profile id that doesn't exist, or one whose
+  // capability flag is off, would otherwise be accepted by the column and only
+  // surface later as an editor who can't be picked again.
+  if (profileId) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select(`id, ${capability}`)
+      .eq('id', profileId)
+      .single()
+    if (!profile) throw new Error('Unknown editor.')
+    if (!(profile as unknown as Record<string, boolean>)[capability]) {
+      throw new Error(`That person isn't a ${EDITOR_TRACK_META[track].label}.`)
+    }
+  }
 
   const { error } = await supabase
     .from('projects')
-    .update({ assigned_designer: designer })
+    .update({ [column]: profileId })
     .eq('id', projectId)
-  if (error) throw new Error(`Failed to assign designer: ${error.message}`)
+  if (error) throw new Error(`Failed to assign editor: ${error.message}`)
 
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+  revalidatePath('/pipeline')
   revalidatePath('/')
 }
 

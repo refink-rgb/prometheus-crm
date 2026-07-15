@@ -22,9 +22,50 @@ export const PAGE_TYPE_OPTIONS = [
 
 export type PageType = typeof PAGE_TYPE_OPTIONS[number]
 
-// Static editors who can be assigned to a project's creative work.
-// Single source of truth for the new-project form and the inline picker.
-export const DESIGNERS = ['Janella', 'Jaspen'] as const
+// A row in `profiles` — the team roster, mirrored from auth.users by the
+// on_auth_user_created trigger (see 20260715_add_profiles_and_editor_assignment).
+// Replaces the old hardcoded DESIGNERS array: editors are real users now, and a
+// project's editor columns are FKs to this table.
+export interface Profile {
+  id: string
+  email: string
+  full_name: string | null
+  role: 'admin' | 'member'
+  // Grants access to the CRM. Source of truth for canEdit().
+  can_edit: boolean
+  // Capability flags — each editor picker lists only the people it applies to.
+  is_lp_editor: boolean
+  is_creative_editor: boolean
+  created_at: string
+}
+
+// The two assignable tracks, mirroring the lp_stage / creatives_stage split.
+export type EditorTrack = 'lp' | 'creative'
+
+export const EDITOR_TRACK_META: Record<EditorTrack, {
+  label: string
+  column: 'lp_editor_id' | 'creative_editor_id'
+  capability: 'is_lp_editor' | 'is_creative_editor'
+}> = {
+  lp: { label: 'LP Editor', column: 'lp_editor_id', capability: 'is_lp_editor' },
+  creative: { label: 'Creative Editor', column: 'creative_editor_id', capability: 'is_creative_editor' },
+}
+
+// Display name for a profile — full_name is seeded from the email prefix by the
+// DB trigger, but can be null if a row was created by hand.
+export function profileName(p: Profile): string {
+  return p.full_name?.trim() || p.email.split('@')[0]
+}
+
+// Profiles eligible for a given track's picker. Lives here rather than in
+// lib/profiles.ts because client components need it, and that module imports
+// the server-only Supabase client.
+export function editorsFor(
+  profiles: Profile[],
+  capability: 'is_lp_editor' | 'is_creative_editor',
+): Profile[] {
+  return profiles.filter(p => p[capability])
+}
 
 export interface Brand {
   id: string
@@ -82,7 +123,13 @@ export interface Project {
   author: string | null
   target_audience: string | null
   notes: string | null
+  // Legacy: a bare name ('Janella') from the removed DESIGNERS array. Superseded
+  // by creative_editor_id. Still written by the DB (not by the app) and kept as
+  // the rollback path until a later cleanup drops the column.
   assigned_designer: string | null
+  // Editor assignment — FKs to profiles.id. Null = unassigned.
+  lp_editor_id: string | null
+  creative_editor_id: string | null
   // journey & moment
   journey_id: string | null
   marketing_moment: 1 | 2 | null

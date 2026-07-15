@@ -68,6 +68,14 @@
   --client-flagged:     #EF4444;
   --client-pending:     #94A3B8;
 
+  /* ── Editor assignment ──
+     One colour per track, matching the LP / Creatives split. --editor-creative
+     is the purple the old designer chip hardcoded as a raw #a855f7 in four
+     places. Note .badge-internal_review below uses the same purple for an
+     unrelated meaning — don't read anything into the overlap. */
+  --editor-lp:          #0EA5E9;
+  --editor-creative:    #A855F7;
+
   /* ── Sidebar ── */
   --sidebar-bg:         #0a0a0a;
   --sidebar-border:     rgba(255, 255, 255, 0.08);

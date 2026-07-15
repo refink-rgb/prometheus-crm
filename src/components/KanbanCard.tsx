@@ -4,8 +4,9 @@ import { memo } from 'react'
 import Link from 'next/link'
 import { useDraggable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
-import { STAGE_ORDER, STAGE_LABELS, type Stage, type Project } from '@/lib/types'
+import { STAGE_ORDER, STAGE_LABELS, profileName, type Stage, type Project, type Profile } from '@/lib/types'
 import { isProjectOverdue, parseAndDaysUntil, STAGE_COLORS } from '@/lib/stageColors'
+import Avatar from '@/components/Avatar'
 
 type PipelineProject = Project & { brands: { id: string; name: string } }
 
@@ -26,9 +27,13 @@ interface KanbanCardProps {
   isGhost?: boolean
   columnStage?: Stage
   onMove?: (card: PipelineProject, targetStage: Stage) => void
+  /** Memoized in KanbanView — a fresh Map here would defeat the memo() below. */
+  editorsById: Map<string, Profile>
 }
 
-function KanbanCardInner({ p, isGhost = false, columnStage, onMove }: KanbanCardProps) {
+function KanbanCardInner({ p, isGhost = false, columnStage, onMove, editorsById }: KanbanCardProps) {
+  const lpEditor = p.lp_editor_id ? editorsById.get(p.lp_editor_id) : undefined
+  const creativeEditor = p.creative_editor_id ? editorsById.get(p.creative_editor_id) : undefined
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: p.id,
     disabled: isGhost,
@@ -126,21 +131,32 @@ function KanbanCardInner({ p, isGhost = false, columnStage, onMove }: KanbanCard
             </div>
           )}
 
-          {/* Bottom row: due date right-aligned */}
-          {p.due_date && (
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-              <span style={{
-                fontSize: 11,
-                color: isOverdue ? 'var(--danger)' : isUrgent ? 'var(--warning)' : 'var(--text-muted)',
-                fontWeight: isOverdue || isUrgent ? 600 : 400,
-                display: 'inline-flex', alignItems: 'center', gap: 4,
-              }}>
+          {/* Bottom row: editors left, due date right. Rendered when either is
+              present — the due date used to be the row's only reason to exist. */}
+          {(p.due_date || lpEditor || creativeEditor) && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
+              <div style={{ display: 'flex', gap: 3, flexShrink: 0 }}>
+                {lpEditor && (
+                  <Avatar name={profileName(lpEditor)} size={18} title={`LP: ${profileName(lpEditor)}`} />
+                )}
+                {creativeEditor && (
+                  <Avatar name={profileName(creativeEditor)} size={18} title={`Creative: ${profileName(creativeEditor)}`} />
+                )}
+              </div>
+              {p.due_date && (
                 <span style={{
-                  width: 5, height: 5, borderRadius: '50%', flexShrink: 0,
-                  background: isOverdue ? 'var(--danger)' : isUrgent ? 'var(--warning)' : 'var(--text-muted)',
-                }} />
-                {due?.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-              </span>
+                  fontSize: 11,
+                  color: isOverdue ? 'var(--danger)' : isUrgent ? 'var(--warning)' : 'var(--text-muted)',
+                  fontWeight: isOverdue || isUrgent ? 600 : 400,
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                }}>
+                  <span style={{
+                    width: 5, height: 5, borderRadius: '50%', flexShrink: 0,
+                    background: isOverdue ? 'var(--danger)' : isUrgent ? 'var(--warning)' : 'var(--text-muted)',
+                  }} />
+                  {due?.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                </span>
+              )}
             </div>
           )}
         </div>
