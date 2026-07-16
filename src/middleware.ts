@@ -2,7 +2,9 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
-const PUBLIC_PREFIXES = ['/login', '/review', '/portal', '/auth']
+// `/api/creative` is token-authed at the route level (Bearer editor token, no
+// login session), so it must bypass the session redirect — same as `/review`.
+const PUBLIC_PREFIXES = ['/login', '/review', '/portal', '/auth', '/api/creative']
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!.trim()
 const PROJECT_REF = new URL(SUPABASE_URL).hostname.split('.')[0]
