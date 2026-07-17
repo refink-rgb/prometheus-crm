@@ -2,9 +2,10 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
-// /api/preview and /api/review are token-authed: the project's share_token IS
-// the authorization, so they must bypass the session check like /review itself.
-const PUBLIC_PREFIXES = ['/login', '/review', '/portal', '/auth', '/api/preview', '/api/review']
+// Token-authed routes bypass the session check: /api/preview and /api/review
+// use the project's share_token; /api/creative uses a Bearer editor token
+// validated at the route level.
+const PUBLIC_PREFIXES = ['/login', '/review', '/portal', '/auth', '/api/preview', '/api/review', '/api/creative']
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!.trim()
 const PROJECT_REF = new URL(SUPABASE_URL).hostname.split('.')[0]
