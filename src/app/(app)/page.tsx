@@ -2,6 +2,7 @@ import { createClient, getCachedUser } from '@/lib/supabase/server'
 import { getCachedProfiles } from '@/lib/profiles'
 import { canEdit } from '@/lib/permissions'
 import type { Project } from '@/lib/types'
+import { isJobEditor } from '@/lib/types'
 import { isProjectOverdue } from '@/lib/stageColors'
 import StageDistributionChart from '@/components/LazyStageDistributionChart'
 import PipelineTable from '@/components/PipelineTable'
@@ -40,7 +41,9 @@ export default async function DashboardPage() {
   const allBrands = (brands ?? []) as DashboardBrand[]
   const pipeline = (pipelineRaw ?? []) as unknown as PipelineProject[]
   const isAuthorized = canEdit(user?.email)
-  const myProfileId = profiles.find(p => p.email === user?.email?.toLowerCase())?.id ?? null
+  const myProfile = profiles.find(p => p.email === user?.email?.toLowerCase()) ?? null
+  const myProfileId = myProfile?.id ?? null
+  const editorOnly = isJobEditor(myProfile)
 
   const activeClients = allBrands.filter(b => (b.monthly_retainer ?? 0) > 0 && b.is_active)
   const mrr = activeClients.reduce((sum, b) => sum + (b.monthly_retainer ?? 0), 0)
@@ -52,6 +55,9 @@ export default async function DashboardPage() {
   const overdue = pipeline.filter(p =>
     isProjectOverdue(p.due_date, p.is_complete, p.lp_stage, p.creatives_stage)
   ).length
+  const myAssignmentsCount = myProfileId
+    ? pipeline.filter(p => p.lp_editor_id === myProfileId || p.creative_editor_id === myProfileId).length
+    : 0
 
   const projectsWithBrand = pipeline.map(p => ({ ...p, brand_name: p.brands.name }))
 
@@ -74,7 +80,9 @@ export default async function DashboardPage() {
         marginBottom: 'var(--space-6)',
       }}>
         {isAuthorized && (
-          <KPICard label="MRR" value={fmtCurrency(mrr)} tone="accent" />
+          editorOnly
+            ? <KPICard label="My Assignments" value={String(myAssignmentsCount)} tone="accent" />
+            : <KPICard label="MRR" value={fmtCurrency(mrr)} tone="accent" />
         )}
         <KPICard label="Active Projects" value={String(activeProjectsCount)} />
         <KPICard

@@ -7,7 +7,7 @@ import ThemeToggle from '@/components/ThemeToggle'
 
 interface SidebarProps {
   email?: string | null
-  canEdit: boolean
+  showFinancials: boolean
 }
 
 type NavItem = {
@@ -68,7 +68,7 @@ const BrandsIcon = (
   </svg>
 )
 
-export default function Sidebar({ email, canEdit }: SidebarProps) {
+export default function Sidebar({ email, showFinancials }: SidebarProps) {
   const pathname = usePathname()
 
   const items: NavItem[] = [
@@ -78,7 +78,7 @@ export default function Sidebar({ email, canEdit }: SidebarProps) {
       matches: (p) => p === '/',
       icon: DashboardIcon,
     },
-    ...(canEdit
+    ...(showFinancials
       ? [{
           href: '/financials',
           label: 'Financials',

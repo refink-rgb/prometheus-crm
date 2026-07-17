@@ -1,6 +1,8 @@
 import { redirect } from 'next/navigation'
 import { getCachedUser } from '@/lib/supabase/server'
 import { canEdit } from '@/lib/permissions'
+import { getCachedProfiles } from '@/lib/profiles'
+import { isJobEditor } from '@/lib/types'
 import { signOut } from '@/lib/actions'
 import Sidebar from '@/components/Sidebar'
 import { ToastProvider } from '@/components/Toast'
@@ -35,11 +37,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     )
   }
 
+  const profiles = await getCachedProfiles()
+  const myProfile = profiles.find(p => p.email === user.email?.toLowerCase()) ?? null
+  const showFinancials = isEditor && !isJobEditor(myProfile)
+
   return (
     <ToastProvider>
       <ConfirmDialogHost>
         <div style={{ minHeight: '100vh' }}>
-          <Sidebar email={user.email ?? null} canEdit={isEditor} />
+          <Sidebar email={user.email ?? null} showFinancials={showFinancials} />
           <div className="app-main" style={{ marginLeft: 220, minHeight: '100vh' }}>
             {children}
           </div>

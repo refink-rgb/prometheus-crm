@@ -1,8 +1,9 @@
 import { redirect } from 'next/navigation'
 import { createClient, getCachedUser } from '@/lib/supabase/server'
 import { canEdit } from '@/lib/permissions'
+import { getCachedProfiles } from '@/lib/profiles'
 import type { Brand, PipelineStatus } from '@/lib/types'
-import { PIPELINE_STATUS_LABELS, PIPELINE_STATUS_ORDER } from '@/lib/types'
+import { PIPELINE_STATUS_LABELS, PIPELINE_STATUS_ORDER, isJobEditor } from '@/lib/types'
 
 function calcMonths(startDate: string): number {
   const start = new Date(startDate)
@@ -28,6 +29,13 @@ export default async function FinancialsPage() {
   const supabase = await createClient()
   const user = await getCachedUser()
   if (!canEdit(user?.email)) {
+    redirect('/')
+  }
+
+  // LP/Creative editors can use the CRM but shouldn't see financial figures.
+  const profiles = await getCachedProfiles()
+  const myProfile = profiles.find(p => p.email === user?.email?.toLowerCase()) ?? null
+  if (isJobEditor(myProfile)) {
     redirect('/')
   }
 

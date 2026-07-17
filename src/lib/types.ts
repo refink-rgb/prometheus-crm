@@ -67,6 +67,13 @@ export function editorsFor(
   return profiles.filter(p => p[capability])
 }
 
+// LP/Creative editors are a job function, not an access level — they still
+// pass canEdit() and can use the CRM, but financial figures (MRR, /financials)
+// aren't relevant to their role and shouldn't be shown to them.
+export function isJobEditor(profile: Profile | null | undefined): boolean {
+  return !!profile && (profile.is_lp_editor || profile.is_creative_editor)
+}
+
 export interface Brand {
   id: string
   name: string
