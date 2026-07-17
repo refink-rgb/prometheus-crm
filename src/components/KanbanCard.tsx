@@ -68,8 +68,6 @@ function KanbanCardInner({ p, isGhost = false, columnStage, onMove, editorsById 
   return (
     <div
       ref={setNodeRef}
-      {...(isGhost ? {} : listeners)}
-      {...(isGhost ? {} : attributes)}
       className="kanban-card"
       style={{
         position: 'relative',
@@ -81,11 +79,49 @@ function KanbanCardInner({ p, isGhost = false, columnStage, onMove, editorsById 
         borderRadius: 10,
         overflow: 'hidden',
         opacity: isDragging ? 0.35 : 1,
-        cursor: isGhost ? 'grabbing' : isDragging ? 'grabbing' : 'grab',
         transform: CSS.Translate.toString(transform),
-        touchAction: 'none',
       }}
     >
+      {/* Drag handle — deliberately NOT on the same node as the Link below.
+          dnd-kit's pointer sensor swallows the click event on whatever
+          element its listeners are attached to, even for a plain click that
+          never crosses the activation distance, which silently ate every
+          first click on a card (confirmed live: click did nothing, a second
+          click then navigated). Keeping listeners off the Link fixes that. */}
+      {!isGhost && (
+        <div
+          {...listeners}
+          {...attributes}
+          aria-hidden="true"
+          tabIndex={-1}
+          title="Drag to move"
+          style={{
+            position: 'absolute',
+            top: 8,
+            right: 8,
+            width: 20,
+            height: 20,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderRadius: 5,
+            cursor: isDragging ? 'grabbing' : 'grab',
+            touchAction: 'none',
+            color: 'var(--text-muted)',
+            zIndex: 1,
+          }}
+        >
+          <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor">
+            <circle cx="2" cy="2" r="1.4" />
+            <circle cx="8" cy="2" r="1.4" />
+            <circle cx="2" cy="7" r="1.4" />
+            <circle cx="8" cy="7" r="1.4" />
+            <circle cx="2" cy="12" r="1.4" />
+            <circle cx="8" cy="12" r="1.4" />
+          </svg>
+        </div>
+      )}
+
       <Link
         href={`/brands/${p.brands.id}/projects/${p.id}`}
         style={{
@@ -97,10 +133,12 @@ function KanbanCardInner({ p, isGhost = false, columnStage, onMove, editorsById 
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
 
-          {/* Brand name */}
+          {/* Brand name — right-padded so the drag handle never overlaps a
+              long, ellipsis-truncated name. */}
           <div style={{
             fontSize: 11, color: 'var(--text-muted)',
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            paddingRight: 20,
           }}>
             {p.brands.name}
           </div>
