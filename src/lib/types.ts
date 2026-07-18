@@ -140,6 +140,9 @@ export interface Project {
   // journey & moment
   journey_id: string | null
   marketing_moment: 1 | 2 | null
+  // Offer Cycle linkage — set only on cards auto-created from an approved
+  // offer (Phase 3 Trigger B). Manual cards keep this null.
+  source_offer_card_id: string | null
   page_type: string | null
   product_featured: string | null
   product_description: string | null

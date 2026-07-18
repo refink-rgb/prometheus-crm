@@ -7,6 +7,7 @@
 // signed-off Phase 0 list: strategic + creative-only, no copy fields.
 
 import { useState, useTransition } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
   OFFER_STAGE_LABELS, OFFER_STAGE_ORDER,
@@ -124,6 +125,25 @@ export default function OfferCardDetail({
           )
         })}
       </div>
+
+      {/* Trigger B outcome: approval auto-creates the production card. */}
+      {card.derived_production_card_id && (
+        <div style={{
+          display: 'flex', gap: 8, alignItems: 'center',
+          background: 'color-mix(in srgb, var(--success) 8%, var(--surface))',
+          border: '1px solid color-mix(in srgb, var(--success) 30%, transparent)',
+          borderRadius: 10, padding: '10px 14px', marginBottom: 20,
+          fontSize: 'var(--text-sm)',
+        }}>
+          <span style={{ color: 'var(--success)', fontWeight: 600 }}>✓ Production card created</span>
+          <Link
+            href={`/brands/${card.brand_id}/projects/${card.derived_production_card_id}`}
+            style={{ color: 'var(--accent)', fontWeight: 600, textDecoration: 'none' }}
+          >
+            Open it →
+          </Link>
+        </div>
+      )}
 
       <form onSubmit={handleSave}>
         <fieldset disabled={!isEditor || isPending} style={{ border: 'none', padding: 0, margin: 0 }}>

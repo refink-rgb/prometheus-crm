@@ -22,3 +22,12 @@ export function daysBetween(fromIso: string, toIso: string): number {
   const ms = Date.parse(`${toIso}T00:00:00Z`) - Date.parse(`${fromIso}T00:00:00Z`)
   return Math.round(ms / 86_400_000)
 }
+
+// First day of the month AFTER the given date, as 'YYYY-MM-01'. The 24th-of-
+// month cron generates cards for the following month: run July 24 → August 1.
+export function followingMonthStart(iso: string): string {
+  const year = Number(iso.slice(0, 4))
+  const month = Number(iso.slice(5, 7)) // 1-12
+  const next = month === 12 ? { y: year + 1, m: 1 } : { y: year, m: month + 1 }
+  return `${next.y}-${String(next.m).padStart(2, '0')}-01`
+}

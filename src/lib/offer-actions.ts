@@ -13,6 +13,7 @@ import { createClient } from '@/lib/supabase/server'
 import { canEdit } from '@/lib/permissions'
 import { offerCardName, OFFER_STAGE_ORDER, type OfferStage } from '@/lib/types'
 import { actorFromUser, eventsEnabled, logEvents, type PipelineEventInput } from '@/lib/events'
+import { autoCreateEnabled, createProductionCardFromOffer } from '@/lib/offer-to-production'
 
 async function requireEditor() {
   const supabase = await createClient()
@@ -112,8 +113,22 @@ export async function updateOfferStage(cardId: string, stage: OfferStage) {
     await logEvents(events)
   }
 
-  // Phase 3 Trigger B hooks here: stage === 'offer_approved' → create the
-  // linked Production card. Deliberately absent in Phase 2.
+  // Phase 3 Trigger B: approval spawns the linked Production card. The offer
+  // stays in Offer Approved no matter what happens here (its stage update
+  // already committed above); a creation failure is surfaced loudly — thrown
+  // to the UI and error-logged for the Vercel log stream — never swallowed.
+  // The daily cron also reports any approved-but-unlinked offers as a net.
+  if (stage === 'offer_approved' && autoCreateEnabled()) {
+    try {
+      const result = await createProductionCardFromOffer(cardId, user.id)
+      revalidatePath(`/brands/${prev.brand_id}`)
+      if (result.created) revalidatePath('/')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error(`[offer-to-production] ALERT: offer ${cardId} approved but production card creation FAILED: ${msg}`)
+      throw new Error(`Offer is approved, but creating the production card failed: ${msg}. Fix the cause, then move the card out of Approved and back in to retry.`)
+    }
+  }
 
   revalidatePath('/offers')
   revalidatePath(`/offers/${cardId}`)
