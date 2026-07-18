@@ -13,6 +13,13 @@ import { canEdit } from '@/lib/permissions'
 import type { EditorTrack, Stage } from '@/lib/types'
 import { EDITOR_TRACK_META } from '@/lib/types'
 import {
+  actorFromUser,
+  eventsEnabled,
+  logEvents,
+  STAGE_COLUMN_TO_TRACK,
+  type PipelineEventInput,
+} from '@/lib/events'
+import {
   ensureDeleteSubfolder,
   extractDriveFolderId,
   hasDriveServiceAccount,
@@ -175,13 +182,84 @@ export async function updateProjectStage(
   if (!user) redirect('/login')
   if (!canEdit(user.email)) throw new Error('Not authorized.')
 
-  await supabase
+  // Event log needs the from-stage, so read before writing. Skipped entirely
+  // when instrumentation is killed via PROMETHEUS_EVENTS_DISABLED.
+  const prev = eventsEnabled()
+    ? (await supabase.from('projects').select('lp_stage, creatives_stage, marketing_moment').eq('id', projectId).single()).data
+    : null
+
+  const { error } = await supabase
     .from('projects')
     .update({ [track]: stage })
     .eq('id', projectId)
 
+  if (!error && prev && prev[track] !== stage) {
+    const actor = actorFromUser(user)
+    const eventTrack = STAGE_COLUMN_TO_TRACK[track]
+    const events: PipelineEventInput[] = [{
+      event_type: 'stage_changed',
+      card_id: projectId,
+      brand_id: brandId,
+      track: eventTrack,
+      from_stage: prev[track],
+      to_stage: stage,
+      ...actor,
+      payload: { marketing_moment: prev.marketing_moment },
+    }]
+    // Entering Client Review IS the "sent to client" signal for a track
+    // (per the signed-off Phase 0 semantics).
+    if (stage === 'client_review') {
+      events.push({
+        event_type: 'sent_to_client',
+        card_id: projectId,
+        brand_id: brandId,
+        track: eventTrack,
+        ...actor,
+        payload: { via: 'stage_change' },
+      })
+    }
+    await logEvents(events)
+  }
+
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)
   revalidatePath('/')
+}
+
+// One kanban drag / complete-click moves BOTH tracks — that's up to two
+// track-scoped stage_changed events, and only for tracks that actually moved.
+function bothTrackStageEvents(
+  projectId: string,
+  brandId: string,
+  prev: { lp_stage: Stage; creatives_stage: Stage; marketing_moment: number | null },
+  stage: Stage,
+  actor: { actor_id: string; actor_label: string },
+): PipelineEventInput[] {
+  const events: PipelineEventInput[] = []
+  for (const column of ['lp_stage', 'creatives_stage'] as const) {
+    if (prev[column] === stage) continue
+    const track = STAGE_COLUMN_TO_TRACK[column]
+    events.push({
+      event_type: 'stage_changed',
+      card_id: projectId,
+      brand_id: brandId,
+      track,
+      from_stage: prev[column],
+      to_stage: stage,
+      ...actor,
+      payload: { marketing_moment: prev.marketing_moment },
+    })
+    if (stage === 'client_review') {
+      events.push({
+        event_type: 'sent_to_client',
+        card_id: projectId,
+        brand_id: brandId,
+        track,
+        ...actor,
+        payload: { via: 'stage_change' },
+      })
+    }
+  }
+  return events
 }
 
 // Combined stage update — used by the pipeline kanban drag-drop, which always
@@ -197,10 +275,18 @@ export async function updateProjectStagesBoth(
   if (!user) redirect('/login')
   if (!canEdit(user.email)) throw new Error('Not authorized.')
 
-  await supabase
+  const prev = eventsEnabled()
+    ? (await supabase.from('projects').select('lp_stage, creatives_stage, marketing_moment').eq('id', projectId).single()).data
+    : null
+
+  const { error } = await supabase
     .from('projects')
     .update({ lp_stage: stage, creatives_stage: stage })
     .eq('id', projectId)
+
+  if (!error && prev) {
+    await logEvents(bothTrackStageEvents(projectId, brandId, prev, stage, actorFromUser(user)))
+  }
 
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)
   revalidatePath('/')
@@ -235,10 +321,22 @@ export async function toggleProjectRevisions(projectId: string, brandId: string,
   if (!user) redirect('/login')
   if (!canEdit(user.email)) throw new Error('Not authorized.')
 
-  await supabase
+  const { error } = await supabase
     .from('projects')
     .update({ needs_revisions: value })
     .eq('id', projectId)
+
+  // Flipping revisions ON = the PM logging a client revision request (card
+  // level — the flag isn't track-scoped). Flipping it off is bookkeeping.
+  if (!error && value) {
+    await logEvents([{
+      event_type: 'client_responded',
+      card_id: projectId,
+      brand_id: brandId,
+      ...actorFromUser(user),
+      payload: { response_type: 'revision_requested', via: 'needs_revisions_toggle' },
+    }])
+  }
 
   // needs_revisions is not shown on the dashboard — skip '/'.
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)
@@ -250,10 +348,18 @@ export async function markProjectComplete(projectId: string, brandId: string) {
   if (!user) redirect('/login')
   if (!canEdit(user.email)) throw new Error('Not authorized.')
 
-  await supabase
+  const prev = eventsEnabled()
+    ? (await supabase.from('projects').select('lp_stage, creatives_stage, marketing_moment').eq('id', projectId).single()).data
+    : null
+
+  const { error } = await supabase
     .from('projects')
     .update({ is_complete: true, lp_stage: 'done', creatives_stage: 'done' })
     .eq('id', projectId)
+
+  if (!error && prev) {
+    await logEvents(bothTrackStageEvents(projectId, brandId, prev, 'done', actorFromUser(user)))
+  }
 
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)
   revalidatePath('/')
@@ -741,6 +847,19 @@ export async function publishAssets(
     }
   }
 
+  // Publishing puts creatives in front of the client — a sent_to_client signal
+  // for the creative track, additional to the client_review stage transition.
+  if (published > 0) {
+    await logEvents([{
+      event_type: 'sent_to_client',
+      card_id: projectId,
+      brand_id: brandId,
+      track: 'creative',
+      ...actorFromUser(user),
+      payload: { via: 'publish_assets', published_count: published },
+    }])
+  }
+
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)
   revalidatePath(`/brands/${brandId}/projects/${projectId}/internal-review`)
   revalidatePath(`/review`, 'layout')
@@ -1211,6 +1330,32 @@ export async function approveProject(token: string, track: 'lp' | 'creatives') {
 
   if (error) throw new Error(error.message)
 
+  // No auth session on the token-gated review page, so resolve the project via
+  // the service client purely for the event's card/brand ids. logEvents never
+  // throws, and a failed lookup only costs the event — the approval stands.
+  if (eventsEnabled()) {
+    try {
+      const { createServiceClient } = await import('@/lib/supabase/service')
+      const { data: project } = await createServiceClient()
+        .from('projects')
+        .select('id, brand_id')
+        .eq('share_token', token)
+        .single()
+      if (project) {
+        await logEvents([{
+          event_type: 'client_responded',
+          card_id: project.id,
+          brand_id: project.brand_id,
+          track: track === 'lp' ? 'lp' : 'creative',
+          actor_label: 'client',
+          payload: { response_type: 'approved', via: 'review_link' },
+        }])
+      }
+    } catch (err) {
+      console.error('[events] approveProject lookup failed:', err)
+    }
+  }
+
   revalidatePath(`/review/${token}`)
 }
 
@@ -1491,11 +1636,27 @@ export async function assignProjectEditor(
     }
   }
 
+  const prev = eventsEnabled()
+    ? (await supabase.from('projects').select(column).eq('id', projectId).single()).data
+    : null
+
   const { error } = await supabase
     .from('projects')
     .update({ [column]: profileId })
     .eq('id', projectId)
   if (error) throw new Error(`Failed to assign editor: ${error.message}`)
+
+  const prevAssignee = prev ? (prev as unknown as Record<string, string | null>)[column] : null
+  if (prev && prevAssignee !== profileId) {
+    await logEvents([{
+      event_type: 'assigned',
+      card_id: projectId,
+      brand_id: brandId,
+      track: track === 'creative' ? 'creative' : 'lp',
+      ...actorFromUser(user),
+      payload: { assignee_id: profileId, previous_assignee_id: prevAssignee },
+    }])
+  }
 
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)
   revalidatePath('/pipeline')
