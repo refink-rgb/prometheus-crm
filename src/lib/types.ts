@@ -302,6 +302,70 @@ export interface BrandDna {
   updated_at: string
 }
 
+// ---------------------------------------------------------------------------
+// Offer Cycle (Prometheus Evolution Phase 2) — the upstream pipeline that
+// feeds the Production Cycle. Entirely separate from Stage/projects.
+// ---------------------------------------------------------------------------
+
+export type OfferStage =
+  | 'auto_generated'
+  | 'offer_draft'
+  | 'internal_offer_review'
+  | 'client_review'
+  | 'offer_approved'
+
+export const OFFER_STAGE_LABELS: Record<OfferStage, string> = {
+  auto_generated:        'Auto Generated',
+  offer_draft:           'Offer Draft',
+  internal_offer_review: 'Internal Review',
+  client_review:         'Client Review',
+  offer_approved:        'Approved',
+}
+
+export const OFFER_STAGE_ORDER: OfferStage[] = [
+  'auto_generated', 'offer_draft', 'internal_offer_review', 'client_review', 'offer_approved',
+]
+
+export interface OfferCard {
+  id: string
+  brand_id: string
+  // First day of the moment's month, 'YYYY-MM-DD'.
+  target_month: string
+  moment_slot: 1 | 2
+  name: string
+  stage: OfferStage
+  // Strategic fields — same column names as Project, flow to the Production
+  // Brief on approval (Phase 3).
+  offer_dynamics_type: string | null
+  offer: string | null
+  offer_description: string | null
+  product_featured: string | null
+  product_description: string | null
+  retail_price: string | null
+  page_type: string | null
+  // Creative-only fields — stay on the offer, never auto-populate.
+  competitor_reference: string | null
+  client_ad_inspiration: string | null
+  product_images_link: string | null
+  // Production card auto-created on approval (Phase 3). Null until then.
+  derived_production_card_id: string | null
+  created_at: string
+  created_by: string | null
+  brand?: Brand
+}
+
+// 'August 2026' from a target_month DATE string. Forced UTC so the label never
+// shifts a day across timezones.
+export function offerMonthLabel(targetMonth: string): string {
+  return new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+    .format(new Date(`${targetMonth.slice(0, 10)}T00:00:00Z`))
+}
+
+// Naming convention from the brief: 'Contour Design · August 2026 · M1 Offer'.
+export function offerCardName(brandName: string, targetMonth: string, momentSlot: 1 | 2): string {
+  return `${brandName} · ${offerMonthLabel(targetMonth)} · M${momentSlot} Offer`
+}
+
 export const STAGE_LABELS: Record<Stage, string> = {
   brief:           'Brief',
   in_progress:     'In Progress',

@@ -23,6 +23,18 @@ export const STAGE_COLORS = {
   done:            { border: '#10B981', bg: 'rgba(16,185,129,0.16)',  text: '#34D399' },
 } satisfies Record<Stage, { border: string; bg: string; text: string }>
 
+// Offer Cycle columns reuse the production palette so the two boards read as
+// one visual system: same slate→blue→indigo→amber ramp, green for terminal.
+import type { OfferStage } from './types'
+
+export const OFFER_STAGE_COLORS = {
+  auto_generated:        STAGE_COLORS.brief,
+  offer_draft:           STAGE_COLORS.in_progress,
+  internal_offer_review: STAGE_COLORS.internal_review,
+  client_review:         STAGE_COLORS.client_review,
+  offer_approved:        STAGE_COLORS.done,
+} satisfies Record<OfferStage, { border: string; bg: string; text: string }>
+
 export function overallProgress(lpStage: Stage | null, creativesStage: Stage | null): number {
   const lp  = lpStage        ? STAGE_PCT[lpStage]        : 0
   const cre = creativesStage ? STAGE_PCT[creativesStage] : 0

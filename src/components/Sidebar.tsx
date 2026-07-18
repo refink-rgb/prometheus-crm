@@ -43,6 +43,13 @@ const PipelineIcon = (
   </svg>
 )
 
+const OffersIcon = (
+  <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M20.6 13.4L11 3.8A2 2 0 009.6 3.2H5a2 2 0 00-2 2v4.6c0 .5.2 1 .6 1.4l9.6 9.6a2 2 0 002.8 0l4.6-4.6a2 2 0 000-2.8z" />
+    <circle cx="7.5" cy="7.5" r="1" fill="currentColor" stroke="none" />
+  </svg>
+)
+
 const CalendarIcon = (
   <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
     <rect x="3" y="5" width="18" height="16" rx="2" />
@@ -95,6 +102,12 @@ export default function Sidebar({ email, showFinancials }: SidebarProps) {
           icon: FinancialsIcon,
         }]
       : []),
+    {
+      href: '/offers',
+      label: 'Offers',
+      matches: (p) => p.startsWith('/offers'),
+      icon: OffersIcon,
+    },
     {
       href: '/pipeline',
       label: 'Pipeline',
