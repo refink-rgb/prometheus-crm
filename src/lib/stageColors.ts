@@ -92,6 +92,34 @@ export function parseAndDaysUntil(dueDateStr: string | null | undefined): { due:
   return { due, daysUntil: Math.round((due.getTime() - localMidnightToday()) / 86_400_000) }
 }
 
+// Which project column holds the target date for each stage. Only the four
+// "in-flight" stages have a per-phase due date — live/done can't slip, so they
+// map to null and callers fall back to the go-live date (`due_date`). Mirrors
+// STAGE_DUE_COLUMN in the daily cron so the board and the slip scan agree on
+// which date governs which stage.
+export const STAGE_DUE_FIELD = {
+  brief:           'stage_brief_due_date',
+  in_progress:     'stage_in_progress_due_date',
+  internal_review: 'stage_internal_review_due_date',
+  client_review:   'stage_client_review_due_date',
+  live:            null,
+  done:            null,
+} as const satisfies Record<Stage, string | null>
+
+export type PhaseDueTone = 'neutral' | 'urgent' | 'overdue'
+
+// Urgency of a phase target date, independent of the go-live date. A phase is
+// the actionable deadline ("this has to leave the column") so it flares earlier
+// and louder than the calm go-live anchor: overdue once past, urgent within 3
+// days. `null` when there is no date to judge.
+export function phaseDueTone(dueDateStr: string | null | undefined): PhaseDueTone | null {
+  const days = calcDaysUntil(dueDateStr)
+  if (days === null) return null
+  if (days < 0) return 'overdue'
+  if (days <= 3) return 'urgent'
+  return 'neutral'
+}
+
 export function isProjectLive(lpStage: Stage | null, creativesStage: Stage | null): boolean {
   const shipped = (s: Stage | null) => s === 'live' || s === 'done'
   return shipped(lpStage) && shipped(creativesStage)

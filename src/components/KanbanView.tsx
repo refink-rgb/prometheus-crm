@@ -11,7 +11,7 @@ import {
 } from '@dnd-kit/core'
 import { STAGE_ORDER, STAGE_LABELS, profileName, type Stage, type Project, type Profile } from '@/lib/types'
 import { updateProjectStagesBoth } from '@/lib/actions'
-import { isProjectOverdue, STAGE_COLORS } from '@/lib/stageColors'
+import { isProjectOverdue, phaseDueTone, STAGE_COLORS, STAGE_DUE_FIELD } from '@/lib/stageColors'
 import KanbanCard from './KanbanCard'
 
 type PipelineProject = Project & { brands: { id: string; name: string } }
@@ -332,6 +332,13 @@ function KanbanColumnInner({
   const color = STAGE_COLORS[stage]
   const { setNodeRef } = useDroppable({ id: stage })
 
+  // How many cards in this column are past this stage's own target date — the
+  // "should have left by now" count, distinct from the go-live overdue state.
+  const dueField = STAGE_DUE_FIELD[stage]
+  const overdueCount = dueField
+    ? cards.filter(c => phaseDueTone(c[dueField as keyof PipelineProject] as string | null) === 'overdue').length
+    : 0
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, height: '100%' }}>
       {/* Column header */}
@@ -353,12 +360,26 @@ function KanbanColumnInner({
         }}>
           {STAGE_LABELS[stage]}
         </span>
-        <span style={{
-          fontSize: 'var(--text-xs)', fontWeight: 700, color: color.text,
-          background: color.bg,
-          borderRadius: 12, padding: '1px 8px',
-        }}>
-          {cards.length}
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          {overdueCount > 0 && (
+            <span
+              title={`${overdueCount} past this stage's target date`}
+              style={{
+                fontSize: 'var(--text-xs)', fontWeight: 700, color: 'var(--danger)',
+                background: 'rgba(239,68,68,0.12)',
+                borderRadius: 12, padding: '1px 8px',
+              }}
+            >
+              {overdueCount} overdue
+            </span>
+          )}
+          <span style={{
+            fontSize: 'var(--text-xs)', fontWeight: 700, color: color.text,
+            background: color.bg,
+            borderRadius: 12, padding: '1px 8px',
+          }}>
+            {cards.length}
+          </span>
         </span>
       </div>
 

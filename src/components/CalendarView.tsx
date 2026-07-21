@@ -345,7 +345,7 @@ function DayDetailModal({
                     {m.projectName}
                   </span>
                   <span style={{ fontSize: 'var(--text-xs)', color: colors.text, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    {m.brandName} · {STAGE_LABELS[m.stage]}
+                    {m.brandName} · {m.stage === 'live' ? 'Go-live' : STAGE_LABELS[m.stage]}
                   </span>
                 </Link>
               )
@@ -360,29 +360,50 @@ function DayDetailModal({
 
 function MarkerPill({ marker }: { marker: Marker }) {
   const colors = STAGE_COLORS[marker.stage]
+  // Go-live is a commitment, not an internal target — it reads as a distinct
+  // kind of marker: a solid green pill with a launch glyph and heavier weight,
+  // so a glance at the month surfaces the launches above the phase targets.
+  const isLive = marker.stage === 'live'
+  const label = isLive ? `Go-live: ${marker.brandName} — ${marker.projectName}` : `${marker.brandName} — ${marker.projectName} · ${STAGE_LABELS[marker.stage]}`
   return (
     <Link
       href={`/brands/${marker.brandId}/projects/${marker.projectId}`}
-      title={`${marker.brandName} — ${marker.projectName} · ${STAGE_LABELS[marker.stage]}`}
+      title={label}
       className="focus-ring-pill calendar-event-link"
       style={{
         fontSize: 'var(--text-xs)',
+        fontWeight: isLive ? 600 : 400,
         color: colors.text,
         background: colors.bg,
         borderLeft: `3px solid ${colors.border}`,
+        border: isLive ? `1px solid color-mix(in srgb, ${colors.border} 55%, transparent)` : undefined,
+        borderLeftWidth: 3,
         padding: '2px 6px',
-        borderRadius: 3,
+        borderRadius: isLive ? 5 : 3,
         textDecoration: 'none',
-        display: 'block',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 4,
         overflow: 'hidden',
-        textOverflow: 'ellipsis',
         whiteSpace: 'nowrap',
         lineHeight: 1.3,
         minWidth: 0,
       }}
     >
-      {marker.projectName}
+      {isLive && <RocketIcon />}
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{marker.projectName}</span>
     </Link>
+  )
+}
+
+function RocketIcon() {
+  return (
+    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
+      <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" />
+      <path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" />
+      <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0" />
+      <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" />
+    </svg>
   )
 }
 
@@ -392,11 +413,18 @@ function StageLegend() {
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-3)', fontSize: 'var(--text-xs)' }}>
       {stages.map(s => (
         <div key={s} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          {s === 'live' ? (
+            <span style={{ color: STAGE_COLORS.live.text, display: 'inline-flex' }}><RocketIcon /></span>
+          ) : (
+            <span style={{
+              width: 8, height: 8, borderRadius: 2,
+              background: STAGE_COLORS[s].border,
+            }} />
+          )}
           <span style={{
-            width: 8, height: 8, borderRadius: 2,
-            background: STAGE_COLORS[s].border,
-          }} />
-          <span style={{ color: 'var(--text-muted)' }}>{STAGE_LABELS[s]}</span>
+            color: s === 'live' ? STAGE_COLORS.live.text : 'var(--text-muted)',
+            fontWeight: s === 'live' ? 600 : 400,
+          }}>{s === 'live' ? 'Go-live' : STAGE_LABELS[s]}</span>
         </div>
       ))}
     </div>

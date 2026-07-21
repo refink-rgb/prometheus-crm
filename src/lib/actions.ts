@@ -293,6 +293,43 @@ export async function updateProjectStagesBoth(
   revalidatePath('/pipeline')
 }
 
+// Inline edit of a single stage's target date from the pipeline board, so a PM
+// can set/clear a phase deadline without opening the project. Manual by design
+// — the board is where these dates get managed. Pass `date` as YYYY-MM-DD, or
+// null to clear. Only the four in-flight stages carry a date column; live/done
+// are rejected.
+const STAGE_DUE_COLUMN: Partial<Record<Stage, string>> = {
+  brief:           'stage_brief_due_date',
+  in_progress:     'stage_in_progress_due_date',
+  internal_review: 'stage_internal_review_due_date',
+  client_review:   'stage_client_review_due_date',
+}
+
+export async function updateProjectStageDueDate(
+  projectId: string,
+  brandId: string,
+  stage: Stage,
+  date: string | null
+) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
+
+  const column = STAGE_DUE_COLUMN[stage]
+  if (!column) throw new Error(`Stage "${stage}" has no target date.`)
+
+  const { error } = await supabase
+    .from('projects')
+    .update({ [column]: date })
+    .eq('id', projectId)
+  if (error) throw new Error(error.message)
+
+  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+  revalidatePath('/pipeline')
+  revalidatePath('/calendar')
+}
+
 export async function updateProjectDeliverable(formData: FormData) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()

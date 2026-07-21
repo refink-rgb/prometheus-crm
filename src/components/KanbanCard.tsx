@@ -1,11 +1,12 @@
 'use client'
 
-import { memo } from 'react'
+import { memo, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useDraggable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
 import { STAGE_ORDER, STAGE_LABELS, profileName, type Stage, type Project, type Profile } from '@/lib/types'
-import { isProjectOverdue, parseAndDaysUntil, STAGE_COLORS } from '@/lib/stageColors'
+import { isProjectOverdue, parseAndDaysUntil, parseDueDate, phaseDueTone, STAGE_COLORS, STAGE_DUE_FIELD, type PhaseDueTone } from '@/lib/stageColors'
+import { updateProjectStageDueDate } from '@/lib/actions'
 import Avatar from '@/components/Avatar'
 
 type PipelineProject = Project & { brands: { id: string; name: string } }
@@ -44,9 +45,14 @@ function KanbanCardInner({ p, isGhost = false, columnStage, onMove, editorsById 
   const cardIdx = Math.min(lpIdx, crIdx)
   const aligned = p.lp_stage === p.creatives_stage
 
-  const { due, daysUntil: daysLeft } = parseAndDaysUntil(p.due_date)
+  const { due } = parseAndDaysUntil(p.due_date)
   const isOverdue = isProjectOverdue(p.due_date, p.is_complete, p.lp_stage, p.creatives_stage)
-  const isUrgent = !isOverdue && daysLeft !== null && daysLeft >= 0 && daysLeft <= 7
+
+  // Phase target date: the deadline for the column this card sits in (the
+  // constraining track's stage). Live/done have no phase date — those cards
+  // show only the go-live anchor. `columnStage` is absent on the drag overlay.
+  const phaseField = columnStage ? STAGE_DUE_FIELD[columnStage] : null
+  const phaseDate = phaseField ? ((p[phaseField as keyof Project] as string | null) ?? null) : null
 
   const progress = Math.round(((lpIdx + crIdx) / (5 * 2)) * 100)
 
@@ -169,8 +175,30 @@ function KanbanCardInner({ p, isGhost = false, columnStage, onMove, editorsById 
             </div>
           )}
 
-          {/* Bottom row: editors left, due date right. Rendered when either is
-              present — the due date used to be the row's only reason to exist. */}
+        </div>
+      </Link>
+
+      {/* Deadline zone — two distinct dates, two visual languages. Sits OUTSIDE
+          the Link so the inline date editor's controls aren't nested in an
+          anchor, and stops pointerdown so editing never engages the drag
+          sensor. Phase target = the actionable deadline (flares amber/red);
+          go-live = the calm green anchor. */}
+      {!isGhost && (
+        <div
+          onPointerDown={e => e.stopPropagation()}
+          style={{ padding: '0 14px 10px', display: 'flex', flexDirection: 'column', gap: 6 }}
+        >
+          {/* Phase target — editable inline. Hidden for live/done columns. */}
+          {phaseField && columnStage && (
+            <PhaseDueControl
+              projectId={p.id}
+              brandId={p.brands.id}
+              stage={columnStage}
+              initialDate={phaseDate}
+            />
+          )}
+
+          {/* Bottom row: editors left, go-live anchor right. */}
           {(p.due_date || lpEditor || creativeEditor) && (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
               <div style={{ display: 'flex', gap: 3, flexShrink: 0 }}>
@@ -182,23 +210,25 @@ function KanbanCardInner({ p, isGhost = false, columnStage, onMove, editorsById 
                 )}
               </div>
               {p.due_date && (
-                <span style={{
-                  fontSize: 11,
-                  color: isOverdue ? 'var(--danger)' : isUrgent ? 'var(--warning)' : 'var(--text-muted)',
-                  fontWeight: isOverdue || isUrgent ? 600 : 400,
-                  display: 'inline-flex', alignItems: 'center', gap: 4,
-                }}>
-                  <span style={{
-                    width: 5, height: 5, borderRadius: '50%', flexShrink: 0,
-                    background: isOverdue ? 'var(--danger)' : isUrgent ? 'var(--warning)' : 'var(--text-muted)',
-                  }} />
-                  {due?.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                <span
+                  title={`Go-live ${due?.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`}
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: isOverdue ? 'var(--danger)' : STAGE_COLORS.live.text,
+                    background: isOverdue ? 'rgba(239,68,68,0.1)' : STAGE_COLORS.live.bg,
+                    borderRadius: 20, padding: '2px 8px',
+                    display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0,
+                  }}
+                >
+                  <RocketIcon />
+                  Go-live · {due?.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                 </span>
               )}
             </div>
           )}
         </div>
-      </Link>
+      )}
 
       {/* Keyboard-operable move controls — equivalent to mouse/touch drag.
           Sits outside the Link (not nested inside an anchor) and stops
@@ -251,6 +281,141 @@ function KanbanCardInner({ p, isGhost = false, columnStage, onMove, editorsById 
 // renders (comes straight from server data), so shallow-equal props is enough.
 const KanbanCard = memo(KanbanCardInner)
 export default KanbanCard
+
+const PHASE_TONE_COLOR: Record<PhaseDueTone, string> = {
+  neutral: 'var(--text-muted)',
+  urgent:  'var(--warning)',
+  overdue: 'var(--danger)',
+}
+
+// The phase target date for the card's current column, editable inline so a PM
+// sets a deadline without leaving the board. Optimistic: the picked value shows
+// immediately; a failed save reverts it. Only the column's own stage date is
+// editable here — the actionable one — the rest live on the project page.
+function PhaseDueControl({
+  projectId,
+  brandId,
+  stage,
+  initialDate,
+}: {
+  projectId: string
+  brandId: string
+  stage: Stage
+  initialDate: string | null
+}) {
+  const [override, setOverride] = useState<{ v: string | null } | null>(null)
+  const [editing, setEditing] = useState(false)
+  const [, startSave] = useTransition()
+
+  const date = override ? override.v : initialDate
+  const label = STAGE_LABELS[stage]
+
+  function commit(next: string) {
+    const v = next || null
+    setOverride({ v })
+    setEditing(false)
+    startSave(async () => {
+      try {
+        await updateProjectStageDueDate(projectId, brandId, stage, v)
+      } catch {
+        setOverride(null)
+      }
+    })
+  }
+
+  if (editing) {
+    return (
+      <input
+        type="date"
+        autoFocus
+        defaultValue={date ?? ''}
+        onChange={e => commit(e.target.value)}
+        onBlur={() => setEditing(false)}
+        aria-label={`Set ${label} target date`}
+        style={{
+          fontSize: 11, padding: '2px 6px', width: '100%',
+          borderRadius: 6, border: '1px solid var(--border)',
+          background: 'var(--surface)', color: 'var(--text-primary)',
+        }}
+      />
+    )
+  }
+
+  if (!date) {
+    return (
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        className="focus-ring-pill"
+        style={{
+          alignSelf: 'flex-start',
+          display: 'inline-flex', alignItems: 'center', gap: 4,
+          fontSize: 11, color: 'var(--text-muted)',
+          background: 'transparent',
+          border: '1px dashed var(--border-strong, var(--border))',
+          borderRadius: 20, padding: '2px 9px', cursor: 'pointer',
+        }}
+      >
+        + Set {label} date
+      </button>
+    )
+  }
+
+  const tone = phaseDueTone(date) ?? 'neutral'
+  const color = PHASE_TONE_COLOR[tone]
+  const { daysUntil } = parseAndDaysUntil(date)
+  const shortDate = parseDueDate(date)?.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  const pill =
+    tone === 'overdue'
+      ? daysUntil !== null ? `${Math.abs(daysUntil)}d late` : 'Overdue'
+      : daysUntil !== null ? `${daysUntil}d` : ''
+
+  return (
+    <button
+      type="button"
+      onClick={() => setEditing(true)}
+      className="focus-ring-pill"
+      title={`Leave ${label} by ${shortDate} — click to edit`}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 6, width: '100%',
+        background: 'transparent', border: 'none', padding: 0, cursor: 'pointer',
+        fontSize: 11, color,
+      }}
+    >
+      <ClockIcon />
+      <span style={{ color: 'var(--text-muted)' }}>Leave {label} by</span>
+      <span style={{
+        marginLeft: 'auto', flexShrink: 0,
+        fontWeight: 600, color,
+        background: tone === 'neutral' ? 'transparent' : `color-mix(in srgb, ${color} 14%, transparent)`,
+        borderRadius: 20, padding: tone === 'neutral' ? 0 : '1px 8px',
+        display: 'inline-flex', alignItems: 'center', gap: 5,
+      }}>
+        {shortDate}{pill && <span style={{ opacity: 0.85 }}>· {pill}</span>}
+      </span>
+    </button>
+  )
+}
+
+function ClockIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true" style={{ flexShrink: 0 }}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function RocketIcon() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
+      <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" />
+      <path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" />
+      <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0" />
+      <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" />
+    </svg>
+  )
+}
 
 function TrackBadge({ label, stage, approved }: { label: string; stage: Stage; approved: boolean }) {
   const color = STAGE_COLORS[stage]

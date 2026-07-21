@@ -19,7 +19,7 @@ export default async function PipelinePage() {
   const [{ data: pipelineRaw }, profiles] = await Promise.all([
     supabase
       .from('projects')
-      .select('id, name, brand_id, due_date, is_complete, lp_stage, creatives_stage, lp_approved, creatives_approved, lp_editor_id, creative_editor_id, brands(id, name)')
+      .select('id, name, brand_id, due_date, stage_brief_due_date, stage_in_progress_due_date, stage_internal_review_due_date, stage_client_review_due_date, is_complete, lp_stage, creatives_stage, lp_approved, creatives_approved, lp_editor_id, creative_editor_id, brands(id, name)')
       .eq('is_complete', false)
       .order('due_date', { ascending: true }),
     getCachedProfiles(),
