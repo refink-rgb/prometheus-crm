@@ -332,51 +332,59 @@ export default function BrandDnaPanel({ brandId, dna }: { brandId: string; dna: 
             </div>
           </div>
 
-          {/* Sources */}
-          {dna.sources && dna.sources.length > 0 && (
-            <div style={{ marginBottom: 24 }}>
-              <div style={SECTION_LABEL}>Sources ({dna.sources.length})</div>
-              <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-                {dna.sources.map((s, i) => (
-                  <li key={i} style={{ marginBottom: 4 }}>
-                    <a href={s.url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-primary)' }}>
-                      {s.url}
-                    </a>
-                    {' — '}
-                    <span style={{ color: 'var(--text-muted)' }}>{s.field}</span>
-                    {s.note && <span style={{ color: 'var(--text-muted)' }}>: {s.note}</span>}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {/* Full research markdown */}
-          {dna.research_markdown && (
+          {/* Research dossier + sources — collapsed by default. Sources live
+              inside the expander so the main panel stays free of link clutter. */}
+          {(dna.research_markdown || (dna.sources && dna.sources.length > 0)) && (
             <div>
               <button
                 onClick={() => setShowResearch(v => !v)}
                 className="btn-secondary"
                 style={{ fontSize: 12 }}
               >
-                {showResearch ? 'Hide' : 'Show'} full research dossier
+                {showResearch ? 'Hide' : 'Show'} research dossier & sources
+                {dna.sources && dna.sources.length > 0 && !showResearch && (
+                  <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> ({dna.sources.length} sources)</span>
+                )}
               </button>
               {showResearch && (
-                <pre style={{
+                <div style={{
                   marginTop: 12,
                   padding: 16,
                   background: 'var(--surface-raised)',
                   border: '1px solid var(--border)',
                   borderRadius: 8,
-                  fontSize: 12,
-                  lineHeight: 1.6,
-                  color: 'var(--text-secondary)',
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-word',
-                  fontFamily: 'inherit',
                 }}>
-                  {dna.research_markdown}
-                </pre>
+                  {dna.research_markdown && (
+                    <pre style={{
+                      margin: 0,
+                      fontSize: 12,
+                      lineHeight: 1.6,
+                      color: 'var(--text-secondary)',
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                      fontFamily: 'inherit',
+                    }}>
+                      {dna.research_markdown}
+                    </pre>
+                  )}
+                  {dna.sources && dna.sources.length > 0 && (
+                    <div style={{ marginTop: dna.research_markdown ? 16 : 0, paddingTop: dna.research_markdown ? 16 : 0, borderTop: dna.research_markdown ? '1px solid var(--border)' : 'none' }}>
+                      <div style={SECTION_LABEL}>Sources ({dna.sources.length})</div>
+                      <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                        {dna.sources.map((s, i) => (
+                          <li key={i} style={{ marginBottom: 4 }}>
+                            <a href={s.url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-primary)' }}>
+                              {s.url}
+                            </a>
+                            {' — '}
+                            <span style={{ color: 'var(--text-muted)' }}>{s.field}</span>
+                            {s.note && <span style={{ color: 'var(--text-muted)' }}>: {s.note}</span>}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           )}
