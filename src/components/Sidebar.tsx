@@ -76,6 +76,13 @@ const BrandsIcon = (
   </svg>
 )
 
+const InsightsIcon = (
+  <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 3v18h18" />
+    <path d="M7 15l3.5-4 3 2.5L21 7" />
+  </svg>
+)
+
 const InspirationIcon = (
   <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
     <rect x="3" y="3" width="7" height="9" rx="1" />
@@ -114,6 +121,12 @@ export default function Sidebar({ email, showFinancials }: SidebarProps) {
       label: 'Pipeline',
       matches: (p) => p.startsWith('/pipeline'),
       icon: PipelineIcon,
+    },
+    {
+      href: '/insights',
+      label: 'Insights',
+      matches: (p) => p.startsWith('/insights'),
+      icon: InsightsIcon,
     },
     {
       href: '/calendar',

@@ -109,6 +109,17 @@
 
   /* ── Focus ring ── */
   --focus-ring: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent);
+
+  /* ── Insights charts (dark-mode steps; light overrides below) ──
+   * Single-series bars use one blue; the slip histogram uses a red ordinal
+   * ramp (low→high severity) + status green for on-time. Both ramps were
+   * validated per mode against the actual surfaces (dataviz validator). */
+  --viz-series:  #3987e5;
+  --viz-ontime:  #22c55e;
+  --viz-slip-1:  #fca5a5;
+  --viz-slip-2:  #f87171;
+  --viz-slip-3:  #ef4444;
+  --viz-slip-4:  #b91c1c;
 }
 
 /* ── Light theme ── Overrides only what needs to change. Accents, stage
@@ -130,6 +141,13 @@ html.theme-light {
 
   /* Slightly stronger accent tint so orange-on-white doesn't wash out. */
   --accent-muted:       rgba(249, 115, 22, 0.14);
+
+  /* Insights charts — light-mode steps (validated against white). */
+  --viz-series:  #2a78d6;
+  --viz-slip-1:  #f87171;
+  --viz-slip-2:  #ef4444;
+  --viz-slip-3:  #b91c1c;
+  --viz-slip-4:  #7f1d1d;
 
   /* Stage backgrounds: bump alpha up so tints stay legible on white. */
   --stage-brief-bg:     rgba(148, 163, 184, 0.20);

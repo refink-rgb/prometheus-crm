@@ -11,6 +11,11 @@ export function easternToday(): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: EASTERN }).format(new Date())
 }
 
+// 'YYYY-MM-DD' in Eastern time for an arbitrary instant (timestamptz ISO string).
+export function easternDateOf(iso: string): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: EASTERN }).format(new Date(iso))
+}
+
 // Day-of-month (1-31) in Eastern time.
 export function easternDayOfMonth(): number {
   return Number(easternToday().slice(8, 10))
