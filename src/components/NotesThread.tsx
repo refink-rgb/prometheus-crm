@@ -287,7 +287,7 @@ export default function NotesThread({
           <button
             type="submit"
             disabled={saving || uploading || (!content.trim() && attachments.length === 0) || (mode === 'client' && !authorName.trim())}
-            className="btn-secondary"
+            className="btn-accent-outline"
             style={{ fontSize: 12, padding: '6px 14px' }}
           >
             {saving ? 'Posting...' : 'Post note'}

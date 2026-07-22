@@ -5,6 +5,11 @@
 // The form is uncontrolled by design (defaultValue + FormData on save),
 // following ProjectEditForm's re-render-perf lesson. Field set = the
 // signed-off Phase 0 list: strategic + creative-only, no copy fields.
+//
+// Presentation reuses the shared design system (.card, global label/input
+// styling, .form-grid-2, .btn-* classes) and the OFFER_STAGE_COLORS ramp so
+// this detail view reads as the same product as the Offer Cycle / pipeline
+// boards, not a bespoke settings form.
 
 import { useState, useTransition } from 'react'
 import Link from 'next/link'
@@ -40,6 +45,8 @@ export default function OfferCardDetail({
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
+
+  const stageColor = OFFER_STAGE_COLORS[card.stage]
 
   function setStage(stage: OfferStage) {
     setError(null)
@@ -81,25 +88,25 @@ export default function OfferCardDetail({
     })
   }
 
-  const labelStyle: React.CSSProperties = {
-    display: 'block', fontSize: 12, fontWeight: 600,
-    color: 'var(--text-secondary)', marginBottom: 4,
-  }
-  const fieldWrap: React.CSSProperties = { marginBottom: 14 }
   const sectionTitle: React.CSSProperties = {
     fontSize: 'var(--text-xs)', fontWeight: 700, color: 'var(--text-muted)',
     textTransform: 'uppercase', letterSpacing: '0.08em',
-    margin: '22px 0 12px',
+    margin: '0 0 16px',
   }
+  const field: React.CSSProperties = { marginBottom: 14 }
 
   return (
     <div>
-      {/* Stage stepper */}
-      <div style={{
-        display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center',
-        background: 'var(--surface)', border: '1px solid var(--border)',
-        borderRadius: 10, padding: '10px 14px', marginBottom: 20,
-      }}>
+      {/* Stage stepper — carries the offer's stage color as a left accent so it
+          echoes the board card it came from. */}
+      <div
+        className="card"
+        style={{
+          display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center',
+          borderLeft: `3px solid ${stageColor.border}`,
+          padding: '12px 16px', marginBottom: 16,
+        }}
+      >
         {OFFER_STAGE_ORDER.map(stage => {
           const color = OFFER_STAGE_COLORS[stage]
           const active = card.stage === stage
@@ -132,7 +139,7 @@ export default function OfferCardDetail({
           display: 'flex', gap: 8, alignItems: 'center',
           background: 'color-mix(in srgb, var(--success) 8%, var(--surface))',
           border: '1px solid color-mix(in srgb, var(--success) 30%, transparent)',
-          borderRadius: 10, padding: '10px 14px', marginBottom: 20,
+          borderRadius: 12, padding: '12px 16px', marginBottom: 16,
           fontSize: 'var(--text-sm)',
         }}>
           <span style={{ color: 'var(--success)', fontWeight: 600 }}>✓ Production card created</span>
@@ -147,74 +154,74 @@ export default function OfferCardDetail({
 
       <form onSubmit={handleSave}>
         <fieldset disabled={!isEditor || isPending} style={{ border: 'none', padding: 0, margin: 0 }}>
-          <h2 style={{ ...sectionTitle, marginTop: 0 }}>The Offer</h2>
+          <section className="card" style={{ marginBottom: 16 }}>
+            <h2 style={sectionTitle}>The Offer</h2>
 
-          <div style={fieldWrap}>
-            <label style={labelStyle}>Offer Dynamics</label>
-            <select name="offer_dynamics_type" defaultValue={card.offer_dynamics_type ?? ''} style={{ marginBottom: 8 }}>
-              <option value="">Select type…</option>
-              {OFFER_DYNAMICS_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
-            </select>
-            <input type="text" name="offer" defaultValue={card.offer ?? ''} placeholder="Details — e.g. Buy 2 Get 1 Free, 20% off orders $75+" />
-          </div>
+            <div style={field}>
+              <label>Offer Dynamics</label>
+              <select name="offer_dynamics_type" defaultValue={card.offer_dynamics_type ?? ''} style={{ marginBottom: 8 }}>
+                <option value="">Select type…</option>
+                {OFFER_DYNAMICS_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+              </select>
+              <input type="text" name="offer" defaultValue={card.offer ?? ''} placeholder="Details — e.g. Buy 2 Get 1 Free, 20% off orders $75+" />
+            </div>
 
-          <div style={fieldWrap}>
-            <label style={labelStyle}>Offer Description</label>
-            <textarea name="offer_description" defaultValue={card.offer_description ?? ''} rows={4} style={{ resize: 'vertical' }} placeholder="The full mechanics and angle of this offer…" />
-          </div>
+            <div style={{ ...field, marginBottom: 0 }}>
+              <label>Offer Description</label>
+              <textarea name="offer_description" defaultValue={card.offer_description ?? ''} rows={4} style={{ resize: 'vertical' }} placeholder="The full mechanics and angle of this offer…" />
+            </div>
+          </section>
 
-          <h2 style={sectionTitle}>Product</h2>
+          <section className="card" style={{ marginBottom: 16 }}>
+            <h2 style={sectionTitle}>Product</h2>
 
-          <div style={fieldWrap}>
-            <label style={labelStyle}>Product Featured</label>
-            <input type="text" name="product_featured" defaultValue={card.product_featured ?? ''} placeholder="e.g. Viking Beard Oil 3-Pack" />
-          </div>
+            <div style={field}>
+              <label>Product Featured</label>
+              <input type="text" name="product_featured" defaultValue={card.product_featured ?? ''} placeholder="e.g. Viking Beard Oil 3-Pack" />
+            </div>
 
-          <div style={fieldWrap}>
-            <label style={labelStyle}>Product Description</label>
-            <textarea name="product_description" defaultValue={card.product_description ?? ''} rows={2} style={{ resize: 'vertical' }} />
-          </div>
+            <div style={field}>
+              <label>Product Description</label>
+              <textarea name="product_description" defaultValue={card.product_description ?? ''} rows={2} style={{ resize: 'vertical' }} />
+            </div>
 
-          <div style={fieldWrap}>
-            <label style={labelStyle}>Retail Price</label>
-            <input type="text" name="retail_price" defaultValue={card.retail_price ?? ''} placeholder='e.g. $29.99, "$29.99 value"' />
-          </div>
+            <div className="form-grid-2" style={{ marginBottom: 0 }}>
+              <div>
+                <label>Retail Price</label>
+                <input type="text" name="retail_price" defaultValue={card.retail_price ?? ''} placeholder='e.g. $29.99, "$29.99 value"' />
+              </div>
+              <div>
+                <label>Page Type</label>
+                <select name="page_type" defaultValue={card.page_type ?? ''}>
+                  <option value="">Select page type…</option>
+                  {PAGE_TYPE_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+                </select>
+              </div>
+            </div>
+          </section>
 
-          <div style={fieldWrap}>
-            <label style={labelStyle}>Page Type</label>
-            <select name="page_type" defaultValue={card.page_type ?? ''}>
-              <option value="">Select page type…</option>
-              {PAGE_TYPE_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
-            </select>
-          </div>
+          <section className="card" style={{ marginBottom: 16 }}>
+            <h2 style={sectionTitle}>Creative Direction</h2>
 
-          <h2 style={sectionTitle}>Creative Direction</h2>
+            <div style={field}>
+              <label>Competitor Reference</label>
+              <textarea name="competitor_reference" defaultValue={card.competitor_reference ?? ''} rows={2} style={{ resize: 'vertical' }} placeholder="Competitor LPs / ads worth referencing…" />
+            </div>
 
-          <div style={fieldWrap}>
-            <label style={labelStyle}>Competitor Reference</label>
-            <textarea name="competitor_reference" defaultValue={card.competitor_reference ?? ''} rows={2} style={{ resize: 'vertical' }} placeholder="Competitor LPs / ads worth referencing…" />
-          </div>
+            <div style={field}>
+              <label>Client Ad Inspiration</label>
+              <textarea name="client_ad_inspiration" defaultValue={card.client_ad_inspiration ?? ''} rows={2} style={{ resize: 'vertical' }} />
+            </div>
 
-          <div style={fieldWrap}>
-            <label style={labelStyle}>Client Ad Inspiration</label>
-            <textarea name="client_ad_inspiration" defaultValue={card.client_ad_inspiration ?? ''} rows={2} style={{ resize: 'vertical' }} />
-          </div>
-
-          <div style={fieldWrap}>
-            <label style={labelStyle}>Product Images Link</label>
-            <input type="url" name="product_images_link" defaultValue={card.product_images_link ?? ''} placeholder="Drive folder or external URL" />
-          </div>
+            <div style={{ ...field, marginBottom: 0 }}>
+              <label>Product Images Link</label>
+              <input type="url" name="product_images_link" defaultValue={card.product_images_link ?? ''} placeholder="Drive folder or external URL" />
+            </div>
+          </section>
 
           {isEditor && (
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 18 }}>
-              <button
-                type="submit"
-                style={{
-                  padding: '8px 18px', borderRadius: 8, fontSize: 'var(--text-sm)', fontWeight: 600,
-                  background: 'var(--accent)', color: 'white', border: 'none',
-                  cursor: isPending ? 'wait' : 'pointer', opacity: isPending ? 0.7 : 1,
-                }}
-              >
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginTop: 4 }}>
+              <button type="submit" className="btn-primary">
                 {isPending ? 'Saving…' : 'Save offer'}
               </button>
               {saved && !isPending && <span style={{ fontSize: 'var(--text-sm)', color: 'var(--success)' }}>Saved ✓</span>}
@@ -227,29 +234,22 @@ export default function OfferCardDetail({
       {isEditor && (
         <div style={{ marginTop: 36, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
           {confirmingDelete ? (
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
               <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
                 Delete this offer card? Its event history is kept, but the card is gone for good.
               </span>
               <button
                 type="button"
+                className="btn-danger btn-sm"
                 disabled={isPending}
                 onClick={() => startTransition(async () => { await deleteOfferCard(card.id) })}
-                style={{
-                  padding: '6px 12px', borderRadius: 8, fontSize: 'var(--text-sm)', fontWeight: 600,
-                  background: 'var(--danger)', color: 'white', border: 'none', cursor: 'pointer',
-                }}
               >
                 Delete
               </button>
               <button
                 type="button"
+                className="btn-secondary btn-sm"
                 onClick={() => setConfirmingDelete(false)}
-                style={{
-                  padding: '6px 12px', borderRadius: 8, fontSize: 'var(--text-sm)',
-                  background: 'transparent', color: 'var(--text-muted)',
-                  border: '1px solid var(--border)', cursor: 'pointer',
-                }}
               >
                 Cancel
               </button>
@@ -257,12 +257,8 @@ export default function OfferCardDetail({
           ) : (
             <button
               type="button"
+              className="btn-danger btn-sm"
               onClick={() => setConfirmingDelete(true)}
-              style={{
-                padding: '6px 12px', borderRadius: 8, fontSize: 'var(--text-sm)',
-                background: 'transparent', color: 'var(--danger)',
-                border: '1px solid color-mix(in srgb, var(--danger) 35%, transparent)', cursor: 'pointer',
-              }}
             >
               Delete offer card
             </button>

@@ -253,6 +253,29 @@ label {
 }
 .btn-secondary:hover { border-color: var(--border-hover); color: var(--text-primary); }
 
+/* Emphasized outline action — orange border/text for primary-but-not-solid actions
+   (e.g. Save deliverables, Post note). Reads as clearly active, unlike .btn-secondary. */
+.btn-accent-outline {
+  background-color: var(--accent-muted);
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 14px;
+  padding: 10px 20px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+}
+.btn-accent-outline:hover {
+  background-color: color-mix(in srgb, var(--accent) 18%, transparent);
+  border-color: var(--accent);
+}
+.btn-accent-outline:disabled { opacity: 0.5; cursor: not-allowed; }
+
 .btn-sm {
   padding: 6px 14px;
   font-size: var(--text-sm);

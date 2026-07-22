@@ -624,7 +624,7 @@ export default async function ProjectPage({
                   />
                 </div>
                 {isAuthorized && (
-                  <SubmitButton pendingText="Saving…" className="btn-secondary" style={{ fontSize: 'var(--text-base)' }}>
+                  <SubmitButton pendingText="Saving…" className="btn-accent-outline" style={{ fontSize: 'var(--text-base)' }}>
                     Save deliverables
                   </SubmitButton>
                 )}
