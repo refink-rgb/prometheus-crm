@@ -727,6 +727,7 @@ export default async function ProjectPage({
                 brandId={brandId}
                 currentUserName={userDisplayName}
                 canDelete={isAuthorized}
+                mentionables={profiles.map(pr => ({ id: pr.id, name: profileName(pr) }))}
               />
             </div>
 

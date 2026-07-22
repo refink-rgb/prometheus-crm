@@ -39,6 +39,24 @@ export interface Profile {
   created_at: string
 }
 
+// In-app notification (assignment + @mention). See supabase migration
+// 20260722_add_notifications.sql and src/lib/notifications.ts.
+export interface NotificationRow {
+  id: string
+  recipient_id: string
+  actor_id: string | null
+  actor_label: string
+  type: 'assigned' | 'mentioned'
+  project_id: string | null
+  brand_id: string | null
+  comment_id: string | null
+  title: string
+  body: string | null
+  link: string | null
+  read_at: string | null
+  created_at: string
+}
+
 // The two assignable tracks, mirroring the lp_stage / creatives_stage split.
 export type EditorTrack = 'lp' | 'creative'
 

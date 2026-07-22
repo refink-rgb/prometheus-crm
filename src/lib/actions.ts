@@ -19,6 +19,7 @@ import {
   STAGE_COLUMN_TO_TRACK,
   type PipelineEventInput,
 } from '@/lib/events'
+import { createNotifications } from '@/lib/notifications'
 import {
   ensureDeleteSubfolder,
   extractDriveFolderId,
@@ -1455,6 +1456,7 @@ export async function addInternalNote(
   content: string,
   displayName: string,
   attachmentUrls?: string[] | null,
+  mentionedProfileIds?: string[] | null,
 ) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -1464,7 +1466,7 @@ export async function addInternalNote(
   const name = displayName.trim() || user.email?.split('@')[0] || 'Team'
   const cleanedAttachments = (attachmentUrls ?? []).filter(u => typeof u === 'string' && u.length > 0)
 
-  const { error } = await supabase.from('project_comments').insert({
+  const { data: inserted, error } = await supabase.from('project_comments').insert({
     project_id: projectId,
     author_name: name,
     content: content.trim(),
@@ -1475,8 +1477,28 @@ export async function addInternalNote(
     section_tag: null,
     attachment_urls: cleanedAttachments.length > 0 ? cleanedAttachments : null,
     audience: 'internal',
-  })
+  }).select('id').single()
   if (error) throw new Error(`Failed to add note: ${error.message}`)
+
+  // Notify @mentioned teammates (never the author themselves). Best-effort —
+  // createNotifications swallows failures so a missing table never blocks the
+  // note from posting.
+  const mentions = (mentionedProfileIds ?? []).filter(id => id && id !== user.id)
+  if (mentions.length > 0) {
+    const snippet = content.trim().slice(0, 140)
+    await createNotifications(mentions.map(recipient_id => ({
+      recipient_id,
+      actor_id: user.id,
+      actor_label: name,
+      type: 'mentioned' as const,
+      project_id: projectId,
+      brand_id: brandId,
+      comment_id: (inserted as { id?: string } | null)?.id ?? null,
+      title: `${name} mentioned you`,
+      body: snippet || 'in a note',
+      link: `/brands/${brandId}/projects/${projectId}`,
+    })))
+  }
 
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)
 }
@@ -1692,6 +1714,25 @@ export async function assignProjectEditor(
       track: track === 'creative' ? 'creative' : 'lp',
       ...actorFromUser(user),
       payload: { assignee_id: profileId, previous_assignee_id: prevAssignee },
+    }])
+  }
+
+  // Notify the newly-assigned editor (never self-assign, and never on a no-op
+  // re-assign to the same person). Best-effort — createNotifications swallows
+  // its own failures so a missing table never blocks the assignment.
+  if (profileId && profileId !== user.id && prevAssignee !== profileId) {
+    const { data: proj } = await supabase.from('projects').select('name').eq('id', projectId).single()
+    const label = EDITOR_TRACK_META[track].label
+    await createNotifications([{
+      recipient_id: profileId,
+      actor_id: user.id,
+      actor_label: user.email ?? user.id,
+      type: 'assigned',
+      project_id: projectId,
+      brand_id: brandId,
+      title: `You're now the ${label}`,
+      body: (proj as { name?: string } | null)?.name ?? 'A project',
+      link: `/brands/${brandId}/projects/${projectId}`,
     }])
   }
 

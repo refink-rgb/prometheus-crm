@@ -11,6 +11,11 @@ interface PendingAttachment {
   preview: string
 }
 
+interface Mentionable {
+  id: string
+  name: string
+}
+
 export default function NotesThread({
   notes,
   mode,
@@ -19,6 +24,7 @@ export default function NotesThread({
   token,
   currentUserName,
   canDelete = false,
+  mentionables = [],
 }: {
   notes: ProjectComment[]
   mode: 'internal' | 'client'
@@ -27,6 +33,7 @@ export default function NotesThread({
   token?: string
   currentUserName?: string
   canDelete?: boolean
+  mentionables?: Mentionable[]
 }) {
   const [content, setContent] = useState('')
   const [authorName, setAuthorName] = useState(currentUserName ?? '')
@@ -36,7 +43,80 @@ export default function NotesThread({
   const [attachments, setAttachments] = useState<PendingAttachment[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const router = useRouter()
+
+  // @mention autocomplete state. mentionQuery is the text typed after the
+  // active '@' (null when the caret isn't in a mention); mentionIndex is the
+  // highlighted row for keyboard nav.
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null)
+  const [mentionIndex, setMentionIndex] = useState(0)
+
+  const mentionMatches = mentionQuery === null
+    ? []
+    : mentionables
+        .filter(m => m.name.toLowerCase().includes(mentionQuery.toLowerCase()))
+        .slice(0, 6)
+  const mentionOpen = mentionMatches.length > 0
+
+  // Recompute the active mention token from the text up to the caret.
+  function syncMentionQuery(value: string, caret: number) {
+    if (mentionables.length === 0) { setMentionQuery(null); return }
+    const upto = value.slice(0, caret)
+    const m = upto.match(/(?:^|\s)@([^\s@]{0,30})$/)
+    setMentionQuery(m ? m[1] : null)
+    setMentionIndex(0)
+  }
+
+  function onComposerChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    setContent(e.target.value)
+    syncMentionQuery(e.target.value, e.target.selectionStart ?? e.target.value.length)
+  }
+
+  // Replace the active "@partial" with "@Full Name " and close the menu.
+  function insertMention(m: Mentionable) {
+    const el = textareaRef.current
+    const caret = el?.selectionStart ?? content.length
+    const before = content.slice(0, caret)
+    const after = content.slice(caret)
+    const replaced = before.replace(/@([^\s@]{0,30})$/, `@${m.name} `)
+    const next = replaced + after
+    setContent(next)
+    setMentionQuery(null)
+    // Restore focus + place the caret right after the inserted mention.
+    requestAnimationFrame(() => {
+      if (!el) return
+      el.focus()
+      const pos = replaced.length
+      el.setSelectionRange(pos, pos)
+    })
+  }
+
+  // Which mentionables are actually referenced in the final text.
+  function resolveMentionIds(text: string): string[] {
+    return mentionables.filter(m => text.includes(`@${m.name}`)).map(m => m.id)
+  }
+
+  // Highlight "@Known Name" spans when rendering a note.
+  function renderMentions(text: string): React.ReactNode {
+    if (mentionables.length === 0) return text
+    const names = mentionables.map(m => m.name).sort((a, b) => b.length - a.length)
+    const escaped = names.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    const re = new RegExp(`@(${escaped.join('|')})`, 'g')
+    const out: React.ReactNode[] = []
+    let last = 0
+    let key = 0
+    let match: RegExpExecArray | null
+    while ((match = re.exec(text)) !== null) {
+      if (match.index > last) out.push(text.slice(last, match.index))
+      out.push(
+        <span key={key++} style={{ color: 'var(--accent)', fontWeight: 600 }}>@{match[1]}</span>,
+      )
+      last = match.index + match[0].length
+    }
+    if (last < text.length) out.push(text.slice(last))
+    return out
+  }
 
   useEffect(() => {
     const el = listRef.current
@@ -91,7 +171,8 @@ export default function NotesThread({
     try {
       const urls = attachments.map(a => a.url)
       if (mode === 'internal' && projectId && brandId) {
-        await addInternalNote(projectId, brandId, content.trim(), authorName, urls.length > 0 ? urls : null)
+        const mentionIds = resolveMentionIds(content)
+        await addInternalNote(projectId, brandId, content.trim(), authorName, urls.length > 0 ? urls : null, mentionIds.length > 0 ? mentionIds : null)
       } else if (mode === 'client' && token) {
         await addProjectComment(token, authorName, content.trim(), { track: 'note', attachment_urls: urls })
       }
@@ -182,7 +263,7 @@ export default function NotesThread({
                   )}
                   {note.content && (
                     <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>
-                      {note.content}
+                      {renderMentions(note.content)}
                     </div>
                   )}
                   {note.attachment_urls && note.attachment_urls.length > 0 && (
@@ -232,13 +313,62 @@ export default function NotesThread({
             style={{ fontSize: 13 }}
           />
         )}
-        <textarea
-          value={content}
-          onChange={e => setContent(e.target.value)}
-          placeholder="Add a note... (Shift+Enter for a new line)"
-          rows={2}
-          style={{ resize: 'vertical', fontSize: 13 }}
-        />
+        <div style={{ position: 'relative' }}>
+          {mentionOpen && (
+            <ul
+              role="listbox"
+              style={{
+                position: 'absolute', left: 0, right: 0, bottom: '100%', marginBottom: 4,
+                listStyle: 'none', padding: 4, margin: 0, zIndex: 20,
+                background: 'var(--surface-raised)', border: '1px solid var(--border)',
+                borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.3)', maxHeight: 180, overflowY: 'auto',
+              }}
+            >
+              {mentionMatches.map((m, i) => (
+                <li key={m.id}>
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={i === mentionIndex}
+                    onMouseDown={e => { e.preventDefault(); insertMention(m) }}
+                    onMouseEnter={() => setMentionIndex(i)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
+                      padding: '6px 8px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                      fontSize: 13, color: 'var(--text-primary)',
+                      background: i === mentionIndex ? 'var(--accent-muted)' : 'transparent',
+                    }}
+                  >
+                    <span style={{
+                      width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
+                      background: `hsl(${m.name.charCodeAt(0) * 37 % 360}, 55%, 35%)`,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 10, fontWeight: 700, color: 'white',
+                    }}>
+                      {m.name.charAt(0).toUpperCase()}
+                    </span>
+                    {m.name}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <textarea
+            ref={textareaRef}
+            value={content}
+            onChange={onComposerChange}
+            onKeyDown={e => {
+              if (!mentionOpen) return
+              if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); setMentionIndex(i => (i + 1) % mentionMatches.length) }
+              else if (e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); setMentionIndex(i => (i - 1 + mentionMatches.length) % mentionMatches.length) }
+              else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); e.stopPropagation(); insertMention(mentionMatches[mentionIndex] ?? mentionMatches[0]) }
+              else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setMentionQuery(null) }
+            }}
+            placeholder={mentionables.length > 0 ? 'Add a note... (@ to mention, Shift+Enter for a new line)' : 'Add a note... (Shift+Enter for a new line)'}
+            rows={2}
+            style={{ resize: 'vertical', fontSize: 13, width: '100%' }}
+          />
+        </div>
 
         {attachments.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>

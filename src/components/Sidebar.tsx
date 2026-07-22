@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { signOut } from '@/lib/actions'
 import ThemeToggle from '@/components/ThemeToggle'
+import NotificationBell from '@/components/NotificationBell'
 
 interface SidebarProps {
   email?: string | null
@@ -224,7 +225,8 @@ export default function Sidebar({ email, showFinancials }: SidebarProps) {
               {email}
             </div>
           )}
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+            <NotificationBell />
             <ThemeToggle />
             <form action={signOut}>
               <button type="submit" style={{
