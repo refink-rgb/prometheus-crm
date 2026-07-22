@@ -1788,10 +1788,17 @@ export async function buildBrandDna(
     if (!brand.website) return { ok: false, error: 'Brand website is required to research DNA.' }
 
     const { researchBrandDna, synthesizeBrandDna } = await import('@/lib/ai/gemini')
+    const { extractSitePalette } = await import('@/lib/ai/palette')
     const { TEXT_FIELDS } = await import('@/lib/ai/brand-dna-schema')
 
-    const { dossier, urls } = await researchBrandDna(brand.name, brand.website)
-    const dna = await synthesizeBrandDna(dossier, urls)
+    // Palette comes straight from the site's CSS (exact hex codes) and runs in
+    // parallel with the Gemini research pass. Extraction failure degrades to
+    // the old behavior instead of failing the run.
+    const [{ dossier, urls }, palette] = await Promise.all([
+      researchBrandDna(brand.name, brand.website),
+      extractSitePalette(brand.website).catch(() => null),
+    ])
+    const dna = await synthesizeBrandDna(dossier, urls, palette)
 
     const normalized: Record<string, unknown> = { ...dna }
     for (const field of TEXT_FIELDS) {

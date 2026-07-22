@@ -1,5 +1,6 @@
 import { GoogleGenAI } from '@google/genai'
 import { brandDnaResponseSchema, type BrandDnaJson } from './brand-dna-schema'
+import { formatPaletteForPrompt, type SitePalette } from './palette'
 
 const MODEL = 'gemini-2.5-flash'
 
@@ -27,7 +28,7 @@ const SYNTHESIS_PROMPT = `You are structuring a brand research dossier into a Br
 
 Rules:
 - Every field must trace to something stated in the dossier. If the dossier says "not found" or doesn't cover it, output "" for text fields or [] for array fields — never invent a plausible-sounding value.
-- Hex codes: only output one if the dossier gives it directly or derives it from a named color. Don't convert color names to hex yourself.
+- Color fields (primary_color, secondary_color, accent_color, background_colors, contrast_color): output exact "#rrggbb" hex codes, never bare color names like "green". When an "extracted site palette" block is appended below, treat it as ground truth: choose each color field's value from that list (or a hex stated verbatim in the dossier), using the CSS variable-name hints, usage counts, and the dossier's color descriptions to assign roles — e.g. if the dossier says the brand color is forest green and the palette has one dark green hinted as --color-primary, that hex is primary_color. High-count near-whites/creams belong in background_colors; the dominant text color is usually contrast_color. If neither the palette nor the dossier yields a usable hex for a field, output "" — do not invent one from memory.
 - voice_adjectives: exactly 5, each meaningfully distinct — no near-synonyms ("bold, confident, assertive" counts as one register, not three).
 - competitive_differentiation: name the specific competitors from the dossier, not "other brands in the category."
 - proof_points: only exact figures explicitly stated in the dossier.
@@ -111,15 +112,22 @@ Generate ad copy in exactly this JSON format — no commentary, just the object:
   }
 }
 
-export async function synthesizeBrandDna(dossier: string, urls: string[]): Promise<BrandDnaJson> {
+export async function synthesizeBrandDna(
+  dossier: string,
+  urls: string[],
+  palette: SitePalette | null = null,
+): Promise<BrandDnaJson> {
   const ai = client()
   const urlBlock = urls.length
     ? `\n\nURLs retrieved during research (use these for the sources array where they match a field):\n${urls.map(u => `- ${u}`).join('\n')}`
     : ''
+  const paletteBlock = palette && palette.colors.length
+    ? `\n\n---\n\n${formatPaletteForPrompt(palette)}`
+    : ''
 
   const res = await ai.models.generateContent({
     model: MODEL,
-    contents: `${SYNTHESIS_PROMPT}\n\n---\n\nDossier:\n\n${dossier}${urlBlock}`,
+    contents: `${SYNTHESIS_PROMPT}\n\n---\n\nDossier:\n\n${dossier}${urlBlock}${paletteBlock}`,
     config: {
       responseMimeType: 'application/json',
       responseSchema: brandDnaResponseSchema,
