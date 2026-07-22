@@ -1,21 +1,24 @@
 'use client'
 import { useTransition } from 'react'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 
+// Sub-navigation within the Dashboard section: toggles between the operational
+// Dashboard (/) and the Insights analytics (/insights). Both live under the
+// single "Dashboard" sidebar item — these tabs alternate the view.
 const TABS = [
-  { id: 'dashboard', label: 'Dashboard' },
-  { id: 'pipeline', label: 'Active Pipeline' },
-  { id: 'brands', label: 'Brands' },
+  { href: '/', label: 'Dashboard' },
+  { href: '/insights', label: 'Insights' },
 ]
 
-export default function DashboardTabs({ active }: { active: string }) {
+export default function DashboardTabs() {
+  const pathname = usePathname()
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
 
-  function selectTab(id: string) {
-    if (id === active) return
+  function selectTab(href: string) {
+    if (href === pathname) return
     startTransition(() => {
-      router.push(`/?tab=${id}`)
+      router.push(href)
     })
   }
 
@@ -25,19 +28,19 @@ export default function DashboardTabs({ active }: { active: string }) {
       display: 'flex',
       gap: 0,
       borderBottom: '1px solid var(--border)',
-      marginBottom: 32,
+      marginBottom: 'var(--space-5)',
     }}>
       {TABS.map(tab => {
-        const isActive = active === tab.id
+        const isActive = pathname === tab.href
         return (
           <button
-            key={tab.id}
-            onClick={() => selectTab(tab.id)}
+            key={tab.href}
+            onClick={() => selectTab(tab.href)}
             disabled={isPending}
             style={{
               padding: '10px 20px',
-              fontSize: 13,
-              fontWeight: isActive ? 600 : 400,
+              fontSize: 14,
+              fontWeight: isActive ? 700 : 500,
               color: isActive ? 'var(--text-primary)' : 'var(--text-muted)',
               background: 'none',
               border: 'none',

@@ -8,6 +8,7 @@ import StageDistributionChart from '@/components/LazyStageDistributionChart'
 import PipelineTable from '@/components/PipelineTable'
 import OverdueProjectsPanel from '@/components/OverdueProjectsPanel'
 import MyAssignmentsPanel from '@/components/MyAssignmentsPanel'
+import DashboardTabs from '@/components/DashboardTabs'
 
 type DashboardBrand = { id: string; monthly_retainer: number | null; is_active: boolean }
 type PipelineProject = Project & { brands: { id: string; name: string } }
@@ -63,10 +64,8 @@ export default async function DashboardPage() {
 
   return (
     <div style={{ padding: 'var(--space-6) 32px 40px' }}>
+      <DashboardTabs />
       <div style={{ marginBottom: 'var(--space-5)' }}>
-        <h1 style={{ fontSize: 'var(--text-xl)', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.02em', marginBottom: 'var(--space-1)' }}>
-          Dashboard
-        </h1>
         <p style={{ fontSize: 'var(--text-base)', color: 'var(--text-muted)' }}>
           {allBrands.length} brand{allBrands.length !== 1 ? 's' : ''} · {activeProjectsCount} active project{activeProjectsCount !== 1 ? 's' : ''}
         </p>

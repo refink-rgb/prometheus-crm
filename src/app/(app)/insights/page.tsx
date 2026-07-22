@@ -4,6 +4,7 @@ import { getCachedProfiles } from '@/lib/profiles'
 import { canEdit } from '@/lib/permissions'
 import { computeInsights } from '@/lib/insights'
 import InsightsCharts from '@/components/InsightsCharts'
+import DashboardTabs from '@/components/DashboardTabs'
 
 // Insights read the whole event window (up to 60 days) and aggregate in JS.
 // Small data, but give it headroom over the default so a cold read never trips
@@ -23,13 +24,8 @@ export default async function InsightsPage() {
 
   return (
     <div style={{ padding: 'var(--space-6) 32px 40px' }}>
+      <DashboardTabs />
       <div style={{ marginBottom: 'var(--space-6)' }}>
-        <h1 style={{
-          fontSize: 'var(--text-xl)', fontWeight: 800, color: 'var(--text-primary)',
-          letterSpacing: '-0.02em', marginBottom: 'var(--space-1)',
-        }}>
-          Insights
-        </h1>
         <p style={{ fontSize: 'var(--text-base)', color: 'var(--text-muted)' }}>
           {data.events_since
             ? `${data.event_count.toLocaleString()} events since ${data.events_since} · read-only over the pipeline event stream`
