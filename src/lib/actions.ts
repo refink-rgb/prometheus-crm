@@ -20,6 +20,7 @@ import {
   type PipelineEventInput,
 } from '@/lib/events'
 import { createNotifications } from '@/lib/notifications'
+import { createServiceClient } from '@/lib/supabase/service'
 import {
   ensureDeleteSubfolder,
   extractDriveFolderId,
@@ -491,7 +492,10 @@ export async function addProjectComment(
     attachment_urls?: string[]
   }
 ) {
-  const supabase = await createClient()
+  // Anonymous client review action — service role (share_token authorizes).
+  // The anon client is blocked by RLS, so a client's comment/note would
+  // silently fail to save.
+  const supabase = createServiceClient()
 
   const { data: project } = await supabase
     .from('projects')
@@ -1073,7 +1077,10 @@ export async function purgeStaleAssets(
 
 // Called from public review page via share token
 export async function updateAssetStatus(token: string, assetId: string, status: 'pending' | 'approved' | 'needs_revision' | 'rejected') {
-  const supabase = await createClient()
+  // Anonymous client review action — write via the service role (the
+  // share_token is the authorization). The anon client is blocked by RLS, so
+  // the status change would silently not persist and revert on refresh.
+  const supabase = createServiceClient()
 
   // Verify the asset belongs to this token's project
   const { data: project } = await supabase
@@ -1357,7 +1364,11 @@ export async function toggleAssetVisibility(assetId: string, isHidden: boolean, 
 }
 
 export async function approveProject(token: string, track: 'lp' | 'creatives') {
-  const supabase = await createClient()
+  // Anonymous client on the token-gated review page: the share_token IS the
+  // authorization, so this write goes through the service-role client. The
+  // anon client would be silently blocked by RLS (0 rows, no error) and the
+  // approval would vanish on the next refresh.
+  const supabase = createServiceClient()
 
   const field = track === 'lp' ? 'lp_approved' : 'creatives_approved'
 
@@ -1368,13 +1379,11 @@ export async function approveProject(token: string, track: 'lp' | 'creatives') {
 
   if (error) throw new Error(error.message)
 
-  // No auth session on the token-gated review page, so resolve the project via
-  // the service client purely for the event's card/brand ids. logEvents never
-  // throws, and a failed lookup only costs the event — the approval stands.
+  // logEvents never throws, and a failed lookup only costs the event — the
+  // approval stands.
   if (eventsEnabled()) {
     try {
-      const { createServiceClient } = await import('@/lib/supabase/service')
-      const { data: project } = await createServiceClient()
+      const { data: project } = await supabase
         .from('projects')
         .select('id, brand_id')
         .eq('share_token', token)
@@ -1536,7 +1545,10 @@ export async function unlockProjectOffer(projectId: string, brandId: string) {
 }
 
 export async function confirmOfferByClient(token: string) {
-  const supabase = await createClient()
+  // Anonymous client review action — service role (share_token authorizes).
+  // The anon client is blocked by RLS, so the confirmation would silently not
+  // persist and revert on refresh.
+  const supabase = createServiceClient()
 
   const { data: project } = await supabase
     .from('projects')
