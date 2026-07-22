@@ -273,19 +273,7 @@ export default function ProjectEditForm({ projectId, brandId, journeys, profiles
   if (!editing) {
     return (
       <div ref={containerRef} style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 24 }}>
-        <button
-          onClick={() => setEditing(true)}
-          style={{
-            fontSize: 12,
-            fontWeight: 500,
-            color: 'var(--text-muted)',
-            background: 'none',
-            border: '1px solid var(--border)',
-            borderRadius: 7,
-            padding: '6px 12px',
-            cursor: 'pointer',
-          }}
-        >
+        <button onClick={() => setEditing(true)} className="btn-secondary btn-sm">
           ✏ Edit details
         </button>
       </div>

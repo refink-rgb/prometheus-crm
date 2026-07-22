@@ -495,10 +495,7 @@ export default async function ProjectPage({
                       </span>
                       {isAuthorized && (
                         <form action={unlockProjectOffer.bind(null, projectId, brandId)}>
-                          <SubmitButton
-                            pendingText="Unlocking…"
-                            style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', background: 'none', border: '1px solid var(--border)', borderRadius: 6, padding: '3px 8px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 'var(--space-1)' }}
-                          >
+                          <SubmitButton pendingText="Unlocking…" className="btn-secondary btn-sm">
                             Unlock
                           </SubmitButton>
                         </form>
@@ -508,10 +505,7 @@ export default async function ProjectPage({
                     <>
                       <OpenEditFormButton />
                       <form action={lockProjectOffer.bind(null, projectId, brandId)}>
-                        <SubmitButton
-                          pendingText="Locking…"
-                          style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--accent)', background: 'rgba(249,115,22,0.08)', border: '1px solid rgba(249,115,22,0.25)', borderRadius: 7, padding: '5px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 'var(--space-1)' }}
-                        >
+                        <SubmitButton pendingText="Locking…" className="btn-accent-outline btn-sm">
                           🔒 Lock Offer
                         </SubmitButton>
                       </form>

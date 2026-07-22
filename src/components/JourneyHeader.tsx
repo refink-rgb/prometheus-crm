@@ -57,7 +57,7 @@ export default function JourneyHeader({
   const pillStyle = {
     fontSize: 11, fontWeight: 700, color: 'var(--accent)',
     textTransform: 'uppercase' as const, letterSpacing: '0.08em',
-    background: 'var(--accent-muted)', border: '1px solid rgba(249,115,22,0.2)',
+    background: 'var(--accent-muted)', border: '1px solid color-mix(in srgb, var(--accent) 20%, transparent)',
     borderRadius: 6, padding: '3px 10px',
   }
 

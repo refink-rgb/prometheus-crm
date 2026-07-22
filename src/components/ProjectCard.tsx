@@ -187,7 +187,7 @@ function UrgencyBadge({
         ...base,
         background: 'var(--urgent-soon-bg)',
         color: 'var(--urgent-soon)',
-        border: '1px solid color-mix(in srgb, #F97316 35%, transparent)',
+        border: '1px solid color-mix(in srgb, var(--urgent-soon) 35%, transparent)',
       }}>
         ⏰ {daysUntil} day{daysUntil === 1 ? '' : 's'} left
       </span>

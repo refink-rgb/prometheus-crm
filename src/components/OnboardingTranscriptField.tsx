@@ -54,7 +54,7 @@ export default function OnboardingTranscriptField({ initialValue }: OnboardingTr
               fontSize: 11, fontWeight: 500,
               color: 'var(--accent)',
               background: 'var(--accent-muted)',
-              border: '1px solid rgba(249,115,22,0.25)',
+              border: '1px solid color-mix(in srgb, var(--accent) 25%, transparent)',
               borderRadius: 6,
               padding: '3px 10px',
               cursor: loading ? 'wait' : 'pointer',
