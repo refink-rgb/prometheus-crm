@@ -89,6 +89,16 @@ export default async function ProjectPage({
   const bothDone = p.lp_stage === 'done' && p.creatives_stage === 'done'
   const overallPct = overallProgress(p.lp_stage, p.creatives_stage)
 
+  // Per-stage planning targets (informational). Live = the launch due_date.
+  const stageTimeline = [
+    { label: 'Brief', value: fmtStageDate(p.stage_brief_due_date) },
+    { label: 'In Progress', value: fmtStageDate(p.stage_in_progress_due_date) },
+    { label: 'Internal Review', value: fmtStageDate(p.stage_internal_review_due_date) },
+    { label: 'Client Review', value: fmtStageDate(p.stage_client_review_due_date) },
+    { label: 'Live', value: fmtStageDate(p.due_date) },
+  ]
+  const hasTimeline = stageTimeline.some(s => s.value)
+
   return (
     <div style={{ minHeight: '100vh', background: 'var(--background)' }}>
       <main style={{ maxWidth: 1080, margin: '0 auto', padding: '28px 32px 40px' }}>
@@ -350,6 +360,21 @@ export default async function ProjectPage({
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
 
+            {/* Stage timeline — per-phase planning targets */}
+            {hasTimeline && (
+              <div className="card">
+                <h3 style={{ fontWeight: 700, fontSize: 'var(--text-md)', marginBottom: 'var(--space-4)', color: 'var(--text-primary)' }}>Stage Timeline</h3>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-6)' }}>
+                  {stageTimeline.map(s => (
+                    <div key={s.label}>
+                      <div style={microLabel}>{s.label}</div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: s.value ? 'var(--text-primary)' : 'var(--text-muted)' }}>{s.value ?? '—'}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Project Meta — assignment + product + revisions */}
             {(p.product_featured || isAuthorized) && (
               <div className="card">
@@ -408,6 +433,9 @@ export default async function ProjectPage({
                       <div style={{ fontSize: 14, color: 'var(--text-primary)' }}>📦 {p.product_featured}</div>
                     </div>
                   )}
+                  <Detail label="Product Description" value={p.product_description} pre />
+                  <Detail label="Retail Price / Value" value={p.retail_price} />
+                  <Detail label="Product Images Link" value={p.product_images_link} href />
                   {journey && (
                     <div>
                       <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 'var(--space-1)' }}>Journey</div>
@@ -495,6 +523,7 @@ export default async function ProjectPage({
               {/* Offer pills */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)', marginBottom: 'var(--space-4)' }}>
                 {[
+                  { label: 'Offer Type', value: p.offer_dynamics_type },
                   { label: 'Offer / Promo', value: p.offer },
                   { label: 'Discount', value: p.discount },
                   { label: 'CTA', value: p.cta },
@@ -545,6 +574,25 @@ export default async function ProjectPage({
               initialEyebrows={p.ad_eyebrows ?? []}
               initialSubcopies={p.ad_subcopies ?? []}
             />
+
+            {/* Creative Brief — direction + Meta ad copy */}
+            {(p.competitor_reference || p.client_ad_inspiration || p.ad_copy_primary_text || p.ad_copy_description || p.ad_copy_url) && (
+              <div className="card">
+                <h3 style={{ fontWeight: 700, fontSize: 'var(--text-md)', marginBottom: 'var(--space-4)', color: 'var(--text-primary)' }}>Creative Brief</h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+                  <Detail label="Competitor Reference" value={p.competitor_reference} pre />
+                  <Detail label="Client Ad Inspiration" value={p.client_ad_inspiration} pre />
+                  {(p.ad_copy_primary_text || p.ad_copy_description || p.ad_copy_url) && (
+                    <div style={{ borderTop: '1px solid var(--border)', paddingTop: 'var(--space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+                      <div style={{ fontSize: 'var(--text-xs)', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Meta Ad Copy</div>
+                      <Detail label="Primary Text" value={p.ad_copy_primary_text} pre />
+                      <Detail label="Description" value={p.ad_copy_description} />
+                      <Detail label="URL" value={p.ad_copy_url} href />
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Deliverables */}
             <div className="card">
@@ -721,4 +769,32 @@ function StatusItem({ tone, label }: { tone: 'ok' | 'muted'; label: string }) {
   return (
     <span style={{ color, fontWeight: tone === 'ok' ? 600 : 400 }}>{label}</span>
   )
+}
+
+const microLabel: React.CSSProperties = {
+  fontSize: 'var(--text-xs)', color: 'var(--text-muted)', fontWeight: 600,
+  textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 'var(--space-1)',
+}
+
+// Read-only brief field: renders nothing when empty so sparse briefs stay clean.
+function Detail({ label, value, pre, href }: { label: string; value?: string | null; pre?: boolean; href?: boolean }) {
+  if (!value) return null
+  return (
+    <div style={{ minWidth: 0 }}>
+      <div style={microLabel}>{label}</div>
+      {href ? (
+        <a href={value} target="_blank" rel="noopener noreferrer" style={{ fontSize: 14, color: 'var(--accent)', wordBreak: 'break-all' }}>
+          {value} ↗
+        </a>
+      ) : (
+        <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.7, whiteSpace: pre ? 'pre-wrap' : 'normal' }}>{value}</div>
+      )}
+    </div>
+  )
+}
+
+// 'YYYY-MM-DD' | null → 'Jul 22' | null
+function fmtStageDate(s: string | null): string | null {
+  const d = parseDueDate(s)
+  return d ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : null
 }
