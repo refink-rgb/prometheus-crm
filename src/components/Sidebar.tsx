@@ -5,10 +5,20 @@ import { usePathname } from 'next/navigation'
 import { signOut } from '@/lib/actions'
 import ThemeToggle from '@/components/ThemeToggle'
 import NotificationBell from '@/components/NotificationBell'
+import type { CapacitySummary } from '@/lib/capacity'
 
 interface SidebarProps {
   email?: string | null
   showFinancials: boolean
+  // Management-only workload counters; null hides the block entirely.
+  capacity?: CapacitySummary | null
+}
+
+function capacityColor(total: number): string {
+  if (total === 0) return 'var(--text-muted)'
+  if (total <= 2) return 'var(--success)'
+  if (total <= 4) return '#F59E0B'
+  return '#EF4444'
 }
 
 type NavItem = {
@@ -85,7 +95,7 @@ const InspirationIcon = (
   </svg>
 )
 
-export default function Sidebar({ email, showFinancials }: SidebarProps) {
+export default function Sidebar({ email, showFinancials, capacity = null }: SidebarProps) {
   const pathname = usePathname()
 
   const items: NavItem[] = [
@@ -210,6 +220,49 @@ export default function Sidebar({ email, showFinancials }: SidebarProps) {
               </Link>
             )
           })}
+
+          {/* Team capacity — management only (capacity is null for others).
+              A person's number = assigned tracks in brief / in progress /
+              internal review / revisions; drops off at client review. */}
+          {capacity && capacity.rows.length > 0 && (
+            <div style={{ marginTop: 16, padding: '12px 12px 0', borderTop: '1px solid var(--sidebar-border)' }}>
+              <div style={{
+                fontSize: 10, fontWeight: 600, color: 'var(--text-muted)',
+                textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8,
+              }}>
+                Capacity
+              </div>
+              {capacity.rows.map(r => (
+                <div
+                  key={r.id}
+                  title={`${r.name} — LP: ${r.lp} · Creative: ${r.creative}`}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    gap: 8, padding: '3px 0', fontSize: 12,
+                  }}
+                >
+                  <span style={{ color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {r.name}
+                  </span>
+                  <span style={{
+                    fontSize: 11, fontWeight: 700, flexShrink: 0,
+                    color: capacityColor(r.total),
+                    background: `color-mix(in srgb, ${capacityColor(r.total)} 12%, transparent)`,
+                    borderRadius: 10, padding: '1px 8px', minWidth: 24, textAlign: 'center',
+                  }}>
+                    {r.total}
+                  </span>
+                </div>
+              ))}
+              {(capacity.unassignedLp > 0 || capacity.unassignedCreative > 0) && (
+                <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 6, lineHeight: 1.5 }}>
+                  Unassigned: {capacity.unassignedLp > 0 && `${capacity.unassignedLp} LP`}
+                  {capacity.unassignedLp > 0 && capacity.unassignedCreative > 0 && ' · '}
+                  {capacity.unassignedCreative > 0 && `${capacity.unassignedCreative} Creative`}
+                </div>
+              )}
+            </div>
+          )}
         </nav>
 
         <div style={{ height: 1, background: 'var(--sidebar-border)', margin: '0 12px' }} />

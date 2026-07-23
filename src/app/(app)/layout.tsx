@@ -1,7 +1,8 @@
 import { redirect } from 'next/navigation'
-import { getCachedUser } from '@/lib/supabase/server'
-import { canEdit } from '@/lib/permissions'
+import { createClient, getCachedUser } from '@/lib/supabase/server'
+import { canEdit, canViewCapacity } from '@/lib/permissions'
 import { getCachedProfiles } from '@/lib/profiles'
+import { computeCapacity, type CapacityProject } from '@/lib/capacity'
 import { isJobEditor } from '@/lib/types'
 import { signOut } from '@/lib/actions'
 import Sidebar from '@/components/Sidebar'
@@ -37,15 +38,30 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     )
   }
 
-  const profiles = await getCachedProfiles()
+  // Sidebar capacity counters are management-only; skip the extra projects
+  // query entirely for everyone else.
+  const showCapacity = canViewCapacity(user.email)
+  const supabase = await createClient()
+  const [profiles, capacityRes] = await Promise.all([
+    getCachedProfiles(),
+    showCapacity
+      ? supabase
+          .from('projects')
+          .select('lp_editor_id, creative_editor_id, lp_stage, creatives_stage, is_complete')
+          .eq('is_complete', false)
+      : Promise.resolve({ data: null }),
+  ])
   const myProfile = profiles.find(p => p.email === user.email?.toLowerCase()) ?? null
   const showFinancials = isEditor && !isJobEditor(myProfile)
+  const capacity = showCapacity
+    ? computeCapacity(profiles, (capacityRes.data ?? []) as CapacityProject[])
+    : null
 
   return (
     <ToastProvider>
       <ConfirmDialogHost>
         <div style={{ minHeight: '100vh' }}>
-          <Sidebar email={user.email ?? null} showFinancials={showFinancials} />
+          <Sidebar email={user.email ?? null} showFinancials={showFinancials} capacity={capacity} />
           <div className="app-main" style={{ marginLeft: 220, minHeight: '100vh' }}>
             {children}
           </div>

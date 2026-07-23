@@ -8,7 +8,6 @@ import StageDistributionChart from '@/components/LazyStageDistributionChart'
 import PipelineTable from '@/components/PipelineTable'
 import OverdueProjectsPanel from '@/components/OverdueProjectsPanel'
 import MyAssignmentsPanel from '@/components/MyAssignmentsPanel'
-import TeamCapacityPanel from '@/components/TeamCapacityPanel'
 import DashboardTabs from '@/components/DashboardTabs'
 
 type DashboardBrand = { id: string; monthly_retainer: number | null; is_active: boolean }
@@ -116,7 +115,6 @@ export default async function DashboardPage() {
             rows line up. My Work goes underneath rather than above. */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
           <OverdueProjectsPanel projects={projectsWithBrand} />
-          <TeamCapacityPanel profiles={profiles} projects={pipeline} />
           {myProfileId && (
             <MyAssignmentsPanel projects={pipeline} profileId={myProfileId} />
           )}

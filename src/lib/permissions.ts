@@ -16,3 +16,14 @@ const ALLOWED_EDITORS = [
 export function canEdit(email: string | undefined | null): boolean {
   return !!email && ALLOWED_EDITORS.includes(email.toLowerCase())
 }
+
+// Team-capacity counters in the sidebar are management-only.
+const CAPACITY_VIEWERS = [
+  'roberto@commonthreadglobal.com',
+  'lucas@commonthreadglobal.com',
+  'giovane@commonthreadglobal.com',
+]
+
+export function canViewCapacity(email: string | undefined | null): boolean {
+  return !!email && CAPACITY_VIEWERS.includes(email.toLowerCase())
+}
