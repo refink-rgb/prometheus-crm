@@ -11,6 +11,7 @@ interface ActiveProjectsPanelProps {
 type GroupKey =
   | 'overdue'
   | 'due_this_week'
+  | 'revisions'
   | 'client_waiting_on_us'
   | 'in_client_review'
   | 'internal_review'
@@ -20,6 +21,7 @@ type GroupKey =
 const GROUP_META: Record<GroupKey, { label: string; dot: string; color: string }> = {
   overdue:              { label: 'Overdue',                  dot: '🔴', color: 'var(--urgent-overdue)' },
   due_this_week:        { label: 'Due this week',            dot: '🟠', color: 'var(--urgent-soon)' },
+  revisions:            { label: 'Revisions requested',      dot: '🔁', color: '#F43F5E' },
   client_waiting_on_us: { label: 'Client waiting on us',     dot: '🟡', color: '#F59E0B' },
   in_client_review:     { label: 'In client review',         dot: '🟡', color: '#F59E0B' },
   internal_review:      { label: 'Internal review',          dot: '🟣', color: '#818CF8' },
@@ -30,6 +32,7 @@ const GROUP_META: Record<GroupKey, { label: string; dot: string; color: string }
 const GROUP_ORDER: GroupKey[] = [
   'overdue',
   'due_this_week',
+  'revisions',
   'client_waiting_on_us',
   'in_client_review',
   'internal_review',
@@ -41,6 +44,8 @@ function classify(p: ProjectWithBrand): GroupKey | null {
   const days = calcDaysUntil(p.due_date)
   if (isProjectOverdue(p.due_date, p.is_complete, p.lp_stage, p.creatives_stage)) return 'overdue'
   if (days !== null && days >= 0 && days <= 7 && !p.is_complete) return 'due_this_week'
+  // Client left feedback and a track moved to Revisions — the team owes an edit.
+  if (p.lp_stage === 'revisions' || p.creatives_stage === 'revisions') return 'revisions'
   if ((p.lp_approved && p.lp_stage !== 'done') || (p.creatives_approved && p.creatives_stage !== 'done')) {
     return 'client_waiting_on_us'
   }

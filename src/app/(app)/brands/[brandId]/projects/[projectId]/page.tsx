@@ -9,6 +9,7 @@ import ConfirmDeleteForm from '@/components/ConfirmDeleteForm'
 import ShareButton from '@/components/ShareButton'
 import RevisionsToggle from '@/components/RevisionsToggle'
 import NotesThread from '@/components/NotesThread'
+import ClientFeedbackPanel from '@/components/ClientFeedbackPanel'
 import type { Project, Brand, ProjectImage, Journey, CreativeAsset, ProjectComment } from '@/lib/types'
 import { calcDaysUntil, isProjectOverdue, overallProgress, parseDueDate } from '@/lib/stageColors'
 import ProjectEditForm from '@/components/ProjectEditForm'
@@ -44,6 +45,7 @@ export default async function ProjectPage({
     { data: images },
     { data: creativeAssetsRaw },
     { data: imageCommentsRaw },
+    { data: lpFeedbackRaw },
     { data: notesRaw },
     { data: brandJourneysRaw },
     profiles,
@@ -55,6 +57,8 @@ export default async function ProjectPage({
     supabase.from('project_images').select('id, storage_url').eq('project_id', projectId),
     supabase.from('creative_assets').select('*').eq('project_id', projectId).order('sort_order'),
     supabase.from('project_comments').select('*').eq('project_id', projectId).eq('track', 'image').order('created_at'),
+    // Landing-page client feedback for the Client Feedback panel (never internal).
+    supabase.from('project_comments').select('*').eq('project_id', projectId).in('track', ['lp', 'general']).neq('audience', 'internal').order('created_at'),
     supabase.from('project_comments').select('*').eq('project_id', projectId).eq('track', 'note').order('created_at'),
     supabase.from('journeys').select('*').eq('brand_id', brandId).order('created_at', { ascending: true }),
     getCachedProfiles(),
@@ -67,6 +71,9 @@ export default async function ProjectPage({
   const imgs = (images ?? []) as ProjectImage[]
   const creativeAssets = (creativeAssetsRaw ?? []) as CreativeAsset[]
   const imageComments = (imageCommentsRaw ?? []) as ProjectComment[]
+  const lpFeedback = (lpFeedbackRaw ?? []) as ProjectComment[]
+  // Creative feedback the client actually left (exclude internal image notes).
+  const creativeFeedback = imageComments.filter(c => c.audience !== 'internal')
   const notes = (notesRaw ?? []) as ProjectComment[]
   const brandJourneys = (brandJourneysRaw ?? []) as Journey[]
   const isAuthorized = canEdit(user?.email)
@@ -716,6 +723,16 @@ export default async function ProjectPage({
                 )}
               </div>
             </div>
+
+            {/* Client feedback — everything the client left on the review link.
+                The notification bell links here via #client-feedback. */}
+            <ClientFeedbackPanel
+              lpFeedback={lpFeedback}
+              creativeFeedback={creativeFeedback}
+              assets={creativeAssets}
+              lpApproved={p.lp_approved}
+              creativesApproved={p.creatives_approved}
+            />
 
             {/* Notes thread */}
             <div className="card">

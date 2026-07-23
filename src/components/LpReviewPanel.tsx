@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect, cloneElement } from 'react'
+import type { ReactElement, CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
 import { addProjectComment, approveProject, deleteProjectComment } from '@/lib/actions'
 import { useConfirm } from '@/components/ConfirmDialog'
@@ -64,6 +65,23 @@ export default function LpReviewPanel({
     }, 20_000)
     return () => clearTimeout(t)
   }, [lpUrl, loadState])
+
+  // Measure the preview area so we can render the LP at a real device viewport
+  // (1440 desktop / 390 mobile) and CSS-scale it to fit. Without this the iframe
+  // renders at the panel's own narrow width and the LP shows its mobile layout
+  // even in "desktop" mode.
+  const embedRef = useRef<HTMLDivElement>(null)
+  const [box, setBox] = useState({ w: 0, h: 0 })
+  useEffect(() => {
+    const el = embedRef.current
+    if (!el) return
+    const ro = new ResizeObserver(entries => {
+      const r = entries[0].contentRect
+      setBox({ w: r.width, h: r.height })
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
 
   const handleIframeLoad = useCallback(() => {
     // The proxy is same-origin, so we can read the doc directly. It injects a
@@ -233,7 +251,7 @@ export default function LpReviewPanel({
         </div>
 
         {/* LP embed area */}
-        <div style={{ flex: 1, overflow: 'hidden', position: 'relative', background: lpUrl ? 'var(--surface-2)' : 'var(--surface)' }}>
+        <div ref={embedRef} style={{ flex: 1, overflow: 'hidden', position: 'relative', background: lpUrl ? 'var(--surface-2)' : 'var(--surface)' }}>
           {lpUrl ? (
             loadState === 'error' ? (
               // Polished fallback — replaces the iframe entirely when the LP
@@ -271,14 +289,12 @@ export default function LpReviewPanel({
               </div>
             ) : (
               <>
-                {/* Mobile wrapper */}
-                <div style={{
-                  width: device === 'mobile' ? 390 : '100%',
-                  height: '100%',
-                  margin: device === 'mobile' ? '0 auto' : '0',
-                  position: 'relative',
-                  overflow: 'hidden',
-                }}>
+                {/* Device frame — renders the LP at a true device viewport
+                    (1440 desktop / 390 mobile) and CSS-scales it to fit, so
+                    "desktop" triggers the LP's desktop breakpoints and "mobile"
+                    reads as a real phone. The single iframe stays mounted across
+                    device switches (no reload); only its size/scale change. */}
+                <DeviceFrame device={device} box={box} url={lpUrl}>
                   <iframe
                     ref={iframeRef}
                     src={previewSrc ?? undefined}
@@ -288,11 +304,11 @@ export default function LpReviewPanel({
                     // page, authored against a browser's white viewport default. A
                     // themed background would show through any LP that doesn't set
                     // its own and leave dark text on dark.
-                    style={{ width: '100%', height: '100%', border: 'none', display: 'block', background: '#ffffff' }}
+                    style={{ border: 'none', display: 'block', background: '#ffffff' }}
                     title="Landing page preview"
                     sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
                   />
-                </div>
+                </DeviceFrame>
 
                 {/* Loading overlay — covers the iframe so the broken-content flash is never visible */}
                 {loadState === 'loading' && (
@@ -492,6 +508,109 @@ export default function LpReviewPanel({
               </div>
             )
           })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Device frame ─────────────────────────────────────────────────────────────
+// Renders its single iframe child at a true device viewport and CSS-scales it to
+// fit the measured area. Desktop = 1440px in a browser-chrome window; mobile =
+// 390×844 in a phone bezel. The child iframe keeps its ref (cloneElement only
+// merges style), so it never remounts when the device toggles.
+
+function DeviceFrame({
+  device,
+  box,
+  url,
+  children,
+}: {
+  device: 'desktop' | 'mobile'
+  box: { w: number; h: number }
+  url: string | null
+  children: ReactElement<{ style?: CSSProperties }>
+}) {
+  // Before the ResizeObserver reports a size, render nothing — the loading
+  // overlay covers this area until the first measurement lands.
+  if (box.w < 2 || box.h < 2) return <div style={{ width: '100%', height: '100%' }} />
+
+  const baseStyle = children.props.style ?? {}
+
+  if (device === 'mobile') {
+    const LOGICAL_W = 390
+    const LOGICAL_H = 844
+    const BEZEL = 12
+    const PAD = 20
+    const scale = Math.min(
+      1,
+      (box.w - PAD * 2 - BEZEL * 2) / LOGICAL_W,
+      (box.h - PAD * 2 - BEZEL * 2) / LOGICAL_H,
+    )
+    const screenW = LOGICAL_W * scale
+    const screenH = LOGICAL_H * scale
+    const child = cloneElement(children, {
+      style: { ...baseStyle, width: LOGICAL_W, height: LOGICAL_H, transform: `scale(${scale})`, transformOrigin: 'top left' },
+    })
+    return (
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: PAD }}>
+        <div style={{
+          padding: BEZEL,
+          borderRadius: 44 * scale + BEZEL,
+          background: '#0b0b0d',
+          boxShadow: '0 24px 60px rgba(0,0,0,0.45)',
+        }}>
+          <div style={{ position: 'relative', width: screenW, height: screenH, borderRadius: 40 * scale, overflow: 'hidden', background: '#fff' }}>
+            {child}
+            {/* Notch */}
+            <div style={{
+              position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)',
+              width: 130 * scale, height: 24 * scale,
+              background: '#0b0b0d', borderRadius: `0 0 ${16 * scale}px ${16 * scale}px`,
+              pointerEvents: 'none',
+            }} />
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Desktop
+  const LOGICAL_W = 1440
+  const CHROME_H = 34
+  const PAD = 16
+  const scale = Math.min(1, (box.w - PAD * 2) / LOGICAL_W)
+  const frameW = LOGICAL_W * scale
+  const viewportH = Math.max(0, box.h - PAD * 2 - CHROME_H)
+  const iframeLogicalH = scale > 0 ? viewportH / scale : viewportH
+  const child = cloneElement(children, {
+    style: { ...baseStyle, width: LOGICAL_W, height: iframeLogicalH, transform: `scale(${scale})`, transformOrigin: 'top left' },
+  })
+  let host = ''
+  try { host = url ? new URL(url).host : '' } catch { host = url ?? '' }
+  return (
+    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: PAD }}>
+      <div style={{ width: frameW, borderRadius: 10, overflow: 'hidden', border: '1px solid var(--border)', boxShadow: '0 16px 48px rgba(0,0,0,0.4)', background: '#fff' }}>
+        {/* Browser chrome */}
+        <div style={{ height: CHROME_H, background: 'var(--surface-raised)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10, padding: '0 12px', flexShrink: 0 }}>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#ff5f57' }} />
+            <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#febc2e' }} />
+            <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#28c840' }} />
+          </div>
+          {host && (
+            <div style={{
+              flex: 1, height: 20, borderRadius: 5, background: 'var(--surface-2)',
+              display: 'flex', alignItems: 'center', padding: '0 10px',
+              fontSize: 11, color: 'var(--text-muted)', maxWidth: 420,
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
+              {host}
+            </div>
+          )}
+        </div>
+        <div style={{ width: frameW, height: viewportH, overflow: 'hidden', background: '#fff' }}>
+          {child}
         </div>
       </div>
     </div>

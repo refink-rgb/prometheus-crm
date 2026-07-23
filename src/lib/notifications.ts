@@ -14,7 +14,7 @@
 
 import { createServiceClient } from './supabase/service'
 
-export type NotificationType = 'assigned' | 'mentioned'
+export type NotificationType = 'assigned' | 'mentioned' | 'client_feedback'
 
 export interface NotificationInput {
   recipient_id: string

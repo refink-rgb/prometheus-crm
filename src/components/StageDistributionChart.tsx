@@ -8,7 +8,7 @@ interface StageDistributionChartProps {
   projects: Project[]
 }
 
-const CHART_STAGES: Stage[] = ['brief', 'in_progress', 'internal_review', 'client_review', 'live']
+const CHART_STAGES: Stage[] = ['brief', 'in_progress', 'internal_review', 'client_review', 'revisions', 'live']
 
 export default function StageDistributionChart({ projects }: StageDistributionChartProps) {
   const active = projects.filter(p => !p.is_complete)

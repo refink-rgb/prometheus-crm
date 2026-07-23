@@ -360,6 +360,7 @@ const STAGE_LABELS: Record<string, string> = {
   in_progress: 'In Progress',
   internal_review: 'Internal Review',
   client_review: 'Client Review',
+  revisions: 'Revisions',
   live: 'Live',
   done: 'Done',
 }

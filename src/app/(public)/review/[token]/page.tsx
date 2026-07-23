@@ -90,10 +90,10 @@ export default async function ReviewPage({
         </div>
       </div>
 
-      <main style={{ maxWidth: 960, margin: '0 auto', padding: 'var(--space-10) var(--space-6) 80px' }}>
+      <main style={{ maxWidth: 1180, margin: '0 auto', padding: 'var(--space-10) var(--space-6) 80px' }}>
 
         {/* Header */}
-        <div style={{ marginBottom: 'var(--space-8)' }}>
+        <div style={{ marginBottom: 'var(--space-8)', ...TEXT_COLUMN }}>
           <p style={{ fontSize: 'var(--text-base)', color: 'var(--text-muted)', marginBottom: 'var(--space-2)' }}>
             {brand?.name} {dueStr ? `· Due ${dueStr}` : ''}
           </p>
@@ -125,7 +125,8 @@ export default async function ReviewPage({
           )}
         </div>
 
-        {/* Landing Page track */}
+        {/* Landing Page track — spans the full (widened) main so the desktop
+            preview has room to read like a real desktop after scaling. */}
         <section style={{ marginBottom: 'var(--space-8)' }}>
           <SectionTitle>Landing Page</SectionTitle>
           <LpReviewPanel
@@ -195,7 +196,7 @@ export default async function ReviewPage({
 
         {/* Offer Details */}
         {(p.offer_description || p.inspiration || p.headline || p.body_copy || p.supporting_message || p.offer || p.cta || p.discount || p.tiered_offer || p.product_featured) && (
-          <section style={{ marginBottom: 'var(--space-8)' }}>
+          <section style={{ marginBottom: 'var(--space-8)', ...TEXT_COLUMN }}>
             <SectionTitle>Offer Details</SectionTitle>
             <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
               {p.product_featured && (
@@ -277,7 +278,7 @@ export default async function ReviewPage({
         )}
 
         {/* Notes thread */}
-        <section style={{ marginBottom: 'var(--space-8)' }}>
+        <section style={{ marginBottom: 'var(--space-8)', ...TEXT_COLUMN }}>
           <SectionTitle>Notes & Messages</SectionTitle>
           <div className="card">
             <NotesThread
@@ -295,6 +296,11 @@ export default async function ReviewPage({
 }
 
 // ─── Small helpers ────────────────────────────────────────────────────────────
+
+// The review deliverables (LP + Creatives) span the full widened main so the
+// desktop preview reads like a desktop; the prose sections stay capped at a
+// comfortable reading width and left-aligned beneath them.
+const TEXT_COLUMN: React.CSSProperties = { maxWidth: 880 }
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (

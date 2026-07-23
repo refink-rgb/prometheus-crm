@@ -1,4 +1,4 @@
-export type Stage = 'brief' | 'in_progress' | 'internal_review' | 'client_review' | 'live' | 'done'
+export type Stage = 'brief' | 'in_progress' | 'internal_review' | 'client_review' | 'revisions' | 'live' | 'done'
 
 export type PipelineStatus = 'intro_contact' | 'discovery_call' | 'offer_prep' | 'active'
 
@@ -392,8 +392,9 @@ export const STAGE_LABELS: Record<Stage, string> = {
   in_progress:     'In Progress',
   internal_review: 'Internal Review',
   client_review:   'Client Review',
+  revisions:       'Revisions',
   live:            'Live',
   done:            'Done',
 }
 
-export const STAGE_ORDER: Stage[] = ['brief', 'in_progress', 'internal_review', 'client_review', 'live', 'done']
+export const STAGE_ORDER: Stage[] = ['brief', 'in_progress', 'internal_review', 'client_review', 'revisions', 'live', 'done']

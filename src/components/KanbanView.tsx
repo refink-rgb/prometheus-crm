@@ -273,7 +273,9 @@ export default function KanbanView({
           {/* Board */}
           <div className="kanban-board" style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(6, minmax(260px, 1fr))',
+            // Derived from STAGE_ORDER so adding a stage never leaves an orphan
+            // column wrapping to a second row.
+            gridTemplateColumns: `repeat(${STAGE_ORDER.length}, minmax(260px, 1fr))`,
             gridTemplateRows: 'minmax(0, 1fr)',
             gap: 12,
             height: '100%',

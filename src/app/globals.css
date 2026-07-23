@@ -424,7 +424,7 @@ label {
   .app-mobile-nav { display: flex !important; }
   .app-main { margin-left: 0 !important; padding-bottom: 64px !important; }
   .form-grid-2 { grid-template-columns: 1fr !important; }
-  .kanban-board { grid-template-columns: repeat(6, minmax(220px, 1fr)) !important; }
+  .kanban-board { grid-template-columns: repeat(7, minmax(220px, 1fr)) !important; }
 }
 
 @keyframes spinnerSpin {

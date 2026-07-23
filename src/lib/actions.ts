@@ -479,6 +479,94 @@ export async function generateShareToken(projectId: string): Promise<string> {
   return token
 }
 
+// Fields we need off `projects` to route client-feedback signals to the right
+// teammate and know whether to advance the stage.
+type FeedbackProject = {
+  id: string
+  brand_id: string | null
+  lp_editor_id: string | null
+  creative_editor_id: string | null
+  created_by: string | null
+  lp_stage: Stage
+  creatives_stage: Stage
+}
+const FEEDBACK_PROJECT_COLS = 'id, brand_id, lp_editor_id, creative_editor_id, created_by, lp_stage, creatives_stage'
+
+// Emitted when a client acts on the public review link (comment / revision /
+// approval). Nudges the assigned editor for the affected track and — for
+// feedback & revision requests only (never a clean approval) — advances a track
+// that is still "Client Review" into "Revisions". Fully best-effort: a missing
+// notifications/events table never blocks the client's action.
+async function emitClientFeedback(
+  supabase: ReturnType<typeof createServiceClient>,
+  opts: {
+    project: FeedbackProject
+    track: 'lp' | 'creative'
+    kind: 'comment' | 'revision' | 'approval'
+    authorName: string
+    title: string
+    body: string
+    commentId?: string | null
+    advance: boolean
+  },
+) {
+  const { project, track, authorName, title, body, commentId, advance, kind } = opts
+  const stageCol = track === 'lp' ? 'lp_stage' : 'creatives_stage'
+  const editorId = track === 'lp' ? project.lp_editor_id : project.creative_editor_id
+  // Fall back to the project creator so feedback is never dropped silently when
+  // no editor is assigned to that track yet.
+  const recipient = editorId ?? project.created_by ?? null
+
+  if (recipient) {
+    await createNotifications([{
+      recipient_id: recipient,
+      actor_id: null, // the client is not a profile
+      actor_label: authorName,
+      type: 'client_feedback',
+      project_id: project.id,
+      brand_id: project.brand_id,
+      comment_id: commentId ?? null,
+      title,
+      body,
+      link: project.brand_id
+        ? `/brands/${project.brand_id}/projects/${project.id}#client-feedback`
+        : null,
+    }])
+  }
+
+  if (advance && project[stageCol] === 'client_review') {
+    // Atomic guard: the .eq(stageCol,'client_review') means a track that has
+    // already shipped (live/done) is never dragged backwards by a late comment.
+    const { error } = await supabase
+      .from('projects')
+      .update({ [stageCol]: 'revisions' })
+      .eq('id', project.id)
+      .eq(stageCol, 'client_review')
+    if (!error) {
+      if (eventsEnabled()) {
+        try {
+          await logEvents([{
+            event_type: 'stage_changed',
+            card_id: project.id,
+            brand_id: project.brand_id,
+            track,
+            from_stage: 'client_review',
+            to_stage: 'revisions',
+            actor_label: 'client',
+            payload: { via: 'review_link', kind },
+          }])
+        } catch (err) {
+          console.error('[emitClientFeedback] event log failed:', err)
+        }
+      }
+      if (project.brand_id) {
+        revalidatePath(`/brands/${project.brand_id}/projects/${project.id}`)
+        revalidatePath('/') // pipeline/kanban render stage
+      }
+    }
+  }
+}
+
 export async function addProjectComment(
   token: string,
   authorName: string,
@@ -499,7 +587,7 @@ export async function addProjectComment(
 
   const { data: project } = await supabase
     .from('projects')
-    .select('id')
+    .select(FEEDBACK_PROJECT_COLS)
     .eq('share_token', token)
     .single()
 
@@ -507,13 +595,14 @@ export async function addProjectComment(
 
   const cleanedAttachments = (extras?.attachment_urls ?? []).filter(u => typeof u === 'string' && u.length > 0)
 
-  await supabase
+  const commentTrack = extras?.track ?? 'general'
+  const { data: inserted } = await supabase
     .from('project_comments')
     .insert({
       project_id: project.id,
       author_name: authorName.trim(),
       content: content.trim(),
-      track: extras?.track ?? 'general',
+      track: commentTrack,
       asset_id: extras?.asset_id ?? null,
       pin_x: extras?.pin_x ?? null,
       pin_y: extras?.pin_y ?? null,
@@ -522,6 +611,29 @@ export async function addProjectComment(
       // Comments from the public review link are always client-facing.
       audience: 'client',
     })
+    .select('id')
+    .single()
+
+  // Notify the assigned editor and (for review feedback, not a general message)
+  // move the track into Revisions. Image comments belong to the creative editor;
+  // LP/general to the LP editor. A 'note' is chatter in the Notes thread — it
+  // pings the LP editor but never advances the stage.
+  const name = authorName.trim() || 'Anonymous'
+  const fbTrack: 'lp' | 'creative' = commentTrack === 'image' ? 'creative' : 'lp'
+  const title =
+    commentTrack === 'image' ? `${name} commented on a creative`
+    : commentTrack === 'note' ? `${name} sent a message`
+    : `${name} left landing page feedback`
+  await emitClientFeedback(supabase, {
+    project: project as FeedbackProject,
+    track: fbTrack,
+    kind: 'comment',
+    authorName: name,
+    title,
+    body: content.trim().slice(0, 140),
+    commentId: (inserted as { id?: string } | null)?.id ?? null,
+    advance: commentTrack !== 'note',
+  })
 
   revalidatePath(`/review/${token}`)
 }
@@ -1085,18 +1197,37 @@ export async function updateAssetStatus(token: string, assetId: string, status: 
   // Verify the asset belongs to this token's project
   const { data: project } = await supabase
     .from('projects')
-    .select('id')
+    .select(FEEDBACK_PROJECT_COLS)
     .eq('share_token', token)
     .single()
   if (!project) throw new Error('Invalid review link.')
 
-  const { error } = await supabase
+  const { data: asset, error } = await supabase
     .from('creative_assets')
     .update({ status })
     .eq('id', assetId)
     .eq('project_id', project.id)
+    .select('name')
+    .single()
 
   if (error) throw new Error(error.message)
+
+  // A revision request / rejection is client feedback the creative editor must
+  // act on → notify them and move the creatives track into Revisions. Approving
+  // or clearing a single asset does not (whole-track approval is a separate
+  // action via approveProject).
+  if (status === 'needs_revision' || status === 'rejected') {
+    const label = (asset as { name?: string | null } | null)?.name?.trim() || 'a creative'
+    await emitClientFeedback(supabase, {
+      project: project as FeedbackProject,
+      track: 'creative',
+      kind: 'revision',
+      authorName: 'The client',
+      title: status === 'rejected' ? `Client rejected ${label}` : `Client requested a revision on ${label}`,
+      body: status === 'rejected' ? 'Concept rejected on the review link.' : 'Revision requested on the review link.',
+      advance: true,
+    })
+  }
 
   // Side-effect: keep the Drive layout in sync with the client's decision.
   //   - reject → move file to Delete/ + soft-hide (best-effort).
@@ -1379,28 +1510,40 @@ export async function approveProject(token: string, track: 'lp' | 'creatives') {
 
   if (error) throw new Error(error.message)
 
-  // logEvents never throws, and a failed lookup only costs the event — the
-  // approval stands.
-  if (eventsEnabled()) {
-    try {
-      const { data: project } = await supabase
-        .from('projects')
-        .select('id, brand_id')
-        .eq('share_token', token)
-        .single()
-      if (project) {
+  // One lookup feeds both the notification (always) and the event (if enabled).
+  // A failed lookup only costs those side-effects — the approval stands.
+  try {
+    const { data: project } = await supabase
+      .from('projects')
+      .select(FEEDBACK_PROJECT_COLS)
+      .eq('share_token', token)
+      .single()
+    if (project) {
+      const eventTrack: 'lp' | 'creative' = track === 'lp' ? 'lp' : 'creative'
+      // Approval is good news, not a to-do: notify the editor but do NOT move
+      // the track into Revisions.
+      await emitClientFeedback(supabase, {
+        project: project as FeedbackProject,
+        track: eventTrack,
+        kind: 'approval',
+        authorName: 'The client',
+        title: track === 'lp' ? 'Client approved the landing page' : 'Client approved the creatives',
+        body: 'Approved on the review link — ready to ship.',
+        advance: false,
+      })
+      if (eventsEnabled()) {
         await logEvents([{
           event_type: 'client_responded',
-          card_id: project.id,
-          brand_id: project.brand_id,
-          track: track === 'lp' ? 'lp' : 'creative',
+          card_id: (project as FeedbackProject).id,
+          brand_id: (project as FeedbackProject).brand_id,
+          track: eventTrack,
           actor_label: 'client',
           payload: { response_type: 'approved', via: 'review_link' },
         }])
       }
-    } catch (err) {
-      console.error('[events] approveProject lookup failed:', err)
     }
+  } catch (err) {
+    console.error('[approveProject] notify/event failed:', err)
   }
 
   revalidatePath(`/review/${token}`)

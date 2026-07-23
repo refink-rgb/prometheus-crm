@@ -201,6 +201,7 @@ function MiniDot({ label, stage }: { label: string; stage: string }) {
   const color =
     stage === 'done'            ? 'var(--success)'  :
     stage === 'live'            ? '#14b8a6'          :
+    stage === 'revisions'       ? '#f43f5e'          :
     stage === 'client_review'   ? 'var(--warning)'  :
     stage === 'internal_review' ? '#a855f7'          :
     stage === 'in_progress'     ? 'var(--accent)'   :

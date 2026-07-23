@@ -10,6 +10,7 @@ export const STAGE_PCT: Record<Stage, number> = {
   in_progress:     25,
   internal_review: 50,
   client_review:   65,
+  revisions:       75,
   live:            85,
   done:            100,
 }
@@ -19,6 +20,7 @@ export const STAGE_COLORS = {
   in_progress:     { border: '#3B82F6', bg: 'rgba(59,130,246,0.14)',  text: '#60A5FA' },
   internal_review: { border: '#6366F1', bg: 'rgba(99,102,241,0.14)',  text: '#818CF8' },
   client_review:   { border: '#F59E0B', bg: 'rgba(245,158,11,0.14)',  text: '#FCD34D' },
+  revisions:       { border: '#F43F5E', bg: 'rgba(244,63,94,0.14)',   text: '#FB7185' },
   live:            { border: '#65A30D', bg: 'rgba(101,163,13,0.16)',  text: '#A3E635' },
   done:            { border: '#10B981', bg: 'rgba(16,185,129,0.16)',  text: '#34D399' },
 } satisfies Record<Stage, { border: string; bg: string; text: string }>
@@ -102,6 +104,7 @@ export const STAGE_DUE_FIELD = {
   in_progress:     'stage_in_progress_due_date',
   internal_review: 'stage_internal_review_due_date',
   client_review:   'stage_client_review_due_date',
+  revisions:       null,
   live:            null,
   done:            null,
 } as const satisfies Record<Stage, string | null>
