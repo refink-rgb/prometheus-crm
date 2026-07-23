@@ -1918,8 +1918,9 @@ export async function updateBrandDna(
   }
   for (const f of arrayFields) {
     if (!formData.has(f)) continue
-    const items = (formData.get(f) as string).split('\n').map(s => s.trim()).filter(Boolean)
-    updates[f] = items.length > 0 ? items : null
+    // Array columns are NOT NULL in brand_dna — an emptied list saves as [],
+    // matching what buildBrandDna inserts (null here violates the constraint).
+    updates[f] = (formData.get(f) as string).split('\n').map(s => s.trim()).filter(Boolean)
   }
   if (Object.keys(updates).length === 0) return { ok: true }
   updates.updated_at = new Date().toISOString()
