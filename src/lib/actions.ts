@@ -1890,6 +1890,52 @@ export async function buildBrandDna(
   }
 }
 
+// Manual corrections to the active Brand DNA record — edits apply in place
+// (no version bump; ✦ Rebuild still creates new versions). Only fields present
+// in the form are touched, so partial edit UIs stay safe.
+export async function updateBrandDna(
+  formData: FormData,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
+
+  const brandId = formData.get('brand_id') as string
+  if (!brandId) return { ok: false, error: 'Missing brand id.' }
+
+  const { TEXT_FIELDS } = await import('@/lib/ai/brand-dna-schema')
+  // research_markdown is the raw dossier — regenerated, never hand-edited.
+  const stringFields = TEXT_FIELDS.filter(f => f !== 'research_markdown')
+  const arrayFields = [
+    'voice_adjectives', 'background_colors', 'top_pain_points',
+    'proof_points', 'common_offers', 'top_objections', 'winning_hooks',
+  ] as const
+
+  const updates: Record<string, unknown> = {}
+  for (const f of stringFields) {
+    if (formData.has(f)) updates[f] = (formData.get(f) as string).trim() || null
+  }
+  for (const f of arrayFields) {
+    if (!formData.has(f)) continue
+    const items = (formData.get(f) as string).split('\n').map(s => s.trim()).filter(Boolean)
+    updates[f] = items.length > 0 ? items : null
+  }
+  if (Object.keys(updates).length === 0) return { ok: true }
+  updates.updated_at = new Date().toISOString()
+
+  const { error } = await supabase
+    .from('brand_dna')
+    .update(updates)
+    .eq('brand_id', brandId)
+    .eq('is_active', true)
+
+  if (error) return { ok: false, error: `Failed to save Brand DNA edits: ${error.message}` }
+
+  revalidatePath(`/brands/${brandId}`)
+  return { ok: true }
+}
+
 export async function uploadBrandLogo(
   formData: FormData,
 ): Promise<{ ok: true; logoUrl: string } | { ok: false; error: string }> {

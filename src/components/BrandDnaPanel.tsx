@@ -2,8 +2,91 @@
 
 import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { buildBrandDna, uploadBrandLogo } from '@/lib/actions'
+import { buildBrandDna, uploadBrandLogo, updateBrandDna } from '@/lib/actions'
 import type { BrandDna } from '@/lib/types'
+
+// Edit-mode form config — mirrors the read-only sections below. 'list' fields
+// render as one-item-per-line textareas; 'color' fields get a live swatch.
+type EditKind = 'input' | 'textarea' | 'list' | 'color'
+const EDIT_SECTIONS: Array<{ title: string; fields: Array<{ name: string; label: string; kind: EditKind }> }> = [
+  { title: 'Prompt Modifier', fields: [
+    { name: 'prompt_modifier', label: 'Prompt Modifier (prepended to ad-generation prompts)', kind: 'textarea' },
+  ]},
+  { title: 'Overview', fields: [
+    { name: 'tagline', label: 'Tagline', kind: 'input' },
+    { name: 'positioning', label: 'Positioning', kind: 'textarea' },
+    { name: 'core_value_prop', label: 'Core Value Prop', kind: 'textarea' },
+    { name: 'design_agency', label: 'Design Agency', kind: 'input' },
+    { name: 'competitive_differentiation', label: 'Competitive Differentiation', kind: 'textarea' },
+    { name: 'voice_adjectives', label: 'Voice Adjectives (one per line)', kind: 'list' },
+  ]},
+  { title: 'Typography', fields: [
+    { name: 'primary_font', label: 'Primary Font', kind: 'input' },
+    { name: 'secondary_font', label: 'Secondary Font', kind: 'input' },
+    { name: 'headline_weight', label: 'Headline Weight', kind: 'input' },
+    { name: 'body_weight', label: 'Body Weight', kind: 'input' },
+    { name: 'cta_style', label: 'CTA Style', kind: 'input' },
+  ]},
+  { title: 'Colors', fields: [
+    { name: 'primary_color', label: 'Primary', kind: 'color' },
+    { name: 'secondary_color', label: 'Secondary', kind: 'color' },
+    { name: 'accent_color', label: 'Accent', kind: 'color' },
+    { name: 'contrast_color', label: 'Contrast', kind: 'color' },
+    { name: 'background_colors', label: 'Backgrounds (one hex per line)', kind: 'list' },
+  ]},
+  { title: 'Photography', fields: [
+    { name: 'lighting', label: 'Lighting', kind: 'input' },
+    { name: 'color_grading', label: 'Color Grading', kind: 'input' },
+    { name: 'composition', label: 'Composition', kind: 'input' },
+    { name: 'subject_matter', label: 'Subject Matter', kind: 'input' },
+    { name: 'props_and_surfaces', label: 'Props & Surfaces', kind: 'input' },
+    { name: 'mood', label: 'Mood', kind: 'input' },
+  ]},
+  { title: 'Packaging', fields: [
+    { name: 'packaging_description', label: 'Description', kind: 'textarea' },
+    { name: 'packaging_label_placement', label: 'Label Placement', kind: 'input' },
+    { name: 'packaging_finish', label: 'Finish', kind: 'input' },
+    { name: 'packaging_system', label: 'System', kind: 'input' },
+  ]},
+  { title: 'Ad Creative Style', fields: [
+    { name: 'typical_formats', label: 'Typical Formats', kind: 'input' },
+    { name: 'text_overlay_style', label: 'Text Overlay Style', kind: 'input' },
+    { name: 'ugc_usage', label: 'UGC Usage', kind: 'input' },
+    { name: 'offer_presentation', label: 'Offer Presentation', kind: 'input' },
+  ]},
+  { title: 'Sales DNA', fields: [
+    { name: 'top_pain_points', label: 'Top Pain Points (one per line)', kind: 'list' },
+    { name: 'proof_points', label: 'Proof Points (one per line)', kind: 'list' },
+    { name: 'common_offers', label: 'Common Offers (one per line)', kind: 'list' },
+    { name: 'price_anchor', label: 'Price Anchor', kind: 'input' },
+    { name: 'top_objections', label: 'Top Objections (one per line)', kind: 'list' },
+    { name: 'winning_hooks', label: 'Winning Hooks (one per line)', kind: 'list' },
+  ]},
+]
+
+function EditColorInput({ name, label, initial }: { name: string; label: string; initial: string }) {
+  const [val, setVal] = useState(initial)
+  return (
+    <div>
+      <label style={{ ...FIELD_LABEL, display: 'block' }}>{label}</label>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{
+          display: 'inline-block', width: 24, height: 24, borderRadius: 5, flexShrink: 0,
+          background: looksLikeHex(val) ? val : 'transparent',
+          border: '1px solid var(--border)',
+        }} />
+        <input
+          name={name}
+          type="text"
+          value={val}
+          onChange={e => setVal(e.target.value)}
+          placeholder="#rrggbb"
+          style={{ flex: 1 }}
+        />
+      </div>
+    </div>
+  )
+}
 
 const CARD_STYLE: React.CSSProperties = { marginBottom: 32 }
 const H2_STYLE: React.CSSProperties = {
@@ -115,6 +198,29 @@ export default function BrandDnaPanel({ brandId, dna }: { brandId: string; dna: 
   const [copied, setCopied] = useState(false)
   const fileRef = useRef<HTMLInputElement | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  async function handleSave(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    setSaving(true)
+    setError('')
+    try {
+      const fd = new FormData(e.currentTarget)
+      fd.set('brand_id', brandId)
+      const result = await updateBrandDna(fd)
+      if (!result.ok) {
+        setError(result.error)
+      } else {
+        setEditing(false)
+        router.refresh()
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Save failed')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   async function handleBuild() {
     const label = dna ? 'Rebuild Brand DNA?' : 'Build Brand DNA now?'
@@ -175,16 +281,49 @@ export default function BrandDnaPanel({ brandId, dna }: { brandId: string; dna: 
         <h2 style={{ ...H2_STYLE, marginBottom: 0 }}>
           Brand DNA {dna && <span style={{ color: 'var(--text-muted)', fontWeight: 400, letterSpacing: 0, textTransform: 'none' }}>· v{dna.version}</span>}
         </h2>
-        <button
-          onClick={handleBuild}
-          disabled={building}
-          className="btn-primary"
-          style={{ fontSize: 12 }}
-        >
-          {building
-            ? <>Generating… <span style={{ fontSize: 10, opacity: 0.7 }}>(~60s)</span></>
-            : dna ? '✦ Rebuild' : '✦ Build Brand DNA'}
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {dna && !editing && (
+            <button
+              onClick={() => setEditing(true)}
+              className="btn-secondary"
+              style={{ fontSize: 12 }}
+            >
+              ✎ Edit
+            </button>
+          )}
+          {editing ? (
+            <>
+              <button
+                onClick={() => setEditing(false)}
+                disabled={saving}
+                className="btn-secondary"
+                style={{ fontSize: 12 }}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                form="dna-edit-form"
+                disabled={saving}
+                className="btn-primary"
+                style={{ fontSize: 12 }}
+              >
+                {saving ? 'Saving…' : 'Save changes'}
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={handleBuild}
+              disabled={building}
+              className="btn-primary"
+              style={{ fontSize: 12 }}
+            >
+              {building
+                ? <>Generating… <span style={{ fontSize: 10, opacity: 0.7 }}>(~60s)</span></>
+                : dna ? '✦ Rebuild' : '✦ Build Brand DNA'}
+            </button>
+          )}
+        </div>
       </div>
 
       {error && (
@@ -226,7 +365,58 @@ export default function BrandDnaPanel({ brandId, dna }: { brandId: string; dna: 
         </p>
       )}
 
-      {dna && (
+      {/* Edit mode — every DNA field as a form input, prefilled. Arrays are
+          one-item-per-line textareas; colors show a live swatch. */}
+      {dna && editing && (
+        <form id="dna-edit-form" onSubmit={handleSave}>
+          {EDIT_SECTIONS.map(section => (
+            <div key={section.title} style={{ marginBottom: 24 }}>
+              <div style={SECTION_LABEL}>{section.title}</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
+                {section.fields.map(f => {
+                  const raw = (dna as unknown as Record<string, unknown>)[f.name]
+                  if (f.kind === 'color') {
+                    return <EditColorInput key={f.name} name={f.name} label={f.label} initial={(raw as string | null) ?? ''} />
+                  }
+                  if (f.kind === 'list') {
+                    const joined = Array.isArray(raw) ? (raw as string[]).join('\n') : ''
+                    return (
+                      <div key={f.name}>
+                        <label style={{ ...FIELD_LABEL, display: 'block' }}>{f.label}</label>
+                        <textarea name={f.name} rows={4} defaultValue={joined} style={{ resize: 'vertical', width: '100%' }} />
+                      </div>
+                    )
+                  }
+                  if (f.kind === 'textarea') {
+                    return (
+                      <div key={f.name} style={{ gridColumn: '1 / -1' }}>
+                        <label style={{ ...FIELD_LABEL, display: 'block' }}>{f.label}</label>
+                        <textarea name={f.name} rows={3} defaultValue={(raw as string | null) ?? ''} style={{ resize: 'vertical', width: '100%' }} />
+                      </div>
+                    )
+                  }
+                  return (
+                    <div key={f.name}>
+                      <label style={{ ...FIELD_LABEL, display: 'block' }}>{f.label}</label>
+                      <input name={f.name} type="text" defaultValue={(raw as string | null) ?? ''} style={{ width: '100%' }} />
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button type="button" onClick={() => setEditing(false)} disabled={saving} className="btn-secondary" style={{ fontSize: 12 }}>
+              Cancel
+            </button>
+            <button type="submit" disabled={saving} className="btn-primary" style={{ fontSize: 12 }}>
+              {saving ? 'Saving…' : 'Save changes'}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {dna && !editing && (
         <>
           {/* Prompt modifier — the payoff */}
           {dna.prompt_modifier && (
