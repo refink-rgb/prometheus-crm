@@ -10,12 +10,17 @@ import {
   type DragStartEvent, type DragOverEvent, type DragEndEvent,
 } from '@dnd-kit/core'
 import { STAGE_ORDER, STAGE_LABELS, profileName, type Stage, type Project, type Profile } from '@/lib/types'
-import { updateProjectStagesBoth } from '@/lib/actions'
+import { updateProjectStage, updateProjectStagesBoth } from '@/lib/actions'
 import { isProjectOverdue, phaseDueTone, STAGE_COLORS, STAGE_DUE_FIELD } from '@/lib/stageColors'
 import KanbanCard from './KanbanCard'
 
 type PipelineProject = Project & { brands: { id: string; name: string } }
 type StatusFilter = 'all' | 'overdue' | 'in_review'
+// Which track's stage a card is columned by. 'combined' keeps the historical
+// behavior (the earliest of the two tracks); 'lp' / 'creatives' column by that
+// track alone, so creative work in internal review shows in Internal Review
+// even while the LP track is still in progress.
+type TrackView = 'combined' | 'lp' | 'creatives'
 // A profile id, or one of the two sentinels. Was a hardcoded union of designer
 // names; now driven by the profiles roster.
 type EditorFilter = 'all' | 'unassigned' | (string & {})
@@ -24,7 +29,9 @@ function isEditedBy(p: PipelineProject, profileId: string): boolean {
   return p.lp_editor_id === profileId || p.creative_editor_id === profileId
 }
 
-function cardColumn(p: PipelineProject): Stage {
+function cardColumn(p: PipelineProject, view: TrackView): Stage {
+  if (view === 'lp') return p.lp_stage
+  if (view === 'creatives') return p.creatives_stage
   const lpIdx = STAGE_ORDER.indexOf(p.lp_stage)
   const crIdx = STAGE_ORDER.indexOf(p.creatives_stage)
   return STAGE_ORDER[Math.min(lpIdx, crIdx)]
@@ -55,6 +62,7 @@ export default function KanbanView({
   useEffect(() => setLocalProjects(pipeline), [pipeline])
 
   const [search, setSearch] = useState('')
+  const [trackView, setTrackView] = useState<TrackView>('combined')
   const [status, setStatus] = useState<StatusFilter>('all')
   const [filterWaiting, setFilterWaiting] = useState(false)
   const [editor, setEditor] = useState<EditorFilter>('all')
@@ -100,9 +108,9 @@ export default function KanbanView({
   const columns = useMemo(
     () => STAGE_ORDER.map(stage => ({
       stage,
-      cards: displayed.filter(p => cardColumn(p) === stage),
+      cards: displayed.filter(p => cardColumn(p, trackView) === stage),
     })),
-    [displayed]
+    [displayed, trackView]
   )
 
   const activeCard = activeId ? localProjects.find(p => p.id === activeId) ?? null : null
@@ -111,22 +119,35 @@ export default function KanbanView({
   // move buttons on each card (KanbanCard's prev/next stage fallback), so both
   // input methods move a card the same way.
   const moveCard = useCallback((card: PipelineProject, targetStage: Stage) => {
-    if (cardColumn(card) === targetStage) return
+    if (cardColumn(card, trackView) === targetStage) return
     const snapshot = [...localProjects]
+    // In a single-track view, a drag advances only that track — the other
+    // track's stage must not be dragged along with it.
+    const patch: Partial<PipelineProject> =
+      trackView === 'lp' ? { lp_stage: targetStage }
+      : trackView === 'creatives' ? { creatives_stage: targetStage }
+      : { lp_stage: targetStage, creatives_stage: targetStage }
     setLocalProjects(prev => prev.map(p =>
-      p.id === card.id
-        ? { ...p, lp_stage: targetStage, creatives_stage: targetStage }
-        : p
+      p.id === card.id ? { ...p, ...patch } : p
     ))
     startTransition(async () => {
       try {
-        await updateProjectStagesBoth(card.id, card.brands.id, targetStage)
+        if (trackView === 'combined') {
+          await updateProjectStagesBoth(card.id, card.brands.id, targetStage)
+        } else {
+          await updateProjectStage(
+            card.id,
+            card.brands.id,
+            trackView === 'lp' ? 'lp_stage' : 'creatives_stage',
+            targetStage,
+          )
+        }
         router.refresh()
       } catch {
         setLocalProjects(snapshot)
       }
     })
-  }, [localProjects, router, startTransition])
+  }, [localProjects, router, startTransition, trackView])
 
   function handleDragStart(event: DragStartEvent) {
     setActiveId(event.active.id as string)
@@ -165,6 +186,38 @@ export default function KanbanView({
           onChange={e => setSearch(e.target.value)}
           style={{ width: 190, fontSize: 'var(--text-base)' }}
         />
+
+        {/* Track view: which track's stage the board columns by */}
+        <div style={{ display: 'flex', gap: 0, border: '1px solid var(--border)', borderRadius: 20, overflow: 'hidden' }}>
+          {(['combined', 'lp', 'creatives'] as const).map(opt => {
+            const active = trackView === opt
+            const labels = { combined: 'Combined', lp: 'LP', creatives: 'Creatives' }
+            return (
+              <button
+                key={opt}
+                onClick={() => setTrackView(opt)}
+                className="focus-ring-pill"
+                title={
+                  opt === 'combined'
+                    ? 'Column = the earlier of the two tracks'
+                    : `Column = the ${labels[opt]} track's own stage`
+                }
+                style={{
+                  padding: 'var(--space-2) var(--space-3)',
+                  fontSize: 'var(--text-sm)',
+                  cursor: 'pointer',
+                  border: 'none',
+                  fontWeight: active ? 600 : 400,
+                  background: active ? 'var(--accent-muted)' : 'transparent',
+                  color: active ? 'var(--accent)' : 'var(--text-muted)',
+                  transition: 'all 0.15s',
+                }}
+              >
+                {labels[opt]}
+              </button>
+            )
+          })}
+        </div>
 
         <div style={{ display: 'flex', gap: 4 }}>
           {(['all', 'overdue', 'in_review'] as const).map(opt => {
