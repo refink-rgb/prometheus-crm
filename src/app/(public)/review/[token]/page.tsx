@@ -138,8 +138,10 @@ export default async function ReviewPage({
           />
         </section>
 
-        {/* Creatives track */}
-        <section style={{ marginBottom: 'var(--space-8)' }}>
+        {/* Creatives track — capped narrower than the LP so the images keep
+            their original (smaller) size; the LP needs the full width, creatives
+            don't. */}
+        <section style={{ marginBottom: 'var(--space-8)', maxWidth: 960 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
             <SectionTitle>
               Creatives {assets.length > 0 ? `(${assets.length})` : ''}

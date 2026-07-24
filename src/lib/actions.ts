@@ -703,6 +703,38 @@ export async function deleteInternalNote(commentId: string, projectId: string, b
   revalidatePath('/review', 'layout')
 }
 
+// Mark a piece of client feedback handled (or reopen it) from the internal
+// Client Feedback panel. Internal-only + canEdit-gated; the client review link
+// never reads resolved_at, so this never changes what the client sees.
+export async function toggleCommentResolved(
+  commentId: string,
+  projectId: string,
+  brandId: string,
+  resolved: boolean,
+) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authorized.')
+  if (!canEdit(user.email)) throw new Error('Not authorized.')
+
+  const { data: comment } = await supabase
+    .from('project_comments')
+    .select('project_id')
+    .eq('id', commentId)
+    .single()
+  if (!comment || comment.project_id !== projectId) {
+    throw new Error('Comment does not belong to this project.')
+  }
+
+  const { error } = await supabase
+    .from('project_comments')
+    .update({ resolved_at: resolved ? new Date().toISOString() : null })
+    .eq('id', commentId)
+  if (error) throw new Error(error.message)
+
+  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+}
+
 export async function syncDriveImages(projectId: string, brandId: string, folderUrl: string): Promise<number> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()

@@ -1,10 +1,11 @@
 import type { ProjectComment, CreativeAsset } from '@/lib/types'
+import FeedbackComment from '@/components/FeedbackComment'
 
 // Read-only consolidation of everything the client left on the review link:
 // landing-page feedback (by section) and per-creative feedback (with pins),
 // plus each track's approval status. The notification bell deep-links here via
-// the `#client-feedback` anchor. Server component — no interaction, just a
-// digest the team can scan when a project lands in "Revisions".
+// the `#client-feedback` anchor. Each item carries a resolve/check toggle so the
+// team can tick feedback off as it's handled.
 
 const STATUS_META: Record<CreativeAsset['status'], { label: string; color: string } | null> = {
   pending: null,
@@ -13,52 +14,28 @@ const STATUS_META: Record<CreativeAsset['status'], { label: string; color: strin
   rejected: { label: '✕ Rejected', color: '#fca5a5' },
 }
 
-function fmtDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-}
-
-function CommentRow({ c, pin }: { c: ProjectComment; pin?: number }) {
-  return (
-    <div style={{ padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-raised)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-        {pin != null ? (
-          <span style={{
-            width: 18, height: 18, borderRadius: '50%', background: 'var(--accent)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 9, fontWeight: 700, color: 'white', flexShrink: 0,
-          }}>{pin}</span>
-        ) : (
-          <span style={{ fontSize: 12, flexShrink: 0 }}>💬</span>
-        )}
-        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', flex: 1 }}>{c.author_name}</span>
-        {c.section_tag && c.section_tag !== 'General' && (
-          <span style={{
-            fontSize: 10, fontWeight: 600, color: 'var(--accent)',
-            background: 'var(--accent-muted)', border: '1px solid color-mix(in srgb, var(--accent) 30%, transparent)',
-            borderRadius: 4, padding: '1px 6px',
-          }}>{c.section_tag}</span>
-        )}
-        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{fmtDate(c.created_at)}</span>
-      </div>
-      <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0, whiteSpace: 'pre-wrap' }}>{c.content}</p>
-    </div>
-  )
-}
-
 export default function ClientFeedbackPanel({
   lpFeedback,
   creativeFeedback,
   assets,
   lpApproved,
   creativesApproved,
+  projectId,
+  brandId,
+  canResolve,
 }: {
   lpFeedback: ProjectComment[]
   creativeFeedback: ProjectComment[]
   assets: CreativeAsset[]
   lpApproved: boolean
   creativesApproved: boolean
+  projectId: string
+  brandId: string
+  canResolve: boolean
 }) {
   const total = lpFeedback.length + creativeFeedback.length
+  const doneCount = [...lpFeedback, ...creativeFeedback].filter(c => c.resolved_at != null).length
+  const openCount = total - doneCount
   const hasAnything = total > 0 || lpApproved || creativesApproved
 
   // Group creative feedback by asset, preserving asset order; number pins per asset.
@@ -76,8 +53,14 @@ export default function ClientFeedbackPanel({
     <div id="client-feedback" className="card" style={{ scrollMarginTop: 80 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 'var(--space-4)', flexWrap: 'wrap' }}>
         <h3 style={{ fontWeight: 700, fontSize: 'var(--text-md)', color: 'var(--text-primary)', margin: 0 }}>
-          Client Feedback{total > 0 ? ` (${total})` : ''}
+          Client Feedback
         </h3>
+        {total > 0 && (
+          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+            {openCount > 0 ? `${openCount} open` : 'all done ✓'}
+            {doneCount > 0 && openCount > 0 ? ` · ${doneCount} done` : ''}
+          </span>
+        )}
         <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
           {lpApproved && <span className="badge badge-done">✓ LP Approved</span>}
           {creativesApproved && <span className="badge badge-done">✓ Creatives Approved</span>}
@@ -98,7 +81,9 @@ export default function ClientFeedbackPanel({
                 Landing Page ({lpFeedback.length})
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {lpFeedback.map(c => <CommentRow key={c.id} c={c} />)}
+                {lpFeedback.map(c => (
+                  <FeedbackComment key={c.id} comment={c} projectId={projectId} brandId={brandId} canResolve={canResolve} />
+                ))}
               </div>
             </div>
           )}
@@ -122,7 +107,16 @@ export default function ClientFeedbackPanel({
                         {meta && <span style={{ fontSize: 12, fontWeight: 600, color: meta.color }}>{meta.label}</span>}
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 12 }}>
-                        {comments.map(c => <CommentRow key={c.id} c={c} pin={c.pin_x != null ? ++pinN : undefined} />)}
+                        {comments.map(c => (
+                          <FeedbackComment
+                            key={c.id}
+                            comment={c}
+                            projectId={projectId}
+                            brandId={brandId}
+                            canResolve={canResolve}
+                            pin={c.pin_x != null ? ++pinN : undefined}
+                          />
+                        ))}
                       </div>
                     </div>
                   )

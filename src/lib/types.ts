@@ -241,6 +241,9 @@ export interface ProjectComment {
   // Freeform image attachments (Supabase storage URLs). Distinct from asset_id,
   // which is for pin-annotations on creative-review images.
   attachment_urls: string[] | null
+  // Internal-only: set when a teammate marks this feedback handled (Client
+  // Feedback panel). NULL = open. Never surfaced on the client review link.
+  resolved_at?: string | null
 }
 
 export interface CreativeAsset {

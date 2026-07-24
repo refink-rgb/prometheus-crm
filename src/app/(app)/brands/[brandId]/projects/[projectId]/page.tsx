@@ -732,6 +732,9 @@ export default async function ProjectPage({
               assets={creativeAssets}
               lpApproved={p.lp_approved}
               creativesApproved={p.creatives_approved}
+              projectId={projectId}
+              brandId={brandId}
+              canResolve={isAuthorized}
             />
 
             {/* Notes thread */}

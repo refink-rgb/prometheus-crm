@@ -50,6 +50,22 @@ export default function LpReviewPanel({
   const [posting, setPosting] = useState(false)
   const [approving, setApproving] = useState(false)
 
+  // Pin-a-comment: drop a numbered marker on a spot in the page, then attach the
+  // comment to it. Pins are stored as % of the document (pin_x/pin_y, the same
+  // columns the image review uses) and injected INTO the same-origin iframe doc,
+  // so they scroll and scale natively with the page. Additive to the existing
+  // section-tagged feedback — a comment can have a pin, a section, or both.
+  const [pinMode, setPinMode] = useState(false)
+  const [pendingPin, setPendingPin] = useState<{ x: number; y: number } | null>(null)
+  const [activePin, setActivePin] = useState<string | null>(null)
+  const commentRefs = useRef<Record<string, HTMLDivElement | null>>({})
+
+  // Oldest-first so a pin's number never changes as newer pins are added.
+  const pinnedOrdered = comments
+    .filter(c => c.pin_x != null)
+    .sort((a, b) => a.created_at.localeCompare(b.created_at))
+  const pinNumber = (id: string) => pinnedOrdered.findIndex(p => p.id === id) + 1
+
   // Same-origin proxy: fetches the live URL server-side, strips scripts/CSP,
   // fixes lazy-loaded images, and serves the cleaned HTML from our origin so
   // the iframe can't be blocked by X-Frame-Options / frame-ancestors.
@@ -108,11 +124,112 @@ export default function LpReviewPanel({
     setLoadState('error')
   }, [])
 
+  // Click a page pin (or its sidebar card) → select it and reveal the matching
+  // comment. Stable identity so injectPins doesn't churn.
+  const handlePinClick = useCallback((id: string) => {
+    setActivePin(prev => (prev === id ? null : id))
+    commentRefs.current[id]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [])
+
+  // Draw the numbered markers directly inside the iframe's document, in the
+  // page's own (unscaled) coordinate space. The parent's CSS transform then
+  // scales them along with the page, and native scrolling moves them for free —
+  // no overlay to keep in sync.
+  const injectPins = useCallback(() => {
+    const doc = iframeRef.current?.contentDocument
+    if (!doc || !doc.body) return
+    let layer = doc.getElementById('__lp_pin_layer') as HTMLDivElement | null
+    if (!layer) {
+      layer = doc.createElement('div')
+      layer.id = '__lp_pin_layer'
+      layer.style.cssText = 'position:absolute;top:0;left:0;margin:0;padding:0;pointer-events:none;z-index:2147483647;'
+      doc.body.appendChild(layer)
+    }
+    const scroller = doc.scrollingElement || doc.documentElement
+    const w = scroller.scrollWidth || 1
+    const h = scroller.scrollHeight || 1
+    layer.textContent = ''
+
+    const marker = (num: number, xPct: number, yPct: number, opts: { active: boolean; onClick?: () => void }) => {
+      const el = doc.createElement('div')
+      el.textContent = String(num)
+      el.style.cssText = [
+        'position:absolute',
+        `left:${(xPct / 100) * w}px`,
+        `top:${(yPct / 100) * h}px`,
+        'transform:translate(-50%,-50%)',
+        'width:26px', 'height:26px', 'border-radius:50%',
+        `background:${opts.active ? '#ffffff' : '#6366f1'}`,
+        `color:${opts.active ? '#6366f1' : '#ffffff'}`,
+        'border:2px solid #ffffff',
+        'font:700 12px/1 system-ui,-apple-system,sans-serif',
+        'display:flex', 'align-items:center', 'justify-content:center',
+        'box-shadow:0 2px 8px rgba(0,0,0,0.45)',
+        `pointer-events:${opts.onClick ? 'auto' : 'none'}`,
+        'cursor:pointer', 'user-select:none',
+      ].join(';')
+      if (opts.onClick) {
+        const cb = opts.onClick
+        el.addEventListener('click', ev => { ev.preventDefault(); ev.stopPropagation(); cb() })
+      }
+      layer!.appendChild(el)
+    }
+
+    const ordered = comments
+      .filter(c => c.pin_x != null)
+      .sort((a, b) => a.created_at.localeCompare(b.created_at))
+    ordered.forEach((c, i) => {
+      marker(i + 1, c.pin_x as number, c.pin_y as number, { active: activePin === c.id, onClick: () => handlePinClick(c.id) })
+    })
+    if (pendingPin) {
+      marker(ordered.length + 1, pendingPin.x, pendingPin.y, { active: true })
+    }
+  }, [comments, activePin, pendingPin, handlePinClick])
+
+  // Re-draw pins when they change, when the LP finishes loading, or when the
+  // device toggle reflows the document (that reflow is async — re-run shortly
+  // after so markers land on the new layout).
+  useEffect(() => {
+    if (loadState !== 'loaded') return
+    injectPins()
+    const t = setTimeout(injectPins, 250)
+    return () => clearTimeout(t)
+  }, [injectPins, loadState, device])
+
+  // While pinning, capture the next click on the page as the pin location.
+  useEffect(() => {
+    if (!pinMode || loadState !== 'loaded') return
+    const doc = iframeRef.current?.contentDocument
+    if (!doc) return
+    const onClick = (e: MouseEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      const scroller = doc.scrollingElement || doc.documentElement
+      const w = scroller.scrollWidth || 1
+      const h = scroller.scrollHeight || 1
+      const x = Math.min(100, Math.max(0, (e.pageX / w) * 100))
+      const y = Math.min(100, Math.max(0, (e.pageY / h) * 100))
+      setPendingPin({ x, y })
+      setPinMode(false)
+    }
+    doc.addEventListener('click', onClick, true)
+    // Crosshair cursor via an injected <style> (a freshly-created node) rather
+    // than mutating body.style, which the ref is reachable from.
+    const cursorStyle = doc.createElement('style')
+    cursorStyle.textContent = '*{cursor:crosshair !important}'
+    ;(doc.head ?? doc.body).appendChild(cursorStyle)
+    return () => {
+      doc.removeEventListener('click', onClick, true)
+      cursorStyle.remove()
+    }
+  }, [pinMode, loadState])
+
   async function handlePost(e: React.FormEvent) {
     e.preventDefault()
     if (!commentText.trim()) return
     setPosting(true)
 
+    const pin = pendingPin
     const optimistic: ProjectComment = {
       id: `temp-${Date.now()}`,
       project_id: '',
@@ -121,8 +238,8 @@ export default function LpReviewPanel({
       created_at: new Date().toISOString(),
       track: 'lp',
       asset_id: null,
-      pin_x: null,
-      pin_y: null,
+      pin_x: pin?.x ?? null,
+      pin_y: pin?.y ?? null,
       section_tag: sectionTag,
       audience: 'client',
       attachment_urls: null,
@@ -133,8 +250,11 @@ export default function LpReviewPanel({
       await addProjectComment(token, authorName.trim() || 'Anonymous', commentText.trim(), {
         track: 'lp',
         section_tag: sectionTag,
+        pin_x: pin?.x,
+        pin_y: pin?.y,
       })
       setCommentText('')
+      setPendingPin(null)
     } catch {
       setComments(prev => prev.filter(c => c.id !== optimistic.id))
       toast.error("Couldn't post your comment. Please try again.")
@@ -233,6 +353,24 @@ export default function LpReviewPanel({
                 </button>
               ))}
             </div>
+          )}
+
+          {/* Pin a comment — arm, then click a spot on the page */}
+          {loadState === 'loaded' && (
+            <button
+              onClick={() => { setPinMode(m => !m); setPendingPin(null) }}
+              title="Drop a pin on the page, then write your comment"
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 5,
+                padding: '5px 10px', borderRadius: 7, fontSize: 12, fontWeight: 600,
+                cursor: 'pointer',
+                border: `1px solid ${pinMode ? 'var(--accent)' : 'var(--border)'}`,
+                background: pinMode ? 'var(--accent-muted)' : 'var(--surface-raised)',
+                color: pinMode ? 'var(--accent)' : 'var(--text-secondary)',
+              }}
+            >
+              📍 {pinMode ? 'Click a spot on the page…' : 'Pin a comment'}
+            </button>
           )}
 
           <div style={{ flex: 1 }} />
@@ -336,7 +474,7 @@ export default function LpReviewPanel({
                     fontSize: 12, color: 'rgba(255,255,255,0.7)',
                     backdropFilter: 'blur(4px)',
                   }}>
-                    <span>Page not visible?</span>
+                    <span>Something not working?</span>
                     <a href={lpUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'none', fontWeight: 600 }}>
                       Open in new tab ↗
                     </a>
@@ -407,6 +545,23 @@ export default function LpReviewPanel({
 
         {/* Comment form — FIRST (like Lucas's tool) */}
         <form onSubmit={handlePost} style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+          {pendingPin && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8,
+              padding: '6px 8px', borderRadius: 6,
+              background: 'var(--accent-muted)',
+              border: '1px solid color-mix(in srgb, var(--accent) 30%, transparent)',
+            }}>
+              <span style={{
+                width: 18, height: 18, borderRadius: '50%', background: 'var(--accent)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 10, fontWeight: 700, color: 'white', flexShrink: 0,
+              }}>{pinnedOrdered.length + 1}</span>
+              <span style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 600, flex: 1 }}>Pinned to the page</span>
+              <button type="button" onClick={() => setPendingPin(null)} aria-label="Remove pin" title="Remove pin"
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 15, padding: 0, lineHeight: 1 }}>×</button>
+            </div>
+          )}
           <select
             value={sectionTag}
             onChange={e => setSectionTag(e.target.value)}
@@ -451,22 +606,38 @@ export default function LpReviewPanel({
           )}
           {comments.map(c => {
             const sColor = c.section_tag ? (SECTION_COLORS[c.section_tag] ?? 'var(--text-muted)') : undefined
+            const isPinned = c.pin_x != null
+            const pIdx = isPinned ? pinNumber(c.id) : null
+            const isActive = activePin === c.id
 
             return (
               <div
                 key={c.id}
+                ref={el => { commentRefs.current[c.id] = el }}
+                onClick={isPinned ? () => handlePinClick(c.id) : undefined}
                 style={{
                   padding: '12px 16px',
                   borderBottom: '1px solid var(--border)',
+                  cursor: isPinned ? 'pointer' : 'default',
+                  background: isActive ? 'var(--accent-muted)' : undefined,
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 6 }}>
-                  <span style={{
-                    width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
-                    background: 'var(--surface-raised)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 12,
-                  }}>💬</span>
+                  {isPinned ? (
+                    <span style={{
+                      width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
+                      background: isActive ? 'var(--accent)' : '#6366f1',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 11, fontWeight: 700, color: 'white',
+                    }}>{pIdx}</span>
+                  ) : (
+                    <span style={{
+                      width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
+                      background: 'var(--surface-raised)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 12,
+                    }}>💬</span>
+                  )}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
                       <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{c.author_name}</span>
@@ -476,7 +647,7 @@ export default function LpReviewPanel({
                       {canDelete && (
                         <button
                           type="button"
-                          onClick={() => handleDelete(c.id)}
+                          onClick={e => { e.stopPropagation(); handleDelete(c.id) }}
                           aria-label="Delete comment"
                           title="Delete comment"
                           style={{
