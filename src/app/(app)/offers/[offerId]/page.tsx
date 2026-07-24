@@ -1,7 +1,8 @@
 import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createClient, getCachedUser } from '@/lib/supabase/server'
-import { canEdit } from '@/lib/permissions'
+import { canEdit, canViewCapacity } from '@/lib/permissions'
+import { getCachedProfiles } from '@/lib/profiles'
 import { offerMonthLabel, type OfferCard } from '@/lib/types'
 import OfferCardDetail from '@/components/OfferCardDetail'
 
@@ -18,14 +19,18 @@ export default async function OfferPage({
   if (!user) redirect('/login')
   const isEditor = canEdit(user.email)
 
-  const { data: cardRaw } = await supabase
-    .from('offer_cards')
-    .select('*, brands(id, name)')
-    .eq('id', offerId)
-    .single()
+  const [{ data: cardRaw }, profiles] = await Promise.all([
+    supabase
+      .from('offer_cards')
+      .select('*, brands(id, name)')
+      .eq('id', offerId)
+      .single(),
+    getCachedProfiles(),
+  ])
   if (!cardRaw) notFound()
 
   const card = cardRaw as unknown as OfferWithBrand
+  const assignees = profiles.filter(p => canViewCapacity(p.email))
 
   return (
     <div style={{ padding: '24px', maxWidth: 860, margin: '0 auto' }}>
@@ -41,7 +46,7 @@ export default async function OfferPage({
         </p>
       </div>
 
-      <OfferCardDetail card={card} isEditor={isEditor} />
+      <OfferCardDetail card={card} isEditor={isEditor} assignees={assignees} />
     </div>
   )
 }

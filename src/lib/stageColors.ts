@@ -128,6 +128,75 @@ export function isProjectLive(lpStage: Stage | null, creativesStage: Stage | nul
   return shipped(lpStage) && shipped(creativesStage)
 }
 
+// ---------------------------------------------------------------------------
+// Stage-exit model (Timeline view). A project row on the timeline is driven by
+// its "governing" track — the one closest to slipping — so the dual LP/Creative
+// pipeline collapses to a single bar the way `cardBorderColor` picks a single
+// dominant stage. No new data: every field here already lives on `projects`.
+// ---------------------------------------------------------------------------
+
+// Minimal project shape the timeline reads. Mirrors the narrow SELECT in
+// timeline/page.tsx so the query and this helper stay in sync.
+export interface StageExitFields {
+  lp_stage: Stage
+  creatives_stage: Stage
+  due_date: string | null
+  stage_brief_due_date: string | null
+  stage_in_progress_due_date: string | null
+  stage_internal_review_due_date: string | null
+  stage_client_review_due_date: string | null
+}
+
+export type EditorTrack = 'lp' | 'creative'
+
+export interface StageExit {
+  track: EditorTrack
+  stage: Stage
+  // The date this stage is meant to exit by: its phase-due column, or the
+  // go-live date for stages with no phase target (revisions/live/done).
+  exitDate: Date | null
+  daysUntil: number | null
+  tone: PhaseDueTone | null
+}
+
+// The raw date string governing a single stage's exit.
+function stageExitDateStr(p: StageExitFields, stage: Stage): string | null {
+  const field = STAGE_DUE_FIELD[stage]
+  return field ? (p[field] ?? null) : p.due_date
+}
+
+function trackExit(p: StageExitFields, track: EditorTrack): StageExit {
+  const stage = track === 'lp' ? p.lp_stage : p.creatives_stage
+  const raw = stageExitDateStr(p, stage)
+  const { due, daysUntil } = parseAndDaysUntil(raw)
+  const tone: PhaseDueTone | null =
+    daysUntil === null ? null : daysUntil < 0 ? 'overdue' : daysUntil <= 3 ? 'urgent' : 'neutral'
+  return { track, stage, exitDate: due, daysUntil, tone }
+}
+
+// Earlier exit wins; ties break toward the less-advanced stage. A track with no
+// exit date sorts last (Infinity).
+function moreUrgent(a: StageExit, b: StageExit): StageExit {
+  const at = a.exitDate?.getTime() ?? Infinity
+  const bt = b.exitDate?.getTime() ?? Infinity
+  if (at !== bt) return at < bt ? a : b
+  return STAGE_ORDER.indexOf(a.stage) <= STAGE_ORDER.indexOf(b.stage) ? a : b
+}
+
+// The track that drives this project's timeline row. Prefer the track that can
+// still slip (a live/done track has nothing left to exit); if both are still
+// in-flight, the more urgent of the two.
+export function governingStageExit(p: StageExitFields): StageExit {
+  const shipped = (s: Stage) => s === 'live' || s === 'done'
+  const lp = trackExit(p, 'lp')
+  const cre = trackExit(p, 'creative')
+  const lpShipped = shipped(lp.stage)
+  const creShipped = shipped(cre.stage)
+  if (lpShipped && !creShipped) return cre
+  if (creShipped && !lpShipped) return lp
+  return moreUrgent(lp, cre)
+}
+
 export function isProjectOverdue(
   dueDate: string | null | undefined,
   isComplete: boolean,

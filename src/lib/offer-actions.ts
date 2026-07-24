@@ -134,6 +134,30 @@ export async function updateOfferStage(cardId: string, stage: OfferStage) {
   revalidatePath(`/offers/${cardId}`)
 }
 
+// Assign (or clear) an offer card's owner. The picker is restricted to the
+// management roster in the UI; here we only validate that a non-null target is
+// a real profile, then write the FK. Kept deliberately light — no event is
+// logged (assignment isn't a pipeline stage move), matching how the Production
+// board's editor assignment writes straight to the column.
+export async function assignOfferCard(cardId: string, profileId: string | null) {
+  const { supabase } = await requireEditor()
+
+  if (profileId) {
+    const { data: profile, error: profErr } = await supabase
+      .from('profiles').select('id').eq('id', profileId).single()
+    if (profErr || !profile) throw new Error('Unknown assignee.')
+  }
+
+  const { error } = await supabase
+    .from('offer_cards')
+    .update({ assigned_to: profileId })
+    .eq('id', cardId)
+  if (error) throw new Error(`Failed to assign offer card: ${error.message}`)
+
+  revalidatePath('/offers')
+  revalidatePath(`/offers/${cardId}`)
+}
+
 export async function updateOfferDetails(
   cardId: string,
   values: {

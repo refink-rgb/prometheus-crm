@@ -358,6 +358,9 @@ export interface OfferCard {
   moment_slot: 1 | 2
   name: string
   stage: OfferStage
+  // Owner of this offer card — FK to profiles.id, restricted in the UI to the
+  // management roster (strategists). Null = unassigned.
+  assigned_to: string | null
   // Strategic fields — same column names as Project, flow to the Production
   // Brief on approval (Phase 3).
   offer_dynamics_type: string | null

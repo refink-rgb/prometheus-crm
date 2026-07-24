@@ -16,11 +16,12 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
   OFFER_STAGE_LABELS, OFFER_STAGE_ORDER,
-  PAGE_TYPE_OPTIONS,
-  type OfferCard, type OfferStage,
+  PAGE_TYPE_OPTIONS, profileName,
+  type OfferCard, type OfferStage, type Profile,
 } from '@/lib/types'
 import { OFFER_STAGE_COLORS } from '@/lib/stageColors'
-import { deleteOfferCard, updateOfferDetails, updateOfferStage } from '@/lib/offer-actions'
+import { assignOfferCard, deleteOfferCard, updateOfferDetails, updateOfferStage } from '@/lib/offer-actions'
+import Avatar from '@/components/Avatar'
 
 const OFFER_DYNAMICS_OPTIONS = [
   'Percentage Discount',
@@ -36,17 +37,23 @@ const OFFER_DYNAMICS_OPTIONS = [
 export default function OfferCardDetail({
   card,
   isEditor,
+  assignees,
 }: {
   card: OfferCard
   isEditor: boolean
+  /** Roster the owner picker offers — the strategist/management set. */
+  assignees: Profile[]
 }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
+  // Optimistic owner: reflect the pick immediately, roll back on failure.
+  const [owner, setOwnerLocal] = useState<string | null>(card.assigned_to)
 
   const stageColor = OFFER_STAGE_COLORS[card.stage]
+  const ownerProfile = owner ? assignees.find(p => p.id === owner) : undefined
 
   function setStage(stage: OfferStage) {
     setError(null)
@@ -56,6 +63,21 @@ export default function OfferCardDetail({
         router.refresh()
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to move stage.')
+      }
+    })
+  }
+
+  function setOwner(profileId: string | null) {
+    const prev = owner
+    setOwnerLocal(profileId)
+    setError(null)
+    startTransition(async () => {
+      try {
+        await assignOfferCard(card.id, profileId)
+        router.refresh()
+      } catch (err) {
+        setOwnerLocal(prev)
+        setError(err instanceof Error ? err.message : 'Failed to assign owner.')
       }
     })
   }
@@ -131,6 +153,38 @@ export default function OfferCardDetail({
             </button>
           )
         })}
+      </div>
+
+      {/* Owner — who's driving this offer. Restricted to the strategist roster. */}
+      <div
+        className="card"
+        style={{
+          display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+          padding: '12px 16px', marginBottom: 16,
+        }}
+      >
+        <span style={{ fontSize: 'var(--text-xs)', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+          Owner
+        </span>
+        {ownerProfile && <Avatar name={profileName(ownerProfile)} size={24} title={profileName(ownerProfile)} />}
+        <select
+          value={owner ?? ''}
+          onChange={e => setOwner(e.target.value || null)}
+          disabled={!isEditor || isPending}
+          aria-label="Offer owner"
+          style={{
+            width: 'auto',
+            fontSize: 'var(--text-sm)', fontWeight: owner ? 600 : 400,
+            color: owner ? 'var(--text-primary)' : 'var(--text-muted)',
+            background: 'var(--surface-raised)', border: '1px solid var(--border)',
+            borderRadius: 7, padding: '5px 10px', cursor: isEditor ? 'pointer' : 'default',
+            opacity: isPending ? 0.6 : 1,
+          }}
+        >
+          <option value="">Unassigned</option>
+          {assignees.map(p => <option key={p.id} value={p.id}>{profileName(p)}</option>)}
+          {owner && !ownerProfile && <option value={owner}>Assigned (off roster)</option>}
+        </select>
       </div>
 
       {/* Trigger B outcome: approval auto-creates the production card. */}

@@ -70,6 +70,14 @@ const CalendarIcon = (
   </svg>
 )
 
+const TimelineIcon = (
+  <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="5" width="12" height="4" rx="1.5" />
+    <rect x="7" y="14" width="12" height="4" rx="1.5" />
+    <line x1="12" y1="2" x2="12" y2="22" strokeWidth="1.4" opacity="0.7" />
+  </svg>
+)
+
 const BrandsIcon = (
   <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
     <path d="M3 21V7a2 2 0 012-2h6a2 2 0 012 2v14" />
@@ -132,6 +140,12 @@ export default function Sidebar({ email, showFinancials, capacity = null }: Side
       label: 'Calendar',
       matches: (p) => p.startsWith('/calendar'),
       icon: CalendarIcon,
+    },
+    {
+      href: '/timeline',
+      label: 'Timeline',
+      matches: (p) => p.startsWith('/timeline'),
+      icon: TimelineIcon,
     },
     {
       href: '/brands',

@@ -12,20 +12,30 @@ import {
 } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
 import {
-  OFFER_STAGE_LABELS, OFFER_STAGE_ORDER, offerMonthLabel,
-  type Brand, type OfferCard, type OfferStage,
+  OFFER_STAGE_LABELS, OFFER_STAGE_ORDER, offerMonthLabel, profileName,
+  type Brand, type OfferCard, type OfferStage, type Profile,
 } from '@/lib/types'
 import { OFFER_STAGE_COLORS } from '@/lib/stageColors'
-import { createOfferCard, updateOfferStage } from '@/lib/offer-actions'
+import { createOfferCard, updateOfferStage, assignOfferCard } from '@/lib/offer-actions'
+import Avatar from '@/components/Avatar'
 
 type BoardOfferCard = OfferCard & { brands: { id: string; name: string } }
+
+// 'all' | 'unassigned' | a profile id.
+type OwnerFilter = 'all' | 'unassigned' | (string & {})
 
 export default function OffersBoard({
   cards,
   brands,
+  assignees,
+  currentProfileId,
 }: {
   cards: BoardOfferCard[]
   brands: Pick<Brand, 'id' | 'name' | 'is_active'>[]
+  /** Roster the assignee picker offers — the strategist/management set. */
+  assignees: Profile[]
+  /** Signed-in user's profile id, or null — powers the "My cards" filter. */
+  currentProfileId: string | null
 }) {
   const router = useRouter()
   const [, startTransition] = useTransition()
@@ -43,6 +53,8 @@ export default function OffersBoard({
 
   const [search, setSearch] = useState('')
   const [showNew, setShowNew] = useState(false)
+  const [owner, setOwner] = useState<OwnerFilter>('all')
+  const [mineOnly, setMineOnly] = useState(false)
 
   const [activeId, setActiveId] = useState<string | null>(null)
   const [overId, setOverId] = useState<string | null>(null)
@@ -52,11 +64,25 @@ export default function OffersBoard({
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } })
   )
 
+  // Memoized so OfferCardTile's memo() holds — an inline Map would be a new
+  // reference each render and re-render every card.
+  const assigneesById = useMemo(() => new Map(assignees.map(p => [p.id, p])), [assignees])
+
+  const myCount = useMemo(
+    () => (currentProfileId ? localCards.filter(c => c.assigned_to === currentProfileId).length : 0),
+    [localCards, currentProfileId]
+  )
+
   const displayed = useMemo(() => {
     const q = search.trim().toLowerCase()
-    if (!q) return localCards
-    return localCards.filter(c => c.brands.name.toLowerCase().includes(q))
-  }, [localCards, search])
+    return localCards.filter(c => {
+      if (q && !c.brands.name.toLowerCase().includes(q)) return false
+      if (mineOnly && (!currentProfileId || c.assigned_to !== currentProfileId)) return false
+      if (owner === 'unassigned' && c.assigned_to) return false
+      if (owner !== 'all' && owner !== 'unassigned' && c.assigned_to !== owner) return false
+      return true
+    })
+  }, [localCards, search, owner, mineOnly, currentProfileId])
 
   const columns = useMemo(
     () => OFFER_STAGE_ORDER.map(stage => ({
@@ -76,6 +102,21 @@ export default function OffersBoard({
     startTransition(async () => {
       try {
         await updateOfferStage(card.id, targetStage)
+        router.refresh()
+      } catch {
+        setLocalCards(snapshot)
+      }
+    })
+  }, [localCards, router, startTransition])
+
+  // Optimistic assignment, mirroring moveCard: update local state now, reconcile
+  // on the server refresh, roll back on failure.
+  const assignCard = useCallback((cardId: string, profileId: string | null) => {
+    const snapshot = [...localCards]
+    setLocalCards(prev => prev.map(c => (c.id === cardId ? { ...c, assigned_to: profileId } : c)))
+    startTransition(async () => {
+      try {
+        await assignOfferCard(cardId, profileId)
         router.refresh()
       } catch {
         setLocalCards(snapshot)
@@ -114,10 +155,56 @@ export default function OffersBoard({
           onChange={e => setSearch(e.target.value)}
           style={{ width: 190, fontSize: 'var(--text-base)' }}
         />
+
+        {/* Owner filter — mirrors the pipeline Kanban's editor filter. */}
+        {assignees.length > 0 && (
+          <select
+            value={owner}
+            onChange={e => setOwner(e.target.value)}
+            aria-label="Filter by owner"
+            style={{
+              width: 'auto',
+              fontSize: 'var(--text-sm)',
+              padding: 'var(--space-2) var(--space-3)',
+              borderRadius: 20,
+              border: `1px solid ${owner === 'all' ? 'var(--border)' : 'var(--accent)'}`,
+              background: owner === 'all' ? 'transparent' : 'var(--accent-muted)',
+              color: owner === 'all' ? 'var(--text-muted)' : 'var(--accent)',
+              fontWeight: owner === 'all' ? 400 : 600,
+              cursor: 'pointer',
+            }}
+          >
+            <option value="all">All owners</option>
+            <option value="unassigned">Unassigned</option>
+            {assignees.map(p => (
+              <option key={p.id} value={p.id}>{profileName(p)}</option>
+            ))}
+          </select>
+        )}
+
+        {/* Only surface "My cards" to someone who actually owns some. */}
+        {currentProfileId && myCount > 0 && (
+          <button
+            onClick={() => setMineOnly(v => !v)}
+            className="focus-ring-pill"
+            aria-pressed={mineOnly}
+            style={{
+              padding: 'var(--space-2) var(--space-3)', borderRadius: 20, fontSize: 'var(--text-sm)',
+              cursor: 'pointer', border: '1px solid', fontWeight: mineOnly ? 600 : 400,
+              borderColor: mineOnly ? 'var(--accent)' : 'var(--border)',
+              background: mineOnly ? 'var(--accent-muted)' : 'transparent',
+              color: mineOnly ? 'var(--accent)' : 'var(--text-muted)',
+            }}
+          >
+            My cards ({myCount})
+          </button>
+        )}
+
         <button
           onClick={() => setShowNew(v => !v)}
           className="focus-ring-pill"
           style={{
+            marginLeft: 'auto',
             padding: 'var(--space-2) var(--space-3)', borderRadius: 20, fontSize: 'var(--text-sm)',
             cursor: 'pointer', border: '1px solid var(--accent)', fontWeight: 600,
             background: showNew ? 'var(--accent-muted)' : 'transparent', color: 'var(--accent)',
@@ -154,6 +241,9 @@ export default function OffersBoard({
                 isDragging={activeId !== null}
                 draggedCardId={activeId}
                 onMove={moveCard}
+                onAssign={assignCard}
+                assignees={assignees}
+                assigneesById={assigneesById}
               />
             ))}
           </div>
@@ -161,7 +251,7 @@ export default function OffersBoard({
           <DragOverlay dropAnimation={null}>
             {activeCard ? (
               <div style={{ transform: 'rotate(1.5deg)', filter: 'drop-shadow(0 8px 24px rgba(0,0,0,0.5))' }}>
-                <OfferCardTile card={activeCard} isGhost />
+                <OfferCardTile card={activeCard} isGhost assigneesById={assigneesById} />
               </div>
             ) : null}
           </DragOverlay>
@@ -252,6 +342,9 @@ function OfferColumnInner({
   isDragging,
   draggedCardId,
   onMove,
+  onAssign,
+  assignees,
+  assigneesById,
 }: {
   stage: OfferStage
   cards: BoardOfferCard[]
@@ -259,6 +352,9 @@ function OfferColumnInner({
   isDragging: boolean
   draggedCardId: string | null
   onMove: (card: BoardOfferCard, targetStage: OfferStage) => void
+  onAssign: (cardId: string, profileId: string | null) => void
+  assignees: Profile[]
+  assigneesById: Map<string, Profile>
 }) {
   const color = OFFER_STAGE_COLORS[stage]
   const { setNodeRef } = useDroppable({ id: stage })
@@ -330,7 +426,7 @@ function OfferColumnInner({
             .filter(c => c.id !== draggedCardId)
             .map(c => (
               <div key={c.id} style={{ flexShrink: 0 }}>
-                <OfferCardTile card={c} onMove={onMove} />
+                <OfferCardTile card={c} onMove={onMove} onAssign={onAssign} assignees={assignees} assigneesById={assigneesById} />
               </div>
             ))
         )}
@@ -357,11 +453,18 @@ function OfferCardTileInner({
   card,
   isGhost = false,
   onMove,
+  onAssign,
+  assignees,
+  assigneesById,
 }: {
   card: BoardOfferCard
   isGhost?: boolean
   onMove?: (card: BoardOfferCard, targetStage: OfferStage) => void
+  onAssign?: (cardId: string, profileId: string | null) => void
+  assignees?: Profile[]
+  assigneesById?: Map<string, Profile>
 }) {
+  const owner = card.assigned_to ? assigneesById?.get(card.assigned_to) : undefined
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: card.id,
     disabled: isGhost,
@@ -462,6 +565,25 @@ function OfferCardTileInner({
         </div>
       </Link>
 
+      {/* Owner row — sits OUTSIDE the Link (an anchor can't nest a select) and
+          stops pointerdown so picking an owner never engages the drag sensor. */}
+      {!isGhost && onAssign && assignees && assigneesById && (
+        <div
+          onPointerDown={e => e.stopPropagation()}
+          style={{ padding: '0 12px 10px' }}
+        >
+          <OfferAssigneePicker card={card} assignees={assignees} assigneesById={assigneesById} onAssign={onAssign} />
+        </div>
+      )}
+
+      {/* On the drag ghost, show the owner statically (no interactive picker). */}
+      {isGhost && owner && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 12px 10px' }}>
+          <Avatar name={profileName(owner)} size={18} />
+          <span style={{ fontSize: 'var(--text-2xs)', color: 'var(--text-muted)' }}>{profileName(owner)}</span>
+        </div>
+      )}
+
       {/* Keyboard-operable move controls, outside the Link (see KanbanCard). */}
       {onMove && (prevStage || nextStage) && !isGhost && (
         <div
@@ -490,6 +612,63 @@ function OfferCardTileInner({
           </button>
         </div>
       )}
+    </div>
+  )
+}
+
+// Compact owner picker on each card: an avatar (when assigned) beside a native
+// select. Commits through the board's optimistic assignCard, so the change
+// shows instantly and rolls back if the write fails. Restricted to the roster
+// passed in; an owner no longer on the roster stays visible via a stale option.
+function OfferAssigneePicker({
+  card,
+  assignees,
+  assigneesById,
+  onAssign,
+}: {
+  card: BoardOfferCard
+  assignees: Profile[]
+  assigneesById: Map<string, Profile>
+  onAssign: (cardId: string, profileId: string | null) => void
+}) {
+  const current = card.assigned_to
+  const owner = current ? assigneesById.get(current) : undefined
+  const hasValue = !!current
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+      {owner
+        ? <Avatar name={profileName(owner)} size={20} title={`Owner: ${profileName(owner)}`} />
+        : (
+          <span
+            aria-hidden
+            style={{
+              width: 20, height: 20, borderRadius: '50%', flexShrink: 0,
+              border: '1px dashed var(--border-strong, var(--border))',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: 'var(--text-muted)', fontSize: 11,
+            }}
+          >
+            +
+          </span>
+        )}
+      <select
+        value={current ?? ''}
+        onChange={e => onAssign(card.id, e.target.value || null)}
+        aria-label="Assign owner"
+        style={{
+          flex: 1, minWidth: 0,
+          fontSize: 'var(--text-2xs)', fontWeight: hasValue ? 600 : 500,
+          color: hasValue ? 'var(--text-secondary)' : 'var(--text-muted)',
+          background: hasValue ? 'var(--surface-raised)' : 'transparent',
+          border: `1px solid ${hasValue ? 'var(--border)' : 'transparent'}`,
+          borderRadius: 7, padding: '3px 8px', cursor: 'pointer',
+        }}
+      >
+        <option value="">Assign owner…</option>
+        {assignees.map(p => <option key={p.id} value={p.id}>{profileName(p)}</option>)}
+        {current && !owner && <option value={current}>Assigned (off roster)</option>}
+      </select>
     </div>
   )
 }
