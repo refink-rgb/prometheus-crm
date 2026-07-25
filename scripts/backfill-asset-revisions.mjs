@@ -51,13 +51,18 @@ for (let offset = 0; ; offset += 1000) {
   if (page.length < 1000) break
 }
 
+// NOTE: the storage list API returns names RELATIVE to the prefix, i.e.
+// "{assetId}-{ts}.png", not "revisions/{assetId}-{ts}.png". The folder has to
+// be added back or the public URL 404s — tolerate both shapes.
+const PREFIX = 'revisions/'
 const byAsset = new Map()
 for (const f of listed) {
-  const m = f.name.match(/^([0-9a-f-]{36})-(\d+)\.png$/i)
+  const bare = f.name.startsWith(PREFIX) ? f.name.slice(PREFIX.length) : f.name
+  const m = bare.match(/^([0-9a-f-]{36})-(\d+)\.png$/i)
   if (!m) continue
   const [, assetId, ts] = m
   if (!byAsset.has(assetId)) byAsset.set(assetId, [])
-  byAsset.get(assetId).push({ ts: Number(ts), name: f.name })
+  byAsset.get(assetId).push({ ts: Number(ts), path: PREFIX + bare })
 }
 for (const arr of byAsset.values()) arr.sort((a, b) => a.ts - b.ts)
 
@@ -90,7 +95,7 @@ for (const [assetId, files] of byAsset) {
     rows.push({
       asset_id: assetId,
       revision_number: i + 1,
-      image_url: `${URL_}/storage/v1/object/public/${BUCKET}/${f.name}`,
+      image_url: `${URL_}/storage/v1/object/public/${BUCKET}/${f.path}`,
       prompt: null, // not recoverable from storage — only the current edit's prompt survived on the asset
       created_by: null,
       created_at: new Date(f.ts).toISOString(),
