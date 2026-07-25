@@ -52,6 +52,10 @@ export default async function InternalReviewPage({
   const comments = (commentsRaw ?? []) as ProjectComment[]
   const userDisplayName = user.email?.split('@')[0] ?? 'Team'
 
+  // Edit history per asset — drives the "Original / Edit 1 / Edit 2 …" strip.
+  const { getRevisionsByAsset } = await import('@/lib/revisions')
+  const revisionsByAsset = await getRevisionsByAsset(supabase, assets.map(a => a.id))
+
   return (
     <div style={{ minHeight: '100vh', background: 'var(--background)' }}>
       <main style={{ maxWidth: 1400, margin: '0 auto', padding: '28px 32px 80px' }}>
@@ -71,6 +75,7 @@ export default async function InternalReviewPage({
           initialComments={comments}
           projectName={project.name}
           currentUserName={userDisplayName}
+          revisionsByAsset={revisionsByAsset}
         />
       </main>
     </div>

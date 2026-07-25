@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
+import type { AssetRevision } from '@/lib/revisions'
 import {
   addInternalAssetComment,
   updateAssetStatusInternal,
@@ -38,6 +39,7 @@ export default function InternalReviewPanel({
   initialComments,
   projectName,
   currentUserName,
+  revisionsByAsset = {},
 }: {
   projectId: string
   brandId: string
@@ -45,6 +47,8 @@ export default function InternalReviewPanel({
   initialComments: ProjectComment[]
   projectName: string
   currentUserName: string
+  /** Recorded AI edits per asset id, oldest first. */
+  revisionsByAsset?: Record<string, AssetRevision[]>
 }) {
   const [assets, setAssets] = useState<AssetLocal[]>(
     initialAssets.map(a => ({ ...a, internal_status: a.internal_status ?? 'pending' }))
@@ -322,6 +326,7 @@ export default function InternalReviewPanel({
           brandId={brandId}
           comments={comments.filter(c => c.asset_id === activeAsset.id)}
           currentUserName={currentUserName}
+          revisions={revisionsByAsset[activeAsset.id] ?? []}
           onStatusChange={handleStatusChange}
           onRevisionApplied={handleRevisionApplied}
           onPublished={handlePublished}
@@ -351,6 +356,7 @@ function AssetView({
   brandId,
   comments,
   currentUserName,
+  revisions,
   onStatusChange,
   onRevisionApplied,
   onPublished,
@@ -362,6 +368,7 @@ function AssetView({
   brandId: string
   comments: ProjectComment[]
   currentUserName: string
+  revisions: AssetRevision[]
   onStatusChange: (assetId: string, status: CreativeAsset['status']) => void
   onRevisionApplied: (assetId: string, revisionUrl: string) => void
   onPublished: (assetId: string, publishedUrl: string | null) => void
@@ -409,11 +416,49 @@ function AssetView({
   const pinnedComments = useMemo(() => comments.filter(c => c.pin_x != null), [comments])
   const pinIndex = (c: ProjectComment) => pinnedComments.findIndex(p => p.id === c.id) + 1
 
+  // The untouched Drive import — always reachable, even after N edits.
+  const originalSrc = asset.thumbnail_url
+    ?? `https://drive.google.com/thumbnail?id=${asset.drive_file_id}&sz=w2048`
+  const originalHref = `https://drive.google.com/uc?export=view&id=${asset.drive_file_id}`
+
+  // Version strip: Original, then each recorded edit oldest→newest.
+  const versions = useMemo(() => [
+    { key: 'original', label: 'Original', src: originalSrc, prompt: null as string | null, at: null as string | null, by: null as string | null },
+    ...revisions.map(r => ({
+      key: r.id,
+      label: `Edit ${r.revision_number}`,
+      src: r.image_url,
+      prompt: r.prompt,
+      at: r.created_at,
+      by: r.created_by,
+    })),
+  ], [originalSrc, revisions])
+
+  // Default to the newest version. `selectedKey` is null until the user picks.
+  const [selectedKey, setSelectedKey] = useState<string | null>(null)
+  useEffect(() => { setSelectedKey(null) }, [asset.id, revisions.length])
+
+  const latestKey = versions[versions.length - 1].key
+  const activeKey = selectedKey ?? latestKey
+  const activeVersion = versions.find(v => v.key === activeKey) ?? versions[versions.length - 1]
+  const viewingOlder = activeKey !== latestKey
+
   // Display: latest INTERNAL state (revision_url) — internal review is about
   // what's about-to-be-published OR being-iterated, NOT what client currently sees.
-  const displaySrc = asset.revision_url
-    ?? asset.thumbnail_url
-    ?? `https://drive.google.com/thumbnail?id=${asset.drive_file_id}&sz=w2048`
+  // When the user is inspecting an older version, show that instead.
+  //
+  // Fall back to revision_url when there are no recorded revisions: edits made
+  // before the history table existed have a revised image but no rows.
+  const currentSrc = revisions.length > 0
+    ? versions[versions.length - 1].src
+    : (asset.revision_url ?? originalSrc)
+  const displaySrc = viewingOlder ? activeVersion.src : currentSrc
+
+  // Edit count for the header callout. Falls back to "edited, count unknown"
+  // for pre-history revisions so the badge never claims "Original" wrongly.
+  const editCount = revisions.length > 0
+    ? revisions.length
+    : (asset.revision_url ? null : 0)
 
   const isLive = !!asset.client_visible && !!asset.published_url
 
@@ -570,6 +615,91 @@ function AssetView({
         background: '#080808', borderRadius: 12, border: '1px solid var(--border)',
         overflow: 'hidden', position: 'relative',
       }}>
+        {/* Version strip — how many times this image has been edited, which
+            version you're looking at, and a way back to the untouched original. */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+          padding: '10px 12px', borderBottom: '1px solid var(--border)',
+          background: 'rgba(255,255,255,0.03)',
+        }}>
+          <span style={{
+            fontSize: 11, fontWeight: 700, letterSpacing: '0.04em',
+            padding: '3px 9px', borderRadius: 20, whiteSpace: 'nowrap',
+            color: editCount === 0 ? 'rgba(255,255,255,0.55)' : 'var(--accent)',
+            background: editCount === 0 ? 'rgba(255,255,255,0.07)' : 'var(--accent-muted)',
+            border: `1px solid ${editCount === 0 ? 'rgba(255,255,255,0.12)' : 'color-mix(in srgb, var(--accent) 35%, transparent)'}`,
+          }}>
+            {editCount === 0
+              ? 'ORIGINAL — NOT EDITED'
+              : editCount === null
+                ? '✦ EDITED'
+                : `✦ ${editCount} EDIT${editCount === 1 ? '' : 'S'}`}
+          </span>
+
+          {versions.length > 1 && (
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+              {versions.map(v => {
+                const on = v.key === activeKey
+                const isLatest = v.key === latestKey
+                return (
+                  <button
+                    key={v.key}
+                    onClick={() => setSelectedKey(v.key)}
+                    title={[
+                      v.at ? new Date(v.at).toLocaleString() : 'Imported from Drive',
+                      v.by ? `by ${v.by}` : null,
+                      v.prompt ? `“${v.prompt}”` : null,
+                    ].filter(Boolean).join(' · ')}
+                    style={{
+                      fontSize: 11, fontWeight: on ? 700 : 500,
+                      padding: '3px 9px', borderRadius: 6, cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      background: on ? 'rgba(255,255,255,0.14)' : 'transparent',
+                      border: `1px solid ${on ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.12)'}`,
+                      color: on ? '#fff' : 'rgba(255,255,255,0.55)',
+                    }}
+                  >
+                    {v.label}{isLatest && versions.length > 1 ? ' ·current' : ''}
+                  </button>
+                )
+              })}
+            </div>
+          )}
+
+          <div style={{ flex: 1 }} />
+
+          {viewingOlder && (
+            <button
+              onClick={() => setSelectedKey(null)}
+              style={{
+                fontSize: 11, fontWeight: 600, padding: '3px 9px', borderRadius: 6,
+                cursor: 'pointer', background: 'var(--accent)', border: 'none', color: '#fff',
+              }}
+            >
+              Back to current
+            </button>
+          )}
+
+          <a
+            href={originalHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', textDecoration: 'none', whiteSpace: 'nowrap' }}
+          >
+            Original in Drive ↗
+          </a>
+        </div>
+
+        {viewingOlder && (
+          <div style={{
+            padding: '6px 12px', fontSize: 11, fontWeight: 600,
+            color: 'var(--warning)', background: 'rgba(234,179,8,0.12)',
+            borderBottom: '1px solid rgba(234,179,8,0.25)',
+          }}>
+            Viewing {activeVersion.label} — not the current version. Pins and comments still apply to the asset as a whole.
+          </div>
+        )}
+
         <div
           style={{ position: 'relative', cursor: pinMode ? 'crosshair' : 'default', minHeight: 400 }}
           onClick={handleImageClick}

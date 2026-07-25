@@ -929,7 +929,18 @@ export async function applyAiEdits(
     .update({ revision_url: publicUrl, revision_prompt: prompt, revision_created_at: new Date().toISOString() })
     .eq('id', assetId)
 
+  // …and append it to the asset's edit history so the panel can label this
+  // "Edit N" and link back through the earlier versions.
+  const { recordAssetRevision } = await import('@/lib/revisions')
+  await recordAssetRevision(supabase, {
+    assetId,
+    imageUrl: publicUrl,
+    prompt,
+    createdBy: user.email ?? null,
+  })
+
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+  revalidatePath(`/brands/${brandId}/projects/${projectId}/internal-review`)
   return { revisionUrl: publicUrl, prompt }
 }
 
@@ -1506,6 +1517,14 @@ export async function applyDirectPrompt(input: {
       revision_created_at: new Date().toISOString(),
     })
     .eq('id', input.assetId)
+
+  const { recordAssetRevision } = await import('@/lib/revisions')
+  await recordAssetRevision(supabase, {
+    assetId: input.assetId,
+    imageUrl: publicUrl,
+    prompt: finalPrompt,
+    createdBy: user.email ?? null,
+  })
 
   revalidatePath(`/brands/${input.brandId}/projects/${input.projectId}`)
   revalidatePath(`/brands/${input.brandId}/projects/${input.projectId}/internal-review`)
