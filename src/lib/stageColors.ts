@@ -165,7 +165,7 @@ function stageExitDateStr(p: StageExitFields, stage: Stage): string | null {
   return field ? (p[field] ?? null) : p.due_date
 }
 
-function trackExit(p: StageExitFields, track: EditorTrack): StageExit {
+export function trackExit(p: StageExitFields, track: EditorTrack): StageExit {
   const stage = track === 'lp' ? p.lp_stage : p.creatives_stage
   const raw = stageExitDateStr(p, stage)
   const { due, daysUntil } = parseAndDaysUntil(raw)

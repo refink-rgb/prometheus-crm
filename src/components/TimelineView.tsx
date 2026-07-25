@@ -1,15 +1,22 @@
 'use client'
 
+import { useState } from 'react'
 import Link from 'next/link'
 import type { Stage } from '@/lib/types'
 import { STAGE_LABELS, STAGE_ORDER } from '@/lib/types'
 import {
   STAGE_COLORS,
   governingStageExit,
+  trackExit,
   parseDueDate,
   type StageExit,
   type StageExitFields,
 } from '@/lib/stageColors'
+
+// Which track's stage exit each row plots. 'both' keeps the governing-exit
+// behavior (the more urgent in-flight track); 'lp' / 'creative' show that
+// track's own exits only — mirroring the pipeline board's track toggle.
+type TrackFilter = 'both' | 'lp' | 'creative'
 
 // Narrowed project row — only what the timeline reads. Mirrors the SELECT in
 // timeline/page.tsx and extends the shared StageExitFields so the governing
@@ -70,6 +77,8 @@ export default function TimelineView({
   weekStartISO: string
   projects: TimelineProject[]
 }) {
+  const [track, setTrack] = useState<TrackFilter>('both')
+
   const weekStart = parseISODateLocal(weekStartISO)
   const weekStartMs = weekStart.getTime()
   const weekEndMs = weekStartMs + SPAN_MS // exclusive (next Monday 00:00)
@@ -80,13 +89,21 @@ export default function TimelineView({
   const nowInWindow = nowPctRaw >= 0 && nowPctRaw <= 100
   const nowPct = clampPct(nowPctRaw)
 
-  // Build a governing exit per project, then bucket by urgency (relative to the
-  // real today via daysUntil, not the displayed week).
-  const rows: Row[] = projects.map(project => ({
-    project,
-    exit: governingStageExit(project),
-    goLive: parseDueDate(project.due_date),
-  }))
+  // Build one exit per project — governing (both) or the selected track's own —
+  // then bucket by urgency (relative to the real today via daysUntil, not the
+  // displayed week). In a single-track view, projects whose selected track has
+  // already shipped have nothing left to exit and are dropped as noise.
+  const rows: Row[] = projects
+    .filter(project => {
+      if (track === 'both') return true
+      const s = track === 'lp' ? project.lp_stage : project.creatives_stage
+      return !(s === 'live' || s === 'done')
+    })
+    .map(project => ({
+      project,
+      exit: track === 'both' ? governingStageExit(project) : trackExit(project, track),
+      goLive: parseDueDate(project.due_date),
+    }))
 
   const overdue: Row[] = []
   const today: Row[] = []
@@ -128,6 +145,37 @@ export default function TimelineView({
           </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+          {/* Track filter — same pattern as the pipeline board's toggle */}
+          <div style={{ display: 'flex', gap: 0, border: '1px solid var(--border)', borderRadius: 20, overflow: 'hidden', marginRight: 'var(--space-2)' }}>
+            {(['both', 'lp', 'creative'] as const).map(opt => {
+              const active = track === opt
+              const labels = { both: 'Both', lp: 'LP', creative: 'Creatives' }
+              return (
+                <button
+                  key={opt}
+                  onClick={() => setTrack(opt)}
+                  className="focus-ring-pill"
+                  title={
+                    opt === 'both'
+                      ? 'Rows plot the more urgent of the two tracks'
+                      : `Rows plot only the ${labels[opt]} track's stage exits`
+                  }
+                  style={{
+                    padding: 'var(--space-2) var(--space-3)',
+                    fontSize: 'var(--text-sm)',
+                    cursor: 'pointer',
+                    border: 'none',
+                    fontWeight: active ? 600 : 400,
+                    background: active ? 'var(--accent-muted)' : 'transparent',
+                    color: active ? 'var(--accent)' : 'var(--text-muted)',
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  {labels[opt]}
+                </button>
+              )
+            })}
+          </div>
           <Link href={`/timeline?week=${prevISO}`} className="btn-secondary btn-icon focus-ring-pill" aria-label="Previous week">‹</Link>
           <Link href="/timeline" className="btn-secondary btn-sm focus-ring-pill">This week</Link>
           <Link href={`/timeline?week=${nextISO}`} className="btn-secondary btn-icon focus-ring-pill" aria-label="Next week">›</Link>
