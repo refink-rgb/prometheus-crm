@@ -18,6 +18,13 @@ import {
 // track's own exits only — mirroring the pipeline board's track toggle.
 type TrackFilter = 'both' | 'lp' | 'creative'
 
+// Stages a row can be plotted in. 'done' never appears (those projects are
+// filtered out server-side); 'revisions' is included so a revisions row can't
+// be silently dropped by the stage filter.
+const FILTERABLE_STAGES: Stage[] = [
+  'brief', 'in_progress', 'internal_review', 'client_review', 'revisions', 'live',
+]
+
 // Narrowed project row — only what the timeline reads. Mirrors the SELECT in
 // timeline/page.tsx and extends the shared StageExitFields so the governing
 // helper can consume it directly.
@@ -78,6 +85,19 @@ export default function TimelineView({
   projects: TimelineProject[]
 }) {
   const [track, setTrack] = useState<TrackFilter>('both')
+  // Stage chips hide rows currently sitting in that stage; the two overlay
+  // chips toggle bar decorations rather than filtering anything out.
+  const [hiddenStages, setHiddenStages] = useState<Set<Stage>>(() => new Set())
+  const [showOverrun, setShowOverrun] = useState(true)
+  const [showRunToLive, setShowRunToLive] = useState(true)
+
+  const toggleStage = (s: Stage) =>
+    setHiddenStages(prev => {
+      const next = new Set(prev)
+      if (next.has(s)) next.delete(s)
+      else next.add(s)
+      return next
+    })
 
   const weekStart = parseISODateLocal(weekStartISO)
   const weekStartMs = weekStart.getTime()
@@ -105,12 +125,15 @@ export default function TimelineView({
       goLive: parseDueDate(project.due_date),
     }))
 
+  const totalRows = rows.length
+  const visibleRows = rows.filter(r => !hiddenStages.has(r.exit.stage))
+
   const overdue: Row[] = []
   const today: Row[] = []
   const thisWeek: Row[] = []
   let laterCount = 0
 
-  for (const row of rows) {
+  for (const row of visibleRows) {
     const { daysUntil, exitDate } = row.exit
     if (daysUntil === null) continue // no target date — nothing to plot
     if (daysUntil < 0) overdue.push(row)
@@ -193,7 +216,16 @@ export default function TimelineView({
         <StatCard n={laterCount} label="Next week or later" tone="muted" />
       </div>
 
-      <Legend />
+      <Legend
+        hiddenStages={hiddenStages}
+        onToggleStage={toggleStage}
+        showOverrun={showOverrun}
+        onToggleOverrun={() => setShowOverrun(v => !v)}
+        showRunToLive={showRunToLive}
+        onToggleRunToLive={() => setShowRunToLive(v => !v)}
+        onReset={() => { setHiddenStages(new Set()); setShowOverrun(true); setShowRunToLive(true) }}
+        hiddenCount={totalRows - visibleRows.length}
+      />
 
       {/* Timeline body — its own horizontal-scroll container. */}
       <div style={{ overflowX: 'auto', marginTop: 'var(--space-3)' }}>
@@ -220,13 +252,13 @@ export default function TimelineView({
 
           {/* Sections. */}
           {overdue.length > 0 && <SectionHeader label="Overdue" hint="still in stage past exit date" tone="danger" />}
-          {overdue.map(row => <TimelineRow key={row.project.id} row={row} weekStartMs={weekStartMs} nowPct={nowPct} />)}
+          {overdue.map(row => <TimelineRow key={row.project.id} row={row} weekStartMs={weekStartMs} nowPct={nowPct} showOverrun={showOverrun} showRunToLive={showRunToLive} />)}
 
           {today.length > 0 && <SectionHeader label="Exits today" hint="must move on by end of day" tone="warning" />}
-          {today.map(row => <TimelineRow key={row.project.id} row={row} weekStartMs={weekStartMs} nowPct={nowPct} />)}
+          {today.map(row => <TimelineRow key={row.project.id} row={row} weekStartMs={weekStartMs} nowPct={nowPct} showOverrun={showOverrun} showRunToLive={showRunToLive} />)}
 
           {thisWeek.length > 0 && <SectionHeader label="Later this week" tone="neutral" />}
-          {thisWeek.map(row => <TimelineRow key={row.project.id} row={row} weekStartMs={weekStartMs} nowPct={nowPct} />)}
+          {thisWeek.map(row => <TimelineRow key={row.project.id} row={row} weekStartMs={weekStartMs} nowPct={nowPct} showOverrun={showOverrun} showRunToLive={showRunToLive} />)}
 
           {overdue.length === 0 && today.length === 0 && thisWeek.length === 0 && (
             <div style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--text-muted)', fontSize: 'var(--text-base)' }}>
@@ -251,7 +283,19 @@ export default function TimelineView({
   )
 }
 
-function TimelineRow({ row, weekStartMs, nowPct }: { row: Row; weekStartMs: number; nowPct: number }) {
+function TimelineRow({
+  row,
+  weekStartMs,
+  nowPct,
+  showOverrun,
+  showRunToLive,
+}: {
+  row: Row
+  weekStartMs: number
+  nowPct: number
+  showOverrun: boolean
+  showRunToLive: boolean
+}) {
   const { project, exit, goLive } = row
   const colors = STAGE_COLORS[exit.stage]
   const isOverdue = exit.daysUntil !== null && exit.daysUntil < 0
@@ -323,7 +367,7 @@ function TimelineRow({ row, weekStartMs, nowPct }: { row: Row; weekStartMs: numb
           )}
 
           {/* Overrun — slipped past the exit deadline, up to NOW. */}
-          {isOverdue && nowPct > exitPct + 0.3 && (
+          {showOverrun && isOverdue && nowPct > exitPct + 0.3 && (
             <div title="Overrun — should have left this stage already" style={{ position: 'absolute', left: `${exitPct}%`, width: `${nowPct - exitPct}%`, top: 0, bottom: 0, borderRadius: '0 4px 4px 0', backgroundColor: 'color-mix(in srgb, var(--danger) 22%, transparent)', backgroundImage: 'repeating-linear-gradient(-45deg, transparent, transparent 4px, color-mix(in srgb, var(--danger) 55%, transparent) 4px, color-mix(in srgb, var(--danger) 55%, transparent) 8px)', border: '1px solid color-mix(in srgb, var(--danger) 45%, transparent)', borderLeft: 'none' }} />
           )}
 
@@ -331,7 +375,7 @@ function TimelineRow({ row, weekStartMs, nowPct }: { row: Row; weekStartMs: numb
           <div style={{ position: 'absolute', left: `${solidRight}%`, top: -2, bottom: -2, width: 2, background: isOverdue ? 'var(--danger)' : colors.border, transform: 'translateX(-1px)' }} />
 
           {/* Dashed run to go-live. */}
-          {showDashed && (
+          {showRunToLive && showDashed && (
             <div style={{ position: 'absolute', left: `${dashedStart}%`, width: `${goLivePct! - dashedStart}%`, top: 3, bottom: 3, border: `1px dashed ${STAGE_COLORS.live.border}`, borderRadius: 4, background: 'transparent', display: 'flex', alignItems: 'center', paddingLeft: 6, overflow: 'hidden' }}>
               <span style={{ fontSize: 'var(--text-2xs)', fontWeight: 600, color: STAGE_COLORS.live.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 Live
@@ -365,24 +409,113 @@ function StatCard({ n, label, tone }: { n: number; label: string; tone: 'danger'
   )
 }
 
-function Legend() {
-  const stages: Stage[] = ['brief', 'in_progress', 'internal_review', 'client_review', 'live']
+// The legend doubles as the filter control: stage chips hide/show rows sitting
+// in that stage, the last two toggle bar overlays. An "off" chip is dimmed with
+// its swatch hollowed out.
+function chipStyle(on: boolean): React.CSSProperties {
+  return {
+    display: 'inline-flex', alignItems: 'center', gap: 5,
+    padding: '4px 10px', borderRadius: 20, cursor: 'pointer',
+    fontSize: 'var(--text-xs)',
+    border: `1px solid ${on ? 'var(--border-strong)' : 'var(--border)'}`,
+    background: on ? 'var(--surface-2)' : 'transparent',
+    color: on ? 'var(--text-secondary)' : 'var(--text-muted)',
+    opacity: on ? 1 : 0.5,
+    transition: 'opacity 0.15s, background 0.15s',
+  }
+}
+
+function Legend({
+  hiddenStages,
+  onToggleStage,
+  showOverrun,
+  onToggleOverrun,
+  showRunToLive,
+  onToggleRunToLive,
+  onReset,
+  hiddenCount,
+}: {
+  hiddenStages: Set<Stage>
+  onToggleStage: (s: Stage) => void
+  showOverrun: boolean
+  onToggleOverrun: () => void
+  showRunToLive: boolean
+  onToggleRunToLive: () => void
+  onReset: () => void
+  hiddenCount: number
+}) {
+  const anyOff = hiddenStages.size > 0 || !showOverrun || !showRunToLive
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-4)', alignItems: 'center', fontSize: 'var(--text-xs)' }}>
-      {stages.map(s => (
-        <span key={s} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-          <span style={{ width: 10, height: 10, borderRadius: 2, background: STAGE_COLORS[s].border }} />
-          <span style={{ color: 'var(--text-muted)' }}>{STAGE_LABELS[s]}</span>
-        </span>
-      ))}
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-        <span style={{ width: 14, height: 10, borderRadius: 2, backgroundImage: 'repeating-linear-gradient(-45deg, transparent, transparent 2px, color-mix(in srgb, var(--danger) 60%, transparent) 2px, color-mix(in srgb, var(--danger) 60%, transparent) 4px)', border: '1px solid color-mix(in srgb, var(--danger) 45%, transparent)' }} />
-        <span style={{ color: 'var(--text-muted)' }}>Overrun (slipped)</span>
-      </span>
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-        <span style={{ width: 14, height: 0, borderTop: `1px dashed ${STAGE_COLORS.live.border}` }} />
-        <span style={{ color: 'var(--text-muted)' }}>Run to go-live</span>
-      </span>
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-2)', alignItems: 'center' }}>
+      {FILTERABLE_STAGES.map(s => {
+        const on = !hiddenStages.has(s)
+        return (
+          <button
+            key={s}
+            type="button"
+            onClick={() => onToggleStage(s)}
+            aria-pressed={on}
+            className="focus-ring-pill"
+            title={on ? `Hide projects in ${STAGE_LABELS[s]}` : `Show projects in ${STAGE_LABELS[s]}`}
+            style={chipStyle(on)}
+          >
+            <span style={{
+              width: 10, height: 10, borderRadius: 2, flexShrink: 0,
+              background: on ? STAGE_COLORS[s].border : 'transparent',
+              border: `1px solid ${STAGE_COLORS[s].border}`,
+            }} />
+            <span>{STAGE_LABELS[s]}</span>
+          </button>
+        )
+      })}
+
+      <span aria-hidden style={{ width: 1, height: 18, background: 'var(--border)', margin: '0 4px' }} />
+
+      <button
+        type="button"
+        onClick={onToggleOverrun}
+        aria-pressed={showOverrun}
+        className="focus-ring-pill"
+        title={showOverrun ? 'Hide the overrun hatching on slipped bars' : 'Show the overrun hatching on slipped bars'}
+        style={chipStyle(showOverrun)}
+      >
+        <span style={{
+          width: 14, height: 10, borderRadius: 2, flexShrink: 0,
+          backgroundImage: showOverrun
+            ? 'repeating-linear-gradient(-45deg, transparent, transparent 2px, color-mix(in srgb, var(--danger) 60%, transparent) 2px, color-mix(in srgb, var(--danger) 60%, transparent) 4px)'
+            : 'none',
+          border: '1px solid color-mix(in srgb, var(--danger) 45%, transparent)',
+        }} />
+        <span>Overrun (slipped)</span>
+      </button>
+
+      <button
+        type="button"
+        onClick={onToggleRunToLive}
+        aria-pressed={showRunToLive}
+        className="focus-ring-pill"
+        title={showRunToLive ? 'Hide the dashed run to go-live' : 'Show the dashed run to go-live'}
+        style={chipStyle(showRunToLive)}
+      >
+        <span style={{ width: 14, height: 0, flexShrink: 0, borderTop: `1px dashed ${STAGE_COLORS.live.border}` }} />
+        <span>Run to go-live</span>
+      </button>
+
+      {anyOff && (
+        <button
+          type="button"
+          onClick={onReset}
+          className="focus-ring-pill"
+          style={{
+            ...chipStyle(true),
+            borderColor: 'var(--accent)',
+            color: 'var(--accent)',
+            background: 'var(--accent-muted)',
+          }}
+        >
+          Reset{hiddenCount > 0 ? ` · ${hiddenCount} hidden` : ''}
+        </button>
+      )}
     </div>
   )
 }
