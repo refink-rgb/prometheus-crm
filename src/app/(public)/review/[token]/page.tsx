@@ -47,8 +47,12 @@ export default async function ReviewPage({
   const comments = (allComments ?? []) as ProjectComment[]
   const assets = (assetsRaw ?? []) as CreativeAsset[]
 
-  const lpComments = comments.filter(c => c.track === 'lp' || c.track === 'general')
-  const imageComments = comments.filter(c => c.track === 'image')
+  // Feedback the team has checked off internally (resolved_at set) must drop off
+  // the client link entirely — same rule as audience='internal'. The notes thread
+  // has no resolve toggle, so it's unaffected.
+  const openComments = comments.filter(c => c.resolved_at == null)
+  const lpComments = openComments.filter(c => c.track === 'lp' || c.track === 'general')
+  const imageComments = openComments.filter(c => c.track === 'image')
   const notes = comments.filter(c => c.track === 'note')
 
   const due = parseDueDate(p.due_date)
