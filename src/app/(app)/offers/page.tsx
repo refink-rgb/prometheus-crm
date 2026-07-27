@@ -13,7 +13,7 @@ export default async function OffersPage() {
   if (!user) redirect('/login')
   const isEditor = canEdit(user.email)
 
-  const [{ data: cardsRaw }, { data: brandsRaw }, profiles] = await Promise.all([
+  const [{ data: cardsRaw, error: cardsError }, { data: brandsRaw }, profiles] = await Promise.all([
     supabase
       .from('offer_cards')
       .select('id, brand_id, target_month, moment_slot, name, stage, assigned_to, derived_production_card_id, brands(id, name)')
@@ -25,6 +25,45 @@ export default async function OffersPage() {
       .order('name', { ascending: true }),
     getCachedProfiles(),
   ])
+
+  // Surface a failed query instead of silently rendering an empty board.
+  // A failing select (e.g. a schema migration not yet applied in prod) used to
+  // fall through to `cardsRaw ?? []` and look identical to "no offers yet".
+  if (cardsError) {
+    console.error('[offers] failed to load offer_cards:', cardsError)
+    return (
+      <div style={{ padding: '20px 24px 16px' }}>
+        <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.02em', marginBottom: 8 }}>
+          Offer Cycle
+        </h1>
+        <div style={{
+          border: '1px solid var(--danger, #ef4444)',
+          background: 'color-mix(in srgb, var(--danger, #ef4444) 10%, transparent)',
+          borderRadius: 10,
+          padding: '14px 16px',
+          maxWidth: 640,
+        }}>
+          <p style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>
+            Couldn’t load offer cards
+          </p>
+          <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 8 }}>
+            The board query failed, so no cards are shown — this does not mean the cards were deleted.
+            A pending database migration is the most common cause. Check the Vercel runtime logs for details.
+          </p>
+          <pre style={{
+            fontSize: 12,
+            color: 'var(--text-muted)',
+            background: 'var(--surface-2, rgba(0,0,0,0.2))',
+            borderRadius: 6,
+            padding: '8px 10px',
+            overflowX: 'auto',
+            margin: 0,
+            whiteSpace: 'pre-wrap',
+          }}>{cardsError.message}</pre>
+        </div>
+      </div>
+    )
+  }
 
   const cards = (cardsRaw ?? []) as unknown as BoardOfferCard[]
   const brands = (brandsRaw ?? []) as Pick<Brand, 'id' | 'name' | 'is_active'>[]
