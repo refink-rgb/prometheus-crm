@@ -642,10 +642,17 @@ export async function addProjectComment(
 // ALLOWED_EDITORS allowlist used everywhere else — anonymous client viewers
 // can't trigger this even if they discover the action.
 export async function deleteProjectComment(commentId: string, token: string) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const auth = await createClient()
+  const { data: { user } } = await auth.auth.getUser()
   if (!user) throw new Error('Not authorized.')
   if (!canEdit(user.email)) throw new Error('Not authorized.')
+
+  // project_comments RLS has no UPDATE/DELETE policy for the authenticated role,
+  // so a delete through the user-session client is silently dropped (0 rows, no
+  // error) and the comment reappears on refresh. Route the write through the
+  // service-role client — same pattern as addProjectComment. Authorization is
+  // unchanged: canEdit above + the share_token ownership check below.
+  const supabase = createServiceClient()
 
   const { data: comment } = await supabase
     .from('project_comments')
@@ -679,10 +686,15 @@ export async function deleteProjectComment(commentId: string, token: string) {
 // it works even when no client review link has been generated yet. Deleting
 // here removes the note from the client portal too (same DB row).
 export async function deleteInternalNote(commentId: string, projectId: string, brandId: string) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const auth = await createClient()
+  const { data: { user } } = await auth.auth.getUser()
   if (!user) throw new Error('Not authorized.')
   if (!canEdit(user.email)) throw new Error('Not authorized.')
+
+  // Same project_comments RLS gap as deleteProjectComment — the DELETE is
+  // silently dropped through the user-session client, so the note returns on
+  // refresh. Service-role write; canEdit + ownership check below still gate it.
+  const supabase = createServiceClient()
 
   const { data: comment } = await supabase
     .from('project_comments')
@@ -712,10 +724,16 @@ export async function toggleCommentResolved(
   brandId: string,
   resolved: boolean,
 ) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const auth = await createClient()
+  const { data: { user } } = await auth.auth.getUser()
   if (!user) throw new Error('Not authorized.')
   if (!canEdit(user.email)) throw new Error('Not authorized.')
+
+  // See deleteProjectComment: project_comments has no UPDATE policy for the
+  // authenticated role, so this resolve toggle is silently dropped through the
+  // user-session client and reverts on refresh. Write via the service-role
+  // client; canEdit above + the project-ownership check below still gate it.
+  const supabase = createServiceClient()
 
   const { data: comment } = await supabase
     .from('project_comments')
