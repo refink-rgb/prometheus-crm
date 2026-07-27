@@ -1,3 +1,5 @@
+import type { CaseStudy } from '@/data/case-studies/types'
+
 export type Stage = 'brief' | 'in_progress' | 'internal_review' | 'client_review' | 'revisions' | 'live' | 'done'
 
 export type PipelineStatus = 'intro_contact' | 'discovery_call' | 'offer_prep' | 'active'
@@ -269,6 +271,19 @@ export interface CreativeAsset {
   // INTERNAL QC approval — set ONLY by the internal review tool. Kept separate
   // from `status` so an internal approve never shows as approved to the client.
   internal_status: 'pending' | 'approved' | 'needs_revision' | 'rejected'
+}
+
+// A generated marketing-moment report (anonymized public case study). `data` is
+// a frozen snapshot shaped like the CaseStudy type in
+// src/data/case-studies/types.ts — authored at generation, rendered by the
+// public /showcase/<report_token> page. See migration 20260727_add_marketing_reports.
+export interface MarketingReport {
+  id: string
+  project_id: string
+  report_token: string
+  data: CaseStudy
+  created_at: string
+  updated_at: string
 }
 
 export interface BrandDnaSource {
