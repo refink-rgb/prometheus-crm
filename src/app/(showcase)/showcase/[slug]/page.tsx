@@ -120,11 +120,7 @@ export default async function ShowcasePage({
         <CampaignSnapshot campaign={cs.campaign} />
         <Narrative sections={cs.narrative} />
         <LpShowcase landing={cs.landing} />
-        <CreativeGallery
-          creatives={cs.creatives}
-          benchmark={cs.creativeBenchmark}
-          isFixture={cs.creativesAreFixture}
-        />
+        <CreativeGallery creatives={cs.creatives} />
         <Comparison comparisons={cs.comparisons} />
         <ClosingCta cta={cs.closing} />
       </main>
