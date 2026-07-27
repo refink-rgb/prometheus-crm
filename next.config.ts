@@ -26,6 +26,20 @@ const nextConfig: NextConfig = {
     ],
   },
 
+  // Belt-and-suspenders anonymization for the public case-study showcases:
+  // the pages already emit a noindex/nofollow meta tag, but a response header
+  // guarantees crawlers that ignore HTML meta still get the signal.
+  async headers() {
+    return [
+      {
+        source: '/showcase/:path*',
+        headers: [
+          { key: 'X-Robots-Tag', value: 'noindex, nofollow, noarchive' },
+        ],
+      },
+    ]
+  },
+
   // Whitelist the hosts we serve images from so <Image /> can optimize them.
   // Any Supabase Storage bucket on our project + Google Drive public links
   // (used by creative assets) are the two sources today.
