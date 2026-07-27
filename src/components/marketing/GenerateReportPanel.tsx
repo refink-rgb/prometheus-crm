@@ -4,7 +4,8 @@ import { useState } from 'react'
 import { generateMarketingReport, deleteMarketingReport } from '@/lib/marketing-actions'
 import { buildSlackMessage } from '@/lib/slackMessage'
 import type { CaseStudy } from '@/data/case-studies/types'
-import MomentReportForm, { type ReportDraft } from './MomentReportForm'
+import { caseStudyToInputs, type ReportInputs } from '@/data/case-studies/buildReport'
+import MomentReportForm from './MomentReportForm'
 
 export default function GenerateReportPanel({
   projectId,
@@ -32,13 +33,13 @@ export default function GenerateReportPanel({
   const fullUrl = path && typeof window !== 'undefined' ? `${window.location.origin}${path}` : path
   const slackText = token && data ? buildSlackMessage({ ...data, slug: token }, fullUrl ?? path!) : null
 
-  async function handleSubmit(draft: ReportDraft) {
+  async function handleSubmit(inputs: ReportInputs) {
     setSubmitting(true)
     setError(null)
     try {
-      const { token: t } = await generateMarketingReport(projectId, draft)
+      const { token: t, caseStudy } = await generateMarketingReport(projectId, inputs)
       setToken(t)
-      setData({ ...draft, slug: t })
+      setData(caseStudy)
       setMode('idle')
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to generate the report.')
@@ -137,9 +138,7 @@ export default function GenerateReportPanel({
 
       {mode === 'form' && (
         <MomentReportForm
-          projectName={projectName}
-          creativeCount={creativeCount}
-          initial={data ? { ...data } : undefined}
+          initial={data ? caseStudyToInputs(data) : undefined}
           submitting={submitting}
           error={error}
           onSubmit={handleSubmit}

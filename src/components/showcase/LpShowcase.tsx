@@ -7,6 +7,7 @@ export default function LpShowcase({ landing }: { landing: LandingShowcase }) {
   const { image, hotspots } = landing
   const [activeId, setActiveId] = useState<string | null>(hotspots[0]?.id ?? null)
   const active = hotspots.find((h) => h.id === activeId) ?? null
+  const hasHotspots = hotspots.length > 0
 
   return (
     <section aria-label="Landing page walkthrough" style={{ padding: '24px 0 72px' }}>
@@ -26,15 +27,19 @@ export default function LpShowcase({ landing }: { landing: LandingShowcase }) {
           Every conversion element, on purpose
         </h2>
         <p style={{ fontSize: 15, color: 'var(--pe-muted)', margin: '0 0 28px' }}>
-          Tap a marker to see what each element does and why it was built that way.
+          {hasHotspots
+            ? 'Tap a marker to see what each element does and why it was built that way.'
+            : 'The page we designed and built for the offer.'}
         </p>
 
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'minmax(0, 1.35fr) minmax(0, 1fr)',
+            gridTemplateColumns: hasHotspots ? 'minmax(0, 1.35fr) minmax(0, 1fr)' : '1fr',
             gap: 24,
             alignItems: 'start',
+            maxWidth: hasHotspots ? undefined : 760,
+            margin: hasHotspots ? undefined : '0 auto',
           }}
           className="pe-lp-grid"
         >
@@ -134,7 +139,9 @@ export default function LpShowcase({ landing }: { landing: LandingShowcase }) {
           </div>
 
           {/* Callout — rendered outside the scroll container so it never clips,
-              works on touch, and updates on hover/focus/click. */}
+              works on touch, and updates on hover/focus/click. Omitted entirely
+              when the report has no annotation hotspots (image-only LP). */}
+          {hasHotspots && (
           <div
             className="pe-card"
             style={{ padding: 24, position: 'sticky', top: 24 }}
@@ -188,6 +195,7 @@ export default function LpShowcase({ landing }: { landing: LandingShowcase }) {
               ))}
             </div>
           </div>
+          )}
         </div>
       </div>
 
