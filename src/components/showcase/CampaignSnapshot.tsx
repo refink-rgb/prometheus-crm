@@ -66,15 +66,16 @@ export default function CampaignSnapshot({ campaign }: { campaign: CampaignFigur
         </p>
         <p
           style={{
-            fontSize: 12,
-            color: 'var(--pe-muted)',
-            margin: '8px 0 0',
+            fontSize: 15,
+            fontWeight: 500,
+            color: 'var(--pe-off)',
+            margin: '12px 0 0',
             display: 'inline-flex',
             alignItems: 'center',
-            gap: 6,
+            gap: 8,
           }}
         >
-          <span style={{ width: 6, height: 6, borderRadius: 100, background: 'var(--pe-teal)', display: 'inline-block' }} />
+          <span style={{ width: 8, height: 8, borderRadius: 100, background: 'var(--pe-teal)', display: 'inline-block' }} />
           Data from Statlas
         </p>
       </div>
