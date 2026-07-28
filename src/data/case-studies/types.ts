@@ -150,7 +150,7 @@ export interface ClosingCta {
   headline: string
   body: string
   buttonLabel: string
-  /** Destination URL. null → button rendered disabled / awaiting destination. */
+  /** Destination URL. null → button is a non-clickable CTA label (e.g. "Message me"). */
   href: string | null
 }
 
@@ -197,4 +197,6 @@ export interface CaseStudy {
   comparisons: ComparisonBar[]
   closing: ClosingCta
   campaign: CampaignFigures
+  /** Trailing "+N more" count for the creative carousel (e.g. 40). null → derived. */
+  moreAdsCount?: number | null
 }

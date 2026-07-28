@@ -5,8 +5,15 @@ import type { Creative } from '@/data/case-studies/types'
 
 // A Netflix-style horizontal carousel of the ad examples we built. Purely
 // illustrative — no per-ad metrics and no sort/filter control. Click a card to
-// open a larger preview.
-export default function CreativeGallery({ creatives }: { creatives: Creative[] }) {
+// open a larger preview. `moreCount` (if > 0) adds a trailing "+ N more" card so
+// readers know these are a sample of a larger test.
+export default function CreativeGallery({
+  creatives,
+  moreCount = 0,
+}: {
+  creatives: Creative[]
+  moreCount?: number
+}) {
   const [openId, setOpenId] = useState<string | null>(null)
   const openCreative = creatives.find((c) => c.id === openId) ?? null
 
@@ -55,6 +62,7 @@ export default function CreativeGallery({ creatives }: { creatives: Creative[] }
           {creatives.map((c) => (
             <CreativeCard key={c.id} creative={c} onOpen={() => setOpenId(c.id)} />
           ))}
+          {moreCount > 0 && <MoreCard count={moreCount} />}
         </div>
       )}
 
@@ -100,6 +108,34 @@ function CreativeCard({ creative, onOpen }: { creative: Creative; onOpen: () => 
       <div style={{ padding: 16 }}>
         <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--pe-white)' }}>{creative.label}</span>
       </div>
+    </div>
+  )
+}
+
+// Trailing "+ N more" card — signals the shown creatives are a sample.
+function MoreCard({ count }: { count: number }) {
+  return (
+    <div
+      aria-label={`Plus ${count} more ads in this test`}
+      className="pe-card pe-card-sm"
+      style={{
+        flex: '0 0 clamp(180px, 50vw, 220px)',
+        scrollSnapAlign: 'start',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+        textAlign: 'center',
+        padding: 24,
+        border: '1px dashed var(--pe-border)',
+        background: 'transparent',
+      }}
+    >
+      <span style={{ fontSize: 'clamp(28px, 5vw, 40px)', fontWeight: 600, letterSpacing: '-0.03em', color: 'var(--pe-lime)' }}>
+        +{count}
+      </span>
+      <span style={{ fontSize: 13, color: 'var(--pe-muted)' }}>more ads in this test</span>
     </div>
   )
 }

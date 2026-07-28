@@ -80,6 +80,7 @@ export default function MomentReportForm({
   const [campaign, setCampaign] = useState<CampaignFigures>(initial?.campaign ?? emptyCampaign())
   const [industry, setIndustry] = useState(initial?.industry ?? DEFAULT_INDUSTRY)
   const [lpImages, setLpImages] = useState<UploadedImage[]>(urlToImages(initial?.lpImageUrl ?? null))
+  const [moreAdsCount, setMoreAdsCount] = useState<number | null>(initial?.moreAdsCount ?? null)
   const [closingHref, setClosingHref] = useState(initial?.closingHref ?? '')
   const [creatives, setCreatives] = useState<CreativeRow[]>(
     initial?.creatives.length
@@ -99,6 +100,7 @@ export default function MomentReportForm({
       campaign,
       industry,
       lpImageUrl: lpImages[0]?.url ?? null,
+      moreAdsCount,
       creatives: creatives.map((r) => ({
         posterUrl: r.images[0]?.url ?? null,
         revenue: r.revenue,
@@ -164,6 +166,11 @@ export default function MomentReportForm({
           </div>
         ))}
         <button type="button" onClick={addCreative} className="btn-secondary btn-sm" style={{ alignSelf: 'flex-start' }}>+ Add creative</button>
+        <div style={{ maxWidth: 260 }}>
+          <Field label="“+N more” card (e.g. 40)">
+            <Num value={moreAdsCount} onChange={setMoreAdsCount} placeholder="40" />
+          </Field>
+        </div>
       </div>
 
       {/* Closing CTA destination */}

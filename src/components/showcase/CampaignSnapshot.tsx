@@ -64,6 +64,19 @@ export default function CampaignSnapshot({ campaign }: { campaign: CampaignFigur
           Measured against the rest of the account: {fmtInt(campaign.restOfAccountAds)} ads,{' '}
           {fmtUsd(campaign.restOfAccountRevenue)} revenue.
         </p>
+        <p
+          style={{
+            fontSize: 12,
+            color: 'var(--pe-muted)',
+            margin: '8px 0 0',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+          }}
+        >
+          <span style={{ width: 6, height: 6, borderRadius: 100, background: 'var(--pe-teal)', display: 'inline-block' }} />
+          Data from Statlas
+        </p>
       </div>
     </section>
   )

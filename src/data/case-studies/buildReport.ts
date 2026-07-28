@@ -24,7 +24,9 @@ export interface ReportInputs {
   /** Uploaded LP screenshot image URL (rendered as the landing page). */
   lpImageUrl: string | null
   creatives: CreativeInput[]
-  /** Closing CTA destination. */
+  /** Trailing "+N more" count for the creative carousel (e.g. 40). null → derived. */
+  moreAdsCount: number | null
+  /** Closing CTA destination (optional — blank renders a plain "Message Joy" CTA). */
   closingHref: string | null
 }
 
@@ -156,12 +158,14 @@ export function buildReportCaseStudy(input: ReportInputs, slug = ''): CaseStudy 
 
     closing: {
       headline: 'Want this for your brand?',
-      body: 'One offer test moved the whole account. Let’s find the moment that does the same for you.',
-      buttonLabel: 'Start a marketing moment',
-      href: input.closingHref,
+      body: 'Guaranteed revenue in excess of cost — or you don’t pay.',
+      buttonLabel: 'Message Joy',
+      // Defaults to Joy's Slack DM; a per-report closingHref overrides it.
+      href: input.closingHref || 'https://commonthreadco.slack.com/archives/D0B9FMR0R47',
     },
 
     campaign: c,
+    moreAdsCount: input.moreAdsCount,
   }
 }
 
@@ -177,6 +181,7 @@ export function caseStudyToInputs(cs: CaseStudy): ReportInputs {
       roas: c.metrics.roas,
       uniqueOutboundCtr: c.metrics.uniqueOutboundCtr,
     })),
+    moreAdsCount: cs.moreAdsCount ?? null,
     closingHref: cs.closing.href,
   }
 }

@@ -29,7 +29,7 @@ export default function LpShowcase({ landing }: { landing: LandingShowcase }) {
         <p style={{ fontSize: 15, color: 'var(--pe-muted)', margin: '0 0 28px' }}>
           {hasHotspots
             ? 'Tap a marker to see what each element does and why it was built that way.'
-            : 'The page we designed and built for the offer.'}
+            : '↓ Scroll to look through the full page we built.'}
         </p>
 
         <div

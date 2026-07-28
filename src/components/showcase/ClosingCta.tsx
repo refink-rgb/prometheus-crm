@@ -41,10 +41,10 @@ export default function ClosingCta({ cta }: { cta: ClosingCtaData }) {
             {cta.buttonLabel}
           </a>
         ) : (
-          // Destination not yet supplied → render disabled rather than a dead link.
-          <button className="pe-btn" disabled title="Destination coming soon">
+          // No link by design (e.g. "Message me") → a styled, non-interactive CTA label.
+          <span className="pe-btn" role="text">
             {cta.buttonLabel}
-          </button>
+          </span>
         )}
       </div>
     </section>
