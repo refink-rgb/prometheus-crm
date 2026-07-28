@@ -95,7 +95,7 @@ function CreativeCard({ creative, onOpen }: { creative: Creative; onOpen: () => 
         overflow: 'hidden',
       }}
       tabIndex={0}
-      aria-label={`${creative.label} — view larger`}
+      aria-label={`${creative.label}: view larger`}
       onClick={onOpen}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {

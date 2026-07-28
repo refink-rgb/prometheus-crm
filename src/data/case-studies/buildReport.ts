@@ -6,11 +6,11 @@ import type { CampaignFigures, CaseStudy, Creative, Incrementality } from './typ
 // for reports stored before the section existed.
 export const DEFAULT_INCREMENTALITY: Incrementality = {
   question: 'Is this incremental?',
-  answer: 'Yes — this revenue is additive, not reshuffled.',
+  answer: 'Yes. This revenue is additive, not reshuffled.',
   points: [
     {
       title: 'We run the offer unlisted',
-      body: 'The offer lives on an announcement bar — not the homepage, not the hero. Customers who were already on their way to buy never get diverted into it. The demand is created by the media we run against it, not borrowed from sales the brand was going to make anyway.',
+      body: 'The offer lives on an announcement bar, not the homepage and not the hero. Customers who were already on their way to buy never get diverted into it. The demand is created by the media we run against it, not borrowed from sales the brand was going to make anyway.',
     },
     {
       title: 'We never split existing traffic',
@@ -18,11 +18,11 @@ export const DEFAULT_INCREMENTALITY: Incrementality = {
     },
     {
       title: 'It runs side by side with the account',
-      body: 'The moment runs alongside everything else over the same window, under the same conditions. That is why every number here is measured against the account’s own benchmark rather than an industry average — same account, same period, like for like.',
+      body: 'The moment runs alongside everything else over the same window, under the same conditions. That is why every number here is measured against the account’s own benchmark rather than an industry average: same account, same period, like for like.',
     },
     {
       title: 'We know the numbers before we build',
-      body: 'We hold market data across the categories we operate in, so we know the AOV, CAC and margin an offer has to clear before a dollar goes live. The offer is engineered to hit those numbers — which is why the downside on a moment test stays close to break-even even when it loses.',
+      body: 'We hold market data across the categories we operate in, so we know the AOV, CAC and margin an offer has to clear before a dollar goes live. The offer is engineered to hit those numbers, which is why the downside on a moment test stays close to break-even even when it loses.',
     },
   ],
 }
@@ -154,10 +154,10 @@ export function buildReportCaseStudy(input: ReportInputs, slug = ''): CaseStudy 
 
     // Templated copy.
     narrative: [
-      { heading: 'The Challenge', paragraphs: ['The account was growing, but growth was expensive. Prospecting sat close to break-even and every new customer cost more than the last. The team needed a lever that moved unit economics — not just another round of creative.'] },
-      { heading: 'The Approach', paragraphs: ['Instead of testing more of the same, we tested the offer itself — built to raise perceived value without discounting the core product — paired with a purpose-built landing page and a fresh creative slate, isolated so its impact could be measured against the rest of the account.'] },
-      { heading: 'The Results', paragraphs: ['The offer converted. Landing-page conversion nearly doubled the account average, unique outbound CTR ran well ahead of the rest of the account, and the test returned an incremental ROAS above the benchmark — driving meaningful incremental revenue from a single moment.'] },
-      { heading: 'The Insight', paragraphs: ['The winning variable wasn’t spend or audience — it was the offer. Testing the offer as its own lever, with the landing page and creative built to sell it, turned an untested idea into the account’s best-converting campaign. That’s a repeatable play, not a one-off.'] },
+      { heading: 'The Challenge', paragraphs: ['The account was growing, but growth was expensive. Prospecting sat close to break-even and every new customer cost more than the last. The team needed a lever that moved unit economics, not just another round of creative.'] },
+      { heading: 'The Approach', paragraphs: ['Instead of testing more of the same, we tested the offer itself, built to raise perceived value without discounting the core product. We paired it with a purpose-built landing page and a fresh creative slate, isolated so its impact could be measured against the rest of the account.'] },
+      { heading: 'The Results', paragraphs: ['The offer converted. Landing-page conversion nearly doubled the account average, unique outbound CTR ran well ahead of the rest of the account, and the test returned an incremental ROAS above the benchmark, driving meaningful incremental revenue from a single moment.'] },
+      { heading: 'The Insight', paragraphs: ['The winning variable wasn’t spend or audience. It was the offer. Testing the offer as its own lever, with the landing page and creative built to sell it, turned an untested idea into the account’s best-converting campaign. That’s a repeatable play, not a one-off.'] },
     ],
 
     landing: {
@@ -172,13 +172,13 @@ export function buildReportCaseStudy(input: ReportInputs, slug = ''): CaseStudy 
     // Derived comparison bars.
     comparisons: [
       {
-        label: 'Creative performance — unique outbound CTR',
+        label: 'Creative performance: unique outbound CTR',
         campaign: { label: 'This campaign', value: c.uniqueOutboundCtr, display: pct(c.uniqueOutboundCtr) },
         rest: { label: 'Rest of account', value: c.uniqueOutboundCtrBenchmark, display: pct(c.uniqueOutboundCtrBenchmark) },
         multiplier: mult(c.uniqueOutboundCtr, c.uniqueOutboundCtrBenchmark),
       },
       {
-        label: 'Revenue efficiency — average revenue per ad',
+        label: 'Revenue efficiency: average revenue per ad',
         campaign: { label: `This campaign (${c.adsInTest} ads)`, value: revPerAdCampaign, display: usd0(revPerAdCampaign) },
         rest: { label: `Rest of account (${c.restOfAccountAds} ads)`, value: revPerAdRest, display: usd0(revPerAdRest) },
         multiplier: multRound(revPerAdCampaign, revPerAdRest),
@@ -189,7 +189,7 @@ export function buildReportCaseStudy(input: ReportInputs, slug = ''): CaseStudy 
 
     closing: {
       headline: 'Want this for your brand?',
-      body: 'Guaranteed revenue in excess of cost — or you don’t pay.',
+      body: 'Guaranteed revenue in excess of cost, or you don’t pay.',
       note: 'Every dollar you put into a marketing moment comes back in revenue. If it doesn’t, you don’t pay for the work. That’s the deal.',
       buttonLabel: 'Message Me',
       // Defaults to the Slack DM; a per-report closingHref overrides it.
@@ -199,7 +199,7 @@ export function buildReportCaseStudy(input: ReportInputs, slug = ''): CaseStudy 
     campaign: c,
     moreAdsCount: input.moreAdsCount,
     proof: input.proofImageUrl
-      ? { src: input.proofImageUrl, caption: 'Straight from the ad account — these are the real numbers.' }
+      ? { src: input.proofImageUrl, caption: 'Straight from the ad account. These are the real numbers.' }
       : null,
   }
 }

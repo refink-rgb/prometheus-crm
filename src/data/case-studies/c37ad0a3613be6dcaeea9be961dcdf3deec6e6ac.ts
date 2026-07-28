@@ -70,7 +70,7 @@ const caseStudy: CaseStudy = {
     {
       heading: 'The Challenge',
       paragraphs: [
-        'The account was growing, but growth was expensive. Prospecting sat close to break-even, margins were tight, and every new customer cost more than the last. The team needed a lever that moved unit economics — not just another round of creative.',
+        'The account was growing, but growth was expensive. Prospecting sat close to break-even, margins were tight, and every new customer cost more than the last. The team needed a lever that moved unit economics, not just another round of creative.',
       ],
     },
     {
@@ -82,13 +82,13 @@ const caseStudy: CaseStudy = {
     {
       heading: 'The Results',
       paragraphs: [
-        'The offer converted. Landing-page conversion rate nearly doubled the account average, unique outbound CTR ran well ahead of the rest of the account, and the test returned an incremental ROAS of 1.61x — driving $56.4K in incremental revenue from a single moment.',
+        'The offer converted. Landing-page conversion rate nearly doubled the account average, unique outbound CTR ran well ahead of the rest of the account, and the test returned an incremental ROAS of 1.61x, driving $56.4K in incremental revenue from a single moment.',
       ],
     },
     {
       heading: 'The Insight',
       paragraphs: [
-        'The winning variable wasn’t spend or audience — it was the offer. Testing the offer as its own lever, with the landing page and creative built to sell it, turned an untested idea into the account’s best-converting campaign. That’s a repeatable play, not a one-off.',
+        'The winning variable wasn’t spend or audience. It was the offer. Testing the offer as its own lever, with the landing page and creative built to sell it, turned an untested idea into the account’s best-converting campaign. That’s a repeatable play, not a one-off.',
       ],
     },
   ],
@@ -209,13 +209,13 @@ const caseStudy: CaseStudy = {
 
   comparisons: [
     {
-      label: 'Creative performance — unique outbound CTR',
+      label: 'Creative performance: unique outbound CTR',
       campaign: { label: 'This campaign', value: 3.18, display: '3.18%' },
       rest: { label: 'Rest of account', value: 1.9, display: '1.90%' },
       multiplier: '~1.7x',
     },
     {
-      label: 'Revenue efficiency — average revenue per ad',
+      label: 'Revenue efficiency: average revenue per ad',
       campaign: { label: 'This campaign (24 ads)', value: 2351, display: '$2,351' },
       rest: { label: 'Rest of account (68 ads)', value: 470, display: '$470' },
       multiplier: '~5x',
