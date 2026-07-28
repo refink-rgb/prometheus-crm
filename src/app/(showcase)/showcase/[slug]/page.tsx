@@ -12,6 +12,7 @@ import Narrative from '@/components/showcase/Narrative'
 import LpShowcase from '@/components/showcase/LpShowcase'
 import CreativeGallery from '@/components/showcase/CreativeGallery'
 import Comparison from '@/components/showcase/Comparison'
+import Incrementality from '@/components/showcase/Incrementality'
 import ClosingCta from '@/components/showcase/ClosingCta'
 
 // Tokens are minted per report at generation time, so this route is fully
@@ -127,6 +128,7 @@ export default async function ShowcasePage({
           moreCount={cs.moreAdsCount ?? Math.max(0, cs.campaign.adsInTest - cs.creatives.length)}
         />
         <Comparison comparisons={cs.comparisons} />
+        <Incrementality data={cs.incrementality} />
         <ClosingCta cta={cs.closing} />
       </main>
 

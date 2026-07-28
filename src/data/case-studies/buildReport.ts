@@ -1,4 +1,31 @@
-import type { CampaignFigures, CaseStudy, Creative } from './types'
+import type { CampaignFigures, CaseStudy, Creative, Incrementality } from './types'
+
+// The commercial answer to the first question a sharp reader asks: "sure, but
+// did you ADD revenue, or just move it around?" This is our methodology, so it
+// is identical on every report. Exported so the component can fall back to it
+// for reports stored before the section existed.
+export const DEFAULT_INCREMENTALITY: Incrementality = {
+  question: 'Is this incremental?',
+  answer: 'Yes — this revenue is additive, not reshuffled.',
+  points: [
+    {
+      title: 'We run the offer unlisted',
+      body: 'The offer lives on an announcement bar — not the homepage, not the hero. Customers who were already on their way to buy never get diverted into it. The demand is created by the media we run against it, not borrowed from sales the brand was going to make anyway.',
+    },
+    {
+      title: 'We never split existing traffic',
+      body: 'Every test launches as a new campaign on additive spend. The campaigns already running stay untouched and keep serving. Nothing gets cannibalised, so the result lands on top of the account instead of being carved out of it.',
+    },
+    {
+      title: 'It runs side by side with the account',
+      body: 'The moment runs alongside everything else over the same window, under the same conditions. That is why every number here is measured against the account’s own benchmark rather than an industry average — same account, same period, like for like.',
+    },
+    {
+      title: 'We know the numbers before we build',
+      body: 'We hold market data across the categories we operate in, so we know the AOV, CAC and margin an offer has to clear before a dollar goes live. The offer is engineered to hit those numbers — which is why the downside on a moment test stays close to break-even even when it loses.',
+    },
+  ],
+}
 
 // ─── Simplified report inputs → full CaseStudy ───────────────────────────────
 //
@@ -157,6 +184,8 @@ export function buildReportCaseStudy(input: ReportInputs, slug = ''): CaseStudy 
         multiplier: multRound(revPerAdCampaign, revPerAdRest),
       },
     ],
+
+    incrementality: DEFAULT_INCREMENTALITY,
 
     closing: {
       headline: 'Want this for your brand?',

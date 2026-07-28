@@ -168,6 +168,23 @@ export interface ProofImage {
   caption: string
 }
 
+/** One reason the result holds up as incremental. */
+export interface IncrementalityPoint {
+  title: string
+  body: string
+}
+
+/**
+ * The "Is this incremental?" section — our commercial explanation of why the
+ * result is additive rather than reshuffled demand. Same for every report
+ * (it's the methodology, not per-campaign data).
+ */
+export interface Incrementality {
+  question: string
+  answer: string
+  points: IncrementalityPoint[]
+}
+
 /** Campaign-level figures (these are the real, supplied numbers). */
 export interface CampaignFigures {
   revenue: number
@@ -209,6 +226,8 @@ export interface CaseStudy {
   creatives: Creative[]
   creativeBenchmark: CreativeBenchmark
   comparisons: ComparisonBar[]
+  /** Why the result is incremental. Optional — the component falls back to the default. */
+  incrementality?: Incrementality | null
   closing: ClosingCta
   campaign: CampaignFigures
   /** Trailing "+N more" count for the creative carousel (e.g. 40). null → derived. */
