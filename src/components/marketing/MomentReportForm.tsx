@@ -81,6 +81,7 @@ export default function MomentReportForm({
   const [industry, setIndustry] = useState(initial?.industry ?? DEFAULT_INDUSTRY)
   const [lpImages, setLpImages] = useState<UploadedImage[]>(urlToImages(initial?.lpImageUrl ?? null))
   const [moreAdsCount, setMoreAdsCount] = useState<number | null>(initial?.moreAdsCount ?? null)
+  const [proofImages, setProofImages] = useState<UploadedImage[]>(urlToImages(initial?.proofImageUrl ?? null))
   const [closingHref, setClosingHref] = useState(initial?.closingHref ?? '')
   const [creatives, setCreatives] = useState<CreativeRow[]>(
     initial?.creatives.length
@@ -101,6 +102,7 @@ export default function MomentReportForm({
       industry,
       lpImageUrl: lpImages[0]?.url ?? null,
       moreAdsCount,
+      proofImageUrl: proofImages[0]?.url ?? null,
       creatives: creatives.map((r) => ({
         posterUrl: r.images[0]?.url ?? null,
         revenue: r.revenue,
@@ -134,6 +136,14 @@ export default function MomentReportForm({
           <Field label="Rest of account — revenue ($)"><Num value={campaign.restOfAccountRevenue} onChange={(v) => setC('restOfAccountRevenue', v)} placeholder="31971.63" /></Field>
           <Field label="Industry"><Txt value={industry} onChange={setIndustry} placeholder={DEFAULT_INDUSTRY} /></Field>
         </div>
+      </div>
+
+      {/* Ad-account proof screenshot */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+        <SectionTitle hint="Ad-account screenshot (e.g. the Meta Ads Manager totals row). Shown right under the headline stats as proof the numbers are real.">
+          Ad account screenshot
+        </SectionTitle>
+        <ImageUploader value={proofImages} onChange={(imgs) => setProofImages(imgs.slice(-1))} />
       </div>
 
       {/* Landing page image */}

@@ -26,6 +26,8 @@ export interface ReportInputs {
   creatives: CreativeInput[]
   /** Trailing "+N more" count for the creative carousel (e.g. 40). null → derived. */
   moreAdsCount: number | null
+  /** Optional ad-account screenshot URL (proof the figures are real). */
+  proofImageUrl: string | null
   /** Closing CTA destination (optional — blank renders a plain "Message Joy" CTA). */
   closingHref: string | null
 }
@@ -166,6 +168,9 @@ export function buildReportCaseStudy(input: ReportInputs, slug = ''): CaseStudy 
 
     campaign: c,
     moreAdsCount: input.moreAdsCount,
+    proof: input.proofImageUrl
+      ? { src: input.proofImageUrl, caption: 'Straight from the ad account — these are the real numbers.' }
+      : null,
   }
 }
 
@@ -182,6 +187,7 @@ export function caseStudyToInputs(cs: CaseStudy): ReportInputs {
       uniqueOutboundCtr: c.metrics.uniqueOutboundCtr,
     })),
     moreAdsCount: cs.moreAdsCount ?? null,
+    proofImageUrl: cs.proof?.src ?? null,
     closingHref: cs.closing.href,
   }
 }

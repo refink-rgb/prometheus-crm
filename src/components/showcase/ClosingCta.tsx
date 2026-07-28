@@ -27,13 +27,13 @@ export default function ClosingCta({ cta }: { cta: ClosingCtaData }) {
         {/* The guarantee — the actual hook. Large and lime so it reads as the offer. */}
         <p
           style={{
-            fontSize: 'clamp(20px, 3vw, 28px)',
-            fontWeight: 600,
-            lineHeight: 1.35,
-            letterSpacing: '-0.01em',
+            fontSize: 'clamp(26px, 4.4vw, 42px)',
+            fontWeight: 700,
+            lineHeight: 1.25,
+            letterSpacing: '-0.02em',
             color: 'var(--pe-lime)',
-            maxWidth: 720,
-            margin: '0 auto 40px',
+            maxWidth: 860,
+            margin: '0 auto 44px',
           }}
         >
           {cta.body}

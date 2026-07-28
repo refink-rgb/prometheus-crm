@@ -154,6 +154,13 @@ export interface ClosingCta {
   href: string | null
 }
 
+/** Optional credibility screenshot (ad-account export) shown between the stats. */
+export interface ProofImage {
+  /** Uploaded (public) image URL. */
+  src: string
+  caption: string
+}
+
 /** Campaign-level figures (these are the real, supplied numbers). */
 export interface CampaignFigures {
   revenue: number
@@ -199,4 +206,6 @@ export interface CaseStudy {
   campaign: CampaignFigures
   /** Trailing "+N more" count for the creative carousel (e.g. 40). null → derived. */
   moreAdsCount?: number | null
+  /** Optional ad-account screenshot shown between the stat cards and the snapshot. */
+  proof?: ProofImage | null
 }

@@ -7,6 +7,7 @@ import ShowcaseStyles, { PE } from '@/components/showcase/ShowcaseStyles'
 import Hero from '@/components/showcase/Hero'
 import StatStrip from '@/components/showcase/StatStrip'
 import CampaignSnapshot from '@/components/showcase/CampaignSnapshot'
+import ProofShot from '@/components/showcase/ProofShot'
 import Narrative from '@/components/showcase/Narrative'
 import LpShowcase from '@/components/showcase/LpShowcase'
 import CreativeGallery from '@/components/showcase/CreativeGallery'
@@ -117,6 +118,7 @@ export default async function ShowcasePage({
       <main>
         <Hero hero={cs.hero} />
         <StatStrip stats={cs.statStrip} />
+        {cs.proof && <ProofShot proof={cs.proof} />}
         <CampaignSnapshot campaign={cs.campaign} />
         <Narrative sections={cs.narrative} />
         <LpShowcase landing={cs.landing} />
