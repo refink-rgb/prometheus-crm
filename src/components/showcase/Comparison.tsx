@@ -1,6 +1,9 @@
 import type { ComparisonBar } from '@/data/case-studies/types'
 
-function Row({
+const CHART_H = 200 // px available for the tallest column
+const BAR_W = 84
+
+function Column({
   label,
   value,
   max,
@@ -13,37 +16,38 @@ function Row({
   display: string
   highlight: boolean
 }) {
-  const pct = max > 0 ? Math.max(6, (value / max) * 100) : 0
+  const h = max > 0 ? Math.max(12, (value / max) * CHART_H) : 0
   return (
-    <div style={{ marginBottom: 16 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8, gap: 12 }}>
-        <span style={{ fontSize: 13, color: highlight ? 'var(--pe-off)' : 'var(--pe-muted)', fontWeight: highlight ? 600 : 400 }}>
-          {label}
-        </span>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1, minWidth: 0 }}>
+      {/* Bars bottom-align: fixed-height box, content pushed to the bottom */}
+      <div style={{ height: CHART_H + 44, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center' }}>
         <span
           style={{
-            fontSize: highlight ? 26 : 20,
+            fontSize: highlight ? 'clamp(22px, 3vw, 30px)' : 'clamp(18px, 2.4vw, 22px)',
             fontWeight: 600,
             letterSpacing: '-0.02em',
             color: highlight ? 'var(--pe-lime)' : 'var(--pe-muted)',
             fontVariantNumeric: 'tabular-nums',
+            marginBottom: 10,
             lineHeight: 1,
           }}
         >
           {display}
         </span>
-      </div>
-      <div style={{ height: highlight ? 16 : 10, borderRadius: 100, background: 'rgba(255,255,255,0.05)', overflow: 'hidden' }}>
         <div
           style={{
-            width: `${pct}%`,
-            height: '100%',
-            borderRadius: 100,
-            background: highlight ? 'linear-gradient(90deg, var(--pe-teal), var(--pe-lime))' : 'rgba(255,255,255,0.18)',
-            boxShadow: highlight ? '0 0 24px rgba(211,240,95,0.25)' : undefined,
+            width: BAR_W,
+            maxWidth: '70%',
+            height: h,
+            borderRadius: '10px 10px 0 0',
+            background: highlight ? 'linear-gradient(0deg, var(--pe-teal), var(--pe-lime))' : 'rgba(255,255,255,0.14)',
+            boxShadow: highlight ? '0 0 30px rgba(211,240,95,0.28)' : undefined,
           }}
         />
       </div>
+      <span style={{ fontSize: 13, color: highlight ? 'var(--pe-off)' : 'var(--pe-muted)', fontWeight: highlight ? 600 : 400, marginTop: 12, textAlign: 'center' }}>
+        {label}
+      </span>
     </div>
   )
 }
@@ -67,35 +71,46 @@ export default function Comparison({ comparisons }: { comparisons: ComparisonBar
           How far ahead of the account it ran
         </h2>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 20 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 20 }}>
           {comparisons.map((c) => {
             const max = Math.max(c.campaign.value, c.rest.value)
-            // Hero multiple, e.g. "~1.7x" → "1.7×"
             const big = c.multiplier.replace('~', '').replace(/x/i, '×')
             return (
               <div key={c.label} className="pe-card" style={{ padding: 28 }}>
-                <h3 style={{ fontSize: 14, fontWeight: 600, color: 'var(--pe-muted)', margin: '0 0 12px' }}>{c.label}</h3>
-
-                {/* Hero multiple — makes the size of the gap unmistakable */}
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 24 }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 4 }}>
+                  <h3 style={{ fontSize: 14, fontWeight: 600, color: 'var(--pe-muted)', margin: 0, maxWidth: '62%' }}>{c.label}</h3>
+                  {/* Prominent multiple */}
                   <span
                     style={{
-                      fontSize: 'clamp(48px, 9vw, 72px)',
+                      flexShrink: 0,
+                      padding: '8px 16px',
+                      borderRadius: 100,
+                      background: 'var(--pe-lime)',
+                      color: 'var(--pe-navy)',
                       fontWeight: 700,
-                      letterSpacing: '-0.04em',
-                      lineHeight: 0.9,
-                      color: 'var(--pe-lime)',
+                      fontSize: 20,
+                      letterSpacing: '-0.02em',
+                      lineHeight: 1,
                     }}
                   >
-                    {big}
-                  </span>
-                  <span style={{ fontSize: 16, fontWeight: 500, color: 'var(--pe-off)', maxWidth: 120 }}>
-                    higher than the rest of the account
+                    {big} higher
                   </span>
                 </div>
 
-                <Row label={c.campaign.label} value={c.campaign.value} max={max} display={c.campaign.display} highlight />
-                <Row label={c.rest.label} value={c.rest.value} max={max} display={c.rest.display} highlight={false} />
+                {/* Vertical column chart — the height gap makes the difference obvious */}
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'flex-end',
+                    justifyContent: 'center',
+                    gap: 'clamp(24px, 8%, 64px)',
+                    padding: '8px 8px 0',
+                    borderBottom: '1px solid var(--pe-border)',
+                  }}
+                >
+                  <Column label={c.campaign.label} value={c.campaign.value} max={max} display={c.campaign.display} highlight />
+                  <Column label={c.rest.label} value={c.rest.value} max={max} display={c.rest.display} highlight={false} />
+                </div>
               </div>
             )
           })}
