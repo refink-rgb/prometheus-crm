@@ -67,8 +67,20 @@ export async function generateMarketingReport(
     brandName = brand?.name ?? null
   }
 
-  const { randomBytes } = await import('crypto')
-  const token = randomBytes(20).toString('hex')
+  // Reuse this project's existing token so the public URL stays STABLE across
+  // edits — a link already shared in Slack must keep working after a
+  // regenerate. Only mint a token the first time a report is created.
+  const { data: existing } = await supabase
+    .from('marketing_reports')
+    .select('report_token')
+    .eq('project_id', projectId)
+    .maybeSingle()
+
+  let token = existing?.report_token as string | undefined
+  if (!token) {
+    const { randomBytes } = await import('crypto')
+    token = randomBytes(20).toString('hex')
+  }
 
   // Derive the full report from the simplified inputs (creative labels are
   // forced to "Creative NN" inside the builder — original ad names never enter).
@@ -77,8 +89,8 @@ export async function generateMarketingReport(
   // Block the ship if the brand leaked into any TEXT field.
   assertNoBrandLeak(data, brandName)
 
-  // One report per project — regenerating overwrites the row (keeps the token
-  // fresh). onConflict targets the UNIQUE project_id constraint.
+  // One report per project — regenerating overwrites the content but keeps the
+  // token. onConflict targets the UNIQUE project_id constraint.
   const { error } = await supabase.from('marketing_reports').upsert(
     {
       project_id: projectId,
