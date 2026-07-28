@@ -159,9 +159,9 @@ export function buildReportCaseStudy(input: ReportInputs, slug = ''): CaseStudy 
     closing: {
       headline: 'Want this for your brand?',
       body: 'Guaranteed revenue in excess of cost — or you don’t pay.',
-      buttonLabel: 'Message Joy',
-      // Defaults to Joy's Slack DM; a per-report closingHref overrides it.
-      href: input.closingHref || 'https://commonthreadco.slack.com/archives/D0B9FMR0R47',
+      buttonLabel: 'Message Me',
+      // Defaults to the Slack DM; a per-report closingHref overrides it.
+      href: input.closingHref || 'https://commonthreadco.slack.com/archives/D0B9QMM09ED',
     },
 
     campaign: c,
