@@ -161,6 +161,7 @@ export function buildReportCaseStudy(input: ReportInputs, slug = ''): CaseStudy 
     closing: {
       headline: 'Want this for your brand?',
       body: 'Guaranteed revenue in excess of cost — or you don’t pay.',
+      note: 'Every dollar you put into a marketing moment comes back in revenue. If it doesn’t, you don’t pay for the work. That’s the deal.',
       buttonLabel: 'Message Me',
       // Defaults to the Slack DM; a per-report closingHref overrides it.
       href: input.closingHref || 'https://commonthreadco.slack.com/archives/D0B9QMM09ED',

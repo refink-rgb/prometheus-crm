@@ -148,7 +148,14 @@ export interface ComparisonBar {
 
 export interface ClosingCta {
   headline: string
+  /** The guarantee promise, stated in one line. */
   body: string
+  /**
+   * Plain-English restatement of the guarantee, so a reader understands exactly
+   * what is being promised (and what happens if we miss). Optional for older
+   * stored reports — the component falls back to a default.
+   */
+  note?: string | null
   buttonLabel: string
   /** Destination URL. null → button is a non-clickable CTA label (e.g. "Message me"). */
   href: string | null
