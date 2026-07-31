@@ -181,12 +181,12 @@ export default async function FinancialsPage({
   const pausedCount = subscriptions.filter(s => s.status === 'paused').length
 
   return (
-    <div style={{ padding: '28px 32px 40px' }}>
-      <div style={{ marginBottom: 20 }}>
+    <div style={{ padding: 'var(--space-8) var(--space-8) var(--space-10)' }}>
+      <div style={{ marginBottom: 'var(--space-5)' }}>
         <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.02em', marginBottom: 4 }}>
           Financials
         </h1>
-        <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+        <p style={{ fontSize: 'var(--text-base)', color: 'var(--text-muted)' }}>
           {monthLabel(monthKeyOf(today))} · {activeCount} active client{activeCount !== 1 ? 's' : ''}
           {pausedCount > 0 ? ` · ${pausedCount} paused` : ''}
         </p>
@@ -194,10 +194,10 @@ export default async function FinancialsPage({
 
       {migrationMissing && (
         <div style={{
-          padding: '14px 18px', marginBottom: 24, borderRadius: 10,
+          padding: 'var(--space-4) var(--space-5)', marginBottom: 'var(--space-6)', borderRadius: 10,
           background: 'color-mix(in srgb, var(--warning) 10%, var(--surface-1))',
           border: '1px solid color-mix(in srgb, var(--warning) 35%, var(--border))',
-          fontSize: 13, color: 'var(--text-primary)', lineHeight: 1.6,
+          fontSize: 'var(--text-base)', color: 'var(--text-primary)', lineHeight: 1.6,
         }}>
           <strong>Billing tables not found.</strong> Run{' '}
           <code>supabase/migrations/20260731_add_billing.sql</code> in the Supabase SQL editor,
@@ -207,7 +207,10 @@ export default async function FinancialsPage({
       )}
 
       {/* KPI strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 28 }}>
+      <div style={{
+        display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+        gap: 'var(--space-3)', marginBottom: 'var(--space-8)',
+      }}>
         <FinKPI
           label="Monthly Recurring Revenue"
           value={formatCents(mrrCents)}
@@ -234,9 +237,12 @@ export default async function FinancialsPage({
 
       {/* Month billing control */}
       <section style={{ marginBottom: 36 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, gap: 12 }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          marginBottom: 'var(--space-4)', gap: 'var(--space-3)',
+        }}>
           <h2 style={{
-            fontSize: 12, fontWeight: 700, color: 'var(--text-muted)',
+            fontSize: 'var(--text-sm)', fontWeight: 700, color: 'var(--text-muted)',
             letterSpacing: '0.08em', textTransform: 'uppercase', margin: 0,
           }}>
             Payments — {monthLabel(activeMonth)}
@@ -259,11 +265,11 @@ export default async function FinancialsPage({
 
       {/* BD Pipeline Value */}
       <section>
-        <h2 style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 14 }}>
+        <h2 style={{ fontSize: 'var(--text-sm)', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 'var(--space-4)' }}>
           BD Pipeline Value
         </h2>
         <div style={{ background: 'var(--surface-1)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 100px 160px', gap: 16, padding: '10px 20px', borderBottom: '1px solid var(--border)', background: 'var(--surface-raised)' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 100px 160px', gap: 'var(--space-4)', padding: 'var(--space-2) var(--space-5)', borderBottom: '1px solid var(--border)', background: 'var(--surface-raised)' }}>
             {['Stage', 'Brands', 'Potential MRR'].map(col => (
               <span key={col} style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>{col}</span>
             ))}
@@ -271,21 +277,21 @@ export default async function FinancialsPage({
           {bdStages.map((s, i) => {
             const color = BD_COLORS[s.status]
             return (
-              <div key={s.status} style={{
+              <div key={s.status} className="pipeline-row" style={{
                 display: 'grid',
                 gridTemplateColumns: '1fr 100px 160px',
-                gap: 16,
-                padding: '12px 20px',
+                gap: 'var(--space-4)',
+                padding: 'var(--space-3) var(--space-5)',
                 borderBottom: i < bdStages.length - 1 ? '1px solid var(--border)' : 'none',
                 alignItems: 'center',
               }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color, letterSpacing: '0.04em' }}>
+                <span style={{ fontSize: 'var(--text-sm)', fontWeight: 700, color, letterSpacing: '0.04em' }}>
                   {PIPELINE_STATUS_LABELS[s.status]}
                 </span>
-                <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
+                <span style={{ fontSize: 'var(--text-base)', fontWeight: 600, color: 'var(--text-primary)' }}>
                   {s.brands.length}
                 </span>
-                <span style={{ fontSize: 14, fontWeight: 700, color: s.potentialMRR > 0 ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                <span style={{ fontSize: 'var(--text-base)', fontWeight: 700, color: s.potentialMRR > 0 ? 'var(--text-primary)' : 'var(--text-muted)' }}>
                   {'$' + s.potentialMRR.toLocaleString('en-US')}
                 </span>
               </div>
@@ -302,13 +308,8 @@ function MonthNavLink({ month, label, title }: { month: string; label: string; t
     <Link
       href={`/financials?month=${month}`}
       title={title}
-      style={{
-        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-        minWidth: 30, height: 28, padding: '0 10px', borderRadius: 7,
-        border: '1px solid var(--border)', background: 'var(--surface-1)',
-        color: 'var(--text-secondary)', fontSize: 13, fontWeight: 600,
-        textDecoration: 'none', lineHeight: 1,
-      }}
+      className="btn-secondary btn-sm"
+      style={{ minWidth: 32, justifyContent: 'center' }}
     >
       {label}
     </Link>
@@ -331,15 +332,21 @@ function FinKPI({
   const border = accentVar ? `color-mix(in srgb, ${accentVar} 30%, var(--border))` : 'var(--border)'
   const color = accentVar ?? 'var(--text-primary)'
   return (
-    <div style={{ background: bg, border: `1px solid ${border}`, borderRadius: 10, padding: '16px 20px' }}>
-      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>
+    <div style={{
+      background: bg, border: `1px solid ${border}`, borderRadius: 10,
+      padding: 'var(--space-4) var(--space-5)',
+    }}>
+      <div style={{
+        fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-muted)',
+        textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 'var(--space-2)',
+      }}>
         {label}
       </div>
       <div style={{ fontSize: 24, fontWeight: 800, color, letterSpacing: '-0.02em', lineHeight: 1.15 }}>
         {value}
       </div>
       {sub && (
-        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>{sub}</div>
+        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: 6 }}>{sub}</div>
       )}
     </div>
   )

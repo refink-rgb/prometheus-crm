@@ -8,6 +8,10 @@
 // history. Deleting erases the schedule and its payments outright, and is only
 // for a schedule created in error. The confirm copy spells out the difference,
 // because picking the wrong one is not something you notice until month-end.
+//
+// Editing happens INLINE (an input in the row, a pause panel under it) rather
+// than through window.prompt — prompts blocked the tab, couldn't be styled,
+// and made setting a pause window a two-dialog interrogation.
 
 import { memo, useCallback, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
@@ -15,7 +19,8 @@ import { useToast } from '@/components/Toast'
 import { useConfirm } from '@/components/ConfirmDialog'
 import {
   formatCents,
-  SUBSCRIPTION_STATUS_COLOR,
+  parseMoneyToCents,
+  SUBSCRIPTION_STATUS_BADGE,
   SUBSCRIPTION_STATUS_LABEL,
   type SubscriptionStatus,
 } from '@/lib/billing'
@@ -43,17 +48,24 @@ export type ScheduleRow = {
   unpaidCount: number
 }
 
-const GRID = '1fr 100px 110px 120px 120px 150px'
+const GRID = '1fr 90px 100px 110px 110px 90px 150px'
+
+// Which inline editor, if any, a row currently has open.
+type RowMode = null | 'amount' | 'pause'
 
 export default function ScheduleManager({ rows, today }: { rows: ScheduleRow[]; today: string }) {
   const router = useRouter()
   const toast = useToast()
   const confirm = useConfirm()
-  const [, startTransition] = useTransition()
+  const [isPending, startTransition] = useTransition()
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [openRow, setOpenRow] = useState<{ id: string; mode: RowMode }>({ id: '', mode: null })
+
+  const closeEditor = useCallback(() => setOpenRow({ id: '', mode: null }), [])
 
   const run = useCallback((id: string, label: string, fn: () => Promise<unknown>) => {
     setBusyId(id)
+    closeEditor()
     startTransition(async () => {
       try {
         await fn()
@@ -65,20 +77,17 @@ export default function ScheduleManager({ rows, today }: { rows: ScheduleRow[]; 
         setBusyId(null)
       }
     })
-  }, [router, toast, startTransition])
+  }, [router, toast, startTransition, closeEditor])
 
-  const onPause = useCallback(async (row: ScheduleRow) => {
-    const from = window.prompt(
-      `Pause ${row.brandName}'s billing starting when? (YYYY-MM-DD)\n\nInvoices due on or after this date stop generating. Payments already recorded are kept.`,
-      today,
-    )
-    if (!from) return
-    const until = window.prompt(
-      `Resume on? (YYYY-MM-DD)\n\nLeave blank for an open-ended pause you'll lift by hand.`,
-      '',
-    )
-    run(row.id, `${row.brandName} billing paused.`, () => pauseSubscription(row.id, from.trim(), until?.trim() || null))
-  }, [run, today])
+  const onSaveAmount = useCallback((row: ScheduleRow, raw: string) => {
+    closeEditor()
+    if (parseMoneyToCents(raw) === row.amountCents) return
+    run(row.id, `${row.brandName} retainer updated.`, () => updateSubscriptionAmount(row.id, raw))
+  }, [run, closeEditor])
+
+  const onSavePause = useCallback((row: ScheduleRow, from: string, until: string) => {
+    run(row.id, `${row.brandName} billing paused.`, () => pauseSubscription(row.id, from, until || null))
+  }, [run])
 
   const onResume = useCallback((row: ScheduleRow) => {
     run(row.id, `${row.brandName} billing resumed.`, () => resumeSubscription(row.id))
@@ -106,15 +115,6 @@ export default function ScheduleManager({ rows, today }: { rows: ScheduleRow[]; 
     run(row.id, `${row.brandName} billing schedule deleted.`, () => deleteSubscription(row.id))
   }, [confirm, run])
 
-  const onEditAmount = useCallback((row: ScheduleRow) => {
-    const raw = window.prompt(
-      `Monthly retainer for ${row.brandName}.\n\nApplies to future invoices only — already-issued months keep what they were billed.`,
-      String(row.amountCents / 100),
-    )
-    if (raw === null) return
-    run(row.id, `${row.brandName} retainer updated.`, () => updateSubscriptionAmount(row.id, raw))
-  }, [run])
-
   const onSync = useCallback(() => {
     run('__sync__', 'Billing schedule synced.', async () => {
       const result = await syncAllBillingPeriods()
@@ -124,45 +124,40 @@ export default function ScheduleManager({ rows, today }: { rows: ScheduleRow[]; 
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, gap: 12 }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        marginBottom: 'var(--space-4)', gap: 'var(--space-3)',
+      }}>
         <h2 style={{
-          fontSize: 12, fontWeight: 700, color: 'var(--text-muted)',
+          fontSize: 'var(--text-sm)', fontWeight: 700, color: 'var(--text-muted)',
           letterSpacing: '0.08em', textTransform: 'uppercase', margin: 0,
         }}>
           Billing Schedules
         </h2>
         <button
           type="button"
+          className="btn-secondary btn-sm"
           onClick={onSync}
           disabled={busyId === '__sync__'}
           title="Materialize any missing invoices through the end of next month. The nightly cron does this automatically."
-          style={{
-            fontSize: 12, fontWeight: 600, padding: '6px 12px', borderRadius: 7,
-            border: '1px solid var(--border)', background: 'var(--surface-1)',
-            color: 'var(--text-secondary)', cursor: busyId === '__sync__' ? 'default' : 'pointer',
-            opacity: busyId === '__sync__' ? 0.6 : 1,
-          }}
         >
           {busyId === '__sync__' ? 'Syncing…' : 'Sync invoices'}
         </button>
       </div>
 
       {rows.length === 0 ? (
-        <div style={{
-          padding: 24, background: 'var(--surface-1)', border: '1px solid var(--border)',
-          borderRadius: 12, color: 'var(--text-muted)', fontSize: 14, textAlign: 'center',
-        }}>
+        <div className="card" style={{ color: 'var(--text-muted)', fontSize: 'var(--text-base)', textAlign: 'center' }}>
           No billing schedules yet — run <code>supabase/seed_billing.sql</code> to load the signed-contract sheet.
         </div>
       ) : (
         <div style={{ background: 'var(--surface-1)', border: '1px solid var(--border)', borderRadius: 12 }}>
           <div style={{
-            display: 'grid', gridTemplateColumns: GRID, gap: 12, padding: '10px 20px',
-            borderBottom: '1px solid var(--border)', background: 'var(--surface-raised)',
-            borderTopLeftRadius: 12, borderTopRightRadius: 12,
+            display: 'grid', gridTemplateColumns: GRID, gap: 'var(--space-3)',
+            padding: 'var(--space-2) var(--space-5)', borderBottom: '1px solid var(--border)',
+            background: 'var(--surface-raised)', borderTopLeftRadius: 12, borderTopRightRadius: 12,
           }}>
-            {['Client', 'Retainer', 'Started', 'Collected', 'Outstanding', 'Status'].map(col => (
-              <span key={col} style={{
+            {['Client', 'Retainer', 'Started', 'Collected', 'Outstanding', 'Status', ''].map((col, i) => (
+              <span key={i} style={{
                 fontSize: 10, fontWeight: 600, color: 'var(--text-muted)',
                 textTransform: 'uppercase', letterSpacing: '0.07em',
               }}>{col}</span>
@@ -173,13 +168,17 @@ export default function ScheduleManager({ rows, today }: { rows: ScheduleRow[]; 
             <ScheduleRowItem
               key={row.id}
               row={row}
+              today={today}
               isLast={i === rows.length - 1}
-              busy={busyId === row.id}
-              onPause={onPause}
+              busy={busyId === row.id && isPending}
+              mode={openRow.id === row.id ? openRow.mode : null}
+              onOpen={(mode) => setOpenRow({ id: row.id, mode })}
+              onClose={closeEditor}
+              onSaveAmount={onSaveAmount}
+              onSavePause={onSavePause}
               onResume={onResume}
               onEnd={onEnd}
               onDelete={onDelete}
-              onEditAmount={onEditAmount}
             />
           ))}
         </div>
@@ -189,82 +188,138 @@ export default function ScheduleManager({ rows, today }: { rows: ScheduleRow[]; 
 }
 
 const ScheduleRowItem = memo(function ScheduleRowItem({
-  row, isLast, busy, onPause, onResume, onEnd, onDelete, onEditAmount,
+  row, today, isLast, busy, mode, onOpen, onClose,
+  onSaveAmount, onSavePause, onResume, onEnd, onDelete,
 }: {
   row: ScheduleRow
+  today: string
   isLast: boolean
   busy: boolean
-  onPause: (row: ScheduleRow) => void
+  mode: RowMode
+  onOpen: (mode: RowMode) => void
+  onClose: () => void
+  onSaveAmount: (row: ScheduleRow, raw: string) => void
+  onSavePause: (row: ScheduleRow, from: string, until: string) => void
   onResume: (row: ScheduleRow) => void
   onEnd: (row: ScheduleRow) => void
   onDelete: (row: ScheduleRow) => void
-  onEditAmount: (row: ScheduleRow) => void
 }) {
-  const color = SUBSCRIPTION_STATUS_COLOR[row.status]
-  const [hovered, setHovered] = useState(false)
+  const [pauseFrom, setPauseFrom] = useState(today)
+  const [pauseUntil, setPauseUntil] = useState('')
 
   return (
-    <div
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        borderBottom: isLast ? 'none' : '1px solid var(--border)',
-        opacity: busy ? 0.5 : row.status === 'cancelled' ? 0.62 : 1,
-        transition: 'opacity 120ms ease',
-      }}
-    >
-      <div style={{
-        display: 'grid', gridTemplateColumns: GRID, gap: 12,
-        padding: '11px 20px', alignItems: 'center',
+    <div style={{
+      borderBottom: isLast ? 'none' : '1px solid var(--border)',
+      opacity: busy ? 0.5 : row.status === 'cancelled' ? 0.62 : 1,
+      transition: 'opacity 0.12s ease',
+    }}>
+      <div className="pipeline-row" style={{
+        display: 'grid', gridTemplateColumns: GRID, gap: 'var(--space-3)',
+        padding: 'var(--space-3) var(--space-5)', alignItems: 'center',
       }}>
         <span style={{
-          fontSize: 14, fontWeight: 600, color: 'var(--text-primary)',
+          fontSize: 'var(--text-base)', fontWeight: 600, color: 'var(--text-primary)',
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
         }}>
           {row.brandName}
         </span>
-        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
-          {formatCents(row.amountCents)}
-        </span>
-        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{row.startDate}</span>
-        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--success)' }}>
+
+        {mode === 'amount' ? (
+          <input
+            type="text"
+            autoFocus
+            defaultValue={String(row.amountCents / 100)}
+            aria-label={`Monthly retainer for ${row.brandName}`}
+            onBlur={e => onSaveAmount(row, e.currentTarget.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') e.currentTarget.blur()
+              if (e.key === 'Escape') { e.currentTarget.value = String(row.amountCents / 100); e.currentTarget.blur() }
+            }}
+            style={{ width: '100%', padding: '4px 8px', fontSize: 'var(--text-base)' }}
+          />
+        ) : (
+          <span style={{ fontSize: 'var(--text-base)', fontWeight: 700, color: 'var(--text-primary)' }}>
+            {formatCents(row.amountCents)}
+          </span>
+        )}
+
+        <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>{row.startDate}</span>
+        <span style={{ fontSize: 'var(--text-base)', fontWeight: 600, color: 'var(--success)' }}>
           {formatCents(row.collectedCents)}
         </span>
         <span style={{
-          fontSize: 13, fontWeight: 600,
+          fontSize: 'var(--text-base)', fontWeight: 600,
           color: row.outstandingCents > 0 ? 'var(--danger)' : 'var(--text-muted)',
         }}>
           {row.outstandingCents > 0 ? formatCents(row.outstandingCents) : '—'}
         </span>
-        <span style={{
-          fontSize: 11, fontWeight: 600, color,
-          background: `color-mix(in srgb, ${color} 14%, transparent)`,
-          border: `1px solid color-mix(in srgb, ${color} 30%, transparent)`,
-          padding: '2px 10px', borderRadius: 20, width: 'fit-content',
-        }}>
+        <span className={SUBSCRIPTION_STATUS_BADGE[row.status]} style={{ width: 'fit-content' }}>
           {SUBSCRIPTION_STATUS_LABEL[row.status]}
-          {row.status === 'paused' && row.pausedUntil ? ` → ${row.pausedUntil}` : ''}
         </span>
+
+        {/* Hidden until the row is hovered or focused — see .row-actions. */}
+        <div className="row-actions" style={{ display: 'flex', gap: 4, justifySelf: 'end' }}>
+          <RowAction label="Edit" title="Change the monthly retainer" onClick={() => onOpen('amount')} disabled={busy} />
+          {row.status === 'active'
+            ? <RowAction label="Pause" onClick={() => onOpen('pause')} disabled={busy} />
+            : <RowAction label="Resume" onClick={() => onResume(row)} disabled={busy} />}
+          {row.status !== 'cancelled' && <RowAction label="End" title="Churn — stops future billing, keeps history" onClick={() => onEnd(row)} disabled={busy} />}
+          <RowAction label="Delete" onClick={() => onDelete(row)} disabled={busy} danger />
+        </div>
       </div>
 
-      {/* Actions reveal on hover; always rendered so keyboard users can tab in. */}
-      <div style={{
-        display: 'flex', gap: 6, padding: hovered ? '0 20px 11px' : '0 20px',
-        maxHeight: hovered ? 40 : 0, overflow: 'hidden',
-        transition: 'max-height 140ms ease, padding 140ms ease',
-      }}>
-        <RowAction label="Edit retainer" onClick={() => onEditAmount(row)} disabled={busy} />
-        {row.status === 'active' && <RowAction label="Pause" onClick={() => onPause(row)} disabled={busy} />}
-        {row.status !== 'active' && <RowAction label="Resume" onClick={() => onResume(row)} disabled={busy} />}
-        {row.status !== 'cancelled' && <RowAction label="End (churn)" onClick={() => onEnd(row)} disabled={busy} />}
-        <RowAction label="Delete" onClick={() => onDelete(row)} disabled={busy} danger />
-      </div>
+      {/* Pause window editor, inline under its row. */}
+      {mode === 'pause' && (
+        <div style={{
+          display: 'flex', alignItems: 'flex-end', gap: 'var(--space-3)', flexWrap: 'wrap',
+          padding: 'var(--space-3) var(--space-5) var(--space-4)',
+          background: 'var(--surface-raised)', borderTop: '1px solid var(--border)',
+        }}>
+          <div>
+            <label htmlFor={`pause-from-${row.id}`}>Pause from</label>
+            <input
+              id={`pause-from-${row.id}`}
+              type="date"
+              value={pauseFrom}
+              onChange={e => setPauseFrom(e.target.value)}
+              style={{ width: 165, padding: '6px 10px', fontSize: 'var(--text-base)' }}
+            />
+          </div>
+          <div>
+            <label htmlFor={`pause-until-${row.id}`}>Resume on (optional)</label>
+            <input
+              id={`pause-until-${row.id}`}
+              type="date"
+              value={pauseUntil}
+              onChange={e => setPauseUntil(e.target.value)}
+              style={{ width: 165, padding: '6px 10px', fontSize: 'var(--text-base)' }}
+            />
+          </div>
+          <button
+            type="button"
+            className="btn-accent-outline btn-sm"
+            onClick={() => onSavePause(row, pauseFrom, pauseUntil)}
+            disabled={!pauseFrom}
+          >
+            Pause billing
+          </button>
+          <button type="button" className="btn-secondary btn-sm" onClick={onClose}>Cancel</button>
+          <p style={{
+            fontSize: 'var(--text-sm)', color: 'var(--text-muted)',
+            margin: 0, flexBasis: '100%', lineHeight: 1.5,
+          }}>
+            Invoices due inside this window stop generating. Payments already recorded are kept.
+            Leave the resume date blank for an open-ended pause you&apos;ll lift by hand.
+          </p>
+        </div>
+      )}
     </div>
   )
 })
 
-function RowAction({ label, onClick, disabled, danger }: {
+function RowAction({ label, title, onClick, disabled, danger }: {
   label: string
+  title?: string
   onClick: () => void
   disabled?: boolean
   danger?: boolean
@@ -274,14 +329,9 @@ function RowAction({ label, onClick, disabled, danger }: {
       type="button"
       onClick={onClick}
       disabled={disabled}
-      style={{
-        fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 6,
-        border: `1px solid ${danger ? 'color-mix(in srgb, var(--danger) 35%, transparent)' : 'var(--border)'}`,
-        background: 'var(--surface-raised)',
-        color: danger ? 'var(--danger)' : 'var(--text-secondary)',
-        cursor: disabled ? 'default' : 'pointer',
-        whiteSpace: 'nowrap',
-      }}
+      title={title}
+      className={danger ? 'btn-danger btn-sm' : 'btn-secondary btn-sm'}
+      style={{ padding: '3px 9px', fontSize: 'var(--text-xs)', whiteSpace: 'nowrap' }}
     >
       {label}
     </button>

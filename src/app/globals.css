@@ -365,6 +365,45 @@ label {
 .badge-live            { background: rgba(20,184,166,0.12); color: #14b8a6; border: 1px solid rgba(20,184,166,0.25); }
 .badge-complete { background: rgba(34,197,94,0.15); color: var(--success); border: 1px solid rgba(34,197,94,0.3); }
 
+/* Billing states (/financials). Same shape as the stage badges above so an
+   invoice row reads like a pipeline row. paid/overdue reuse the success and
+   danger ramps; waived and void are deliberately colourless — they're settled,
+   not outcomes. */
+.badge-paid     { background: rgba(34,197,94,0.12);  color: var(--success); border: 1px solid rgba(34,197,94,0.25); }
+.badge-due      { background: rgba(234,179,8,0.12);  color: var(--warning); border: 1px solid rgba(234,179,8,0.25); }
+.badge-overdue  { background: rgba(239,68,68,0.12);  color: var(--danger);  border: 1px solid rgba(239,68,68,0.25); }
+.badge-upcoming { background: rgba(85,85,85,0.2);    color: var(--text-muted); border: 1px solid rgba(85,85,85,0.3); }
+.badge-waived   { background: rgba(85,85,85,0.2);    color: var(--text-muted); border: 1px solid rgba(85,85,85,0.3); }
+.badge-void     { background: rgba(85,85,85,0.2);    color: var(--text-muted); border: 1px solid rgba(85,85,85,0.3); }
+.badge-active   { background: rgba(34,197,94,0.12);  color: var(--success); border: 1px solid rgba(34,197,94,0.25); }
+.badge-paused   { background: rgba(234,179,8,0.12);  color: var(--warning); border: 1px solid rgba(234,179,8,0.25); }
+.badge-ended    { background: rgba(85,85,85,0.2);    color: var(--text-muted); border: 1px solid rgba(85,85,85,0.3); }
+
+/* Payment check-off box. Sized to the row, not a full button — the whole point
+   is that marking an invoice paid is one small click. */
+.billing-check {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 6px;
+  border: 1.5px solid var(--border-strong);
+  background: transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+.billing-check:hover:not(:disabled) { border-color: var(--success); }
+.billing-check[data-paid='true'] { background: var(--success); border-color: var(--success); }
+.billing-check:disabled { cursor: default; opacity: 0.5; }
+
+/* Row action cluster — revealed on row hover, but always present for keyboard
+   users (opacity, not display, so tab order and focus still work). */
+.row-actions { opacity: 0; transition: opacity 0.12s ease; }
+.pipeline-row:hover .row-actions,
+.row-actions:focus-within { opacity: 1; }
+
 /* Kanban card hover lift + entry animation */
 @keyframes cardEnter {
   from { opacity: 0; transform: translateY(5px); }

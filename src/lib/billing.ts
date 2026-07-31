@@ -220,13 +220,15 @@ export const PERIOD_STATE_LABEL: Record<PeriodState, string> = {
   upcoming: 'Upcoming',
 }
 
-export const PERIOD_STATE_COLOR: Record<PeriodState, string> = {
-  paid: 'var(--success)',
-  waived: 'var(--text-muted)',
-  void: 'var(--text-muted)',
-  overdue: 'var(--danger)',
-  due: 'var(--warning)',
-  upcoming: 'var(--text-muted)',
+// Badge classes from globals.css — same `.badge .badge-*` shape the stage
+// pills use, so an invoice row reads like a pipeline row.
+export const PERIOD_STATE_BADGE: Record<PeriodState, string> = {
+  paid: 'badge badge-paid',
+  waived: 'badge badge-waived',
+  void: 'badge badge-void',
+  overdue: 'badge badge-overdue',
+  due: 'badge badge-due',
+  upcoming: 'badge badge-upcoming',
 }
 
 // Counts toward money actually in the bank.
@@ -246,8 +248,8 @@ export const SUBSCRIPTION_STATUS_LABEL: Record<SubscriptionStatus, string> = {
   cancelled: 'Ended',
 }
 
-export const SUBSCRIPTION_STATUS_COLOR: Record<SubscriptionStatus, string> = {
-  active: 'var(--success)',
-  paused: 'var(--warning)',
-  cancelled: 'var(--text-muted)',
+export const SUBSCRIPTION_STATUS_BADGE: Record<SubscriptionStatus, string> = {
+  active: 'badge badge-active',
+  paused: 'badge badge-paused',
+  cancelled: 'badge badge-ended',
 }
