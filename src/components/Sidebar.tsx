@@ -78,6 +78,15 @@ const TimelineIcon = (
   </svg>
 )
 
+const CapacityIcon = (
+  <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M4 20V10" />
+    <path d="M10 20V4" />
+    <path d="M16 20v-7" />
+    <line x1="2" y1="20" x2="22" y2="20" strokeWidth="1.4" opacity="0.7" />
+  </svg>
+)
+
 const BrandsIcon = (
   <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
     <path d="M3 21V7a2 2 0 012-2h6a2 2 0 012 2v14" />
@@ -155,6 +164,12 @@ export default function Sidebar({ email, showFinancials, capacity = null }: Side
       label: 'Timeline',
       matches: (p) => p.startsWith('/timeline'),
       icon: TimelineIcon,
+    },
+    {
+      href: '/capacity',
+      label: 'Capacity Report',
+      matches: (p) => p.startsWith('/capacity'),
+      icon: CapacityIcon,
     },
     {
       href: '/brands',

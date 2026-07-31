@@ -458,3 +458,86 @@ export interface BillingPeriod {
   marked_at: string | null
   created_at: string
 }
+
+// --- Friday Capacity Report --------------------------------------------------
+// Row shapes + the question definitions (migration
+// 20260731_add_capacity_reports.sql). The form asks only what pipeline_events
+// can't answer: effort vs elapsed, and WHY something slipped.
+
+export interface CapacityReport {
+  id: string
+  profile_id: string
+  week_start: string
+  load_rating: number | null
+  sustainable_moments: number | null
+  at_risk_next_week: string | null
+  briefs_ready: 'yes' | 'mostly' | 'no' | null
+  briefs_ready_detail: string | null
+  biggest_blocker: string | null
+  improvement: string | null
+  rotating_key: string | null
+  rotating_answer: string | null
+  submitted_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CapacityReportEntry {
+  id: string
+  report_id: string
+  project_id: string | null
+  project_label: string
+  track: 'lp' | 'creative'
+  focused_hours: number | null
+  slip_cause: string | null
+}
+
+// Fixed picklist, never free text — the point is cross-tabbing self-reported
+// cause against the event log's attribution_by_stage in /insights. 'on_track'
+// exists so every row is answerable, not just the ones that went wrong.
+export const CAPACITY_SLIP_CAUSES: ReadonlyArray<{ value: string; label: string }> = [
+  { value: 'on_track',              label: 'Nothing — on track' },
+  { value: 'brief_unclear',         label: 'Brief was incomplete or unclear' },
+  { value: 'waiting_client_feedback', label: 'Waiting on client feedback' },
+  { value: 'waiting_client_assets', label: 'Waiting on assets / product info from client' },
+  { value: 'offer_changed',         label: 'Offer changed after approval' },
+  { value: 'stuck_internal_review', label: 'Stuck in internal review' },
+  { value: 'revision_round',        label: 'Revision round' },
+  { value: 'competing_priority',    label: 'Competing priority / pulled onto something else' },
+  { value: 'tooling_friction',      label: 'Tooling, access, or handoff friction' },
+  { value: 'scope_underestimated',  label: 'Scope was bigger than it looked' },
+  { value: 'time_off',              label: 'Time off / personal' },
+  { value: 'other',                 label: 'Other' },
+]
+
+export const CAPACITY_SLIP_CAUSE_LABELS: Record<string, string> =
+  Object.fromEntries(CAPACITY_SLIP_CAUSES.map(c => [c.value, c.label]))
+
+export const CAPACITY_BRIEFS_READY: ReadonlyArray<{ value: 'yes' | 'mostly' | 'no'; label: string }> = [
+  { value: 'yes',    label: 'Yes — every card was ready to start' },
+  { value: 'mostly', label: 'Mostly — one or two had gaps' },
+  { value: 'no',     label: 'No — I had to chase information' },
+]
+
+// One question per month so the weekly form stays under five minutes. Asked in
+// rotation; the answer stores its key so old answers keep their question.
+export const CAPACITY_ROTATING_QUESTIONS: ReadonlyArray<{ key: string; question: string }> = [
+  { key: 'hardest_brand',   question: 'Which brand is hardest to work on right now, and what specifically makes it hard?' },
+  { key: 'offer_timing',    question: 'Is the offer approved early enough for you to do good production work?' },
+  { key: 'handoff_friction', question: 'Which part of the LP / Creatives split creates the most handoff friction?' },
+]
+
+// Rotates by calendar month so everyone gets the same question in a given week.
+export function rotatingQuestionFor(weekStart: string): { key: string; question: string } {
+  const month = Number(weekStart.slice(5, 7)) - 1
+  const year = Number(weekStart.slice(0, 4))
+  return CAPACITY_ROTATING_QUESTIONS[(year * 12 + month) % CAPACITY_ROTATING_QUESTIONS.length]
+}
+
+// 'Week of Mon 28 Jul' — the form header and the team roll-up both use it.
+export function capacityWeekLabel(weekStart: string): string {
+  const d = new Date(`${weekStart}T00:00:00Z`)
+  return 'Week of ' + new Intl.DateTimeFormat('en-US', {
+    weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC',
+  }).format(d)
+}

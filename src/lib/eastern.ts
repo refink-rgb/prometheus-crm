@@ -36,3 +36,18 @@ export function followingMonthStart(iso: string): string {
   const next = month === 12 ? { y: year + 1, m: 1 } : { y: year, m: month + 1 }
   return `${next.y}-${String(next.m).padStart(2, '0')}-01`
 }
+
+// Monday of the week containing `iso` (YYYY-MM-DD), as YYYY-MM-DD. Weeks run
+// Mon–Sun, matching the Timeline view's rolling week. Pure date math on a UTC
+// midnight so DST can never shift which day it lands on.
+export function mondayOf(iso: string): string {
+  const ms = Date.parse(`${iso}T00:00:00Z`)
+  const dow = new Date(ms).getUTCDay() // 0 = Sunday
+  const backToMonday = dow === 0 ? 6 : dow - 1
+  return new Date(ms - backToMonday * 86_400_000).toISOString().slice(0, 10)
+}
+
+// Monday of the current Eastern week — what the Friday capacity report keys on.
+export function currentWeekStart(): string {
+  return mondayOf(easternToday())
+}
