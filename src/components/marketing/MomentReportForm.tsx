@@ -276,6 +276,12 @@ export default function MomentReportForm({
         <Area value={d.methodology ?? ''} onChange={(v) => set({ methodology: v })} rows={4} placeholder="Campaign figures reflect Meta’s default attribution across the N ads in the moment…" />
       </div>
       <div style={col}>
+        <SectionTitle hint="What gets posted to Slack. The report link is appended automatically.">
+          Slack post
+        </SectionTitle>
+        <Area value={d.slackPost ?? ''} onChange={(v) => set({ slackPost: v })} rows={12} placeholder={'One offer test. $56.4K in new revenue.\n\nA men’s grooming brand came to us already hitting goal…'} />
+      </div>
+      <div style={col}>
         <SectionTitle>Closing CTA destination</SectionTitle>
         <div style={grid2}>
           <Field label="Button destination URL (blank = Slack DM)"><Txt value={d.closingHref ?? ''} onChange={(v) => set({ closingHref: v || null })} placeholder="https://…" /></Field>

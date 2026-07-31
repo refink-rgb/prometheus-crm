@@ -257,6 +257,13 @@ export interface CaseStudy {
    */
   methodology?: string | null
   /**
+   * The written Slack announcement for this report. Authored per case study so
+   * it reads like the approved post (hook, context, problem, what we built,
+   * bullet metrics, payoff) rather than a metric dump. The URL is appended when
+   * the message is assembled, never stored here.
+   */
+  slackPost?: string | null
+  /**
    * Raw campaign figures. Optional now that snapshot tiles and stat cards are
    * authored directly — kept for older reports and the derived-tiles fallback.
    */

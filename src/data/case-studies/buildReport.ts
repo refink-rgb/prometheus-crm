@@ -74,6 +74,8 @@ export interface ReportInputs {
   comparisons: ComparisonBar[]
   /** Where the figures come from. Rendered as a footnote. */
   methodology: string | null
+  /** The written Slack announcement. The report URL is appended at send time. */
+  slackPost: string | null
   lpImageUrl: string | null
   proofImageUrl: string | null
   creatives: CreativeInput[]
@@ -188,6 +190,7 @@ export function emptyInputs(focus: FocusKey = 'conversion'): ReportInputs {
     ...slots,
     narrative: emptyNarrative(),
     methodology: '',
+    slackPost: '',
     lpImageUrl: null,
     proofImageUrl: null,
     creatives: [{ posterUrl: null, revenue: null, roas: null, uniqueOutboundCtr: null }],
@@ -257,6 +260,7 @@ export function buildReportCaseStudy(input: ReportInputs, slug = ''): CaseStudy 
     comparisons: input.comparisons,
     incrementality: DEFAULT_INCREMENTALITY,
     methodology: input.methodology || null,
+    slackPost: input.slackPost || null,
 
     closing: {
       headline: 'Want this for your brand?',
@@ -303,6 +307,7 @@ export function caseStudyToInputs(cs: CaseStudy): ReportInputs {
     narrative: cs.narrative,
     comparisons: cs.comparisons.map((c) => ({ ...c, note: c.note ?? '' })),
     methodology: cs.methodology ?? '',
+    slackPost: cs.slackPost ?? '',
     lpImageUrl: cs.landing.image.src,
     proofImageUrl: cs.proof?.src ?? null,
     creatives: cs.creatives.map((c) => ({

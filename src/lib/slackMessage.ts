@@ -1,27 +1,33 @@
 import type { CaseStudy } from '@/data/case-studies/types'
 
-// Formats a generated report into a ready-to-paste Slack newsletter message.
-// Pure function (usable client- or server-side) — the caller supplies the full
-// public URL so this stays origin-agnostic. Anonymized by construction: it only
-// reads the already-anonymized CaseStudy payload (no brand name lives there).
+// Assemble the Slack announcement. The post itself is written per case study
+// (authored on import, editable in the form) so it reads like the approved
+// example: a hook, the context, the problem, what we built, bullet metrics,
+// then a payoff line. The URL is appended here rather than stored, so the
+// message always points at the current link.
+//
+// The fallback below is only used when no post has been written yet. It is
+// deliberately plain: better a bare summary than a fake-sounding narrative.
 export function buildSlackMessage(cs: CaseStudy, fullUrl: string): string {
-  const industry = cs.hero.meta.find((m) => /industry/i.test(m.label))?.value
+  const written = cs.slackPost?.trim()
+  if (written) {
+    // Drop any URL the author left in, so we never emit two links.
+    const body = written.replace(/https?:\/\/\S*showcase\/\S+/g, '').trimEnd()
+    return `${body}\n\n${fullUrl}`
+  }
 
-  const statLines = cs.statStrip.map(
-    (s) => `• ${s.label}: ${s.value} (vs ${s.benchmarkValue} ${s.benchmarkLabel})`,
-  )
+  const statLines = cs.statStrip
+    .filter((s) => s.label && s.value)
+    .map((s) => `• ${s.value} ${s.label.toLowerCase()}, ${s.benchmarkLabel}: ${s.benchmarkValue}`)
 
   return [
-    `📈 *New Marketing Moment Report*`,
-    ``,
-    `*${cs.hero.headline}*`,
-    ``,
-    `💰 ${cs.hero.stat.value} ${cs.hero.stat.caption}`,
-    ``,
+    `${cs.hero.headline}`,
+    '',
+    cs.hero.stat.value ? `${cs.hero.stat.value} ${cs.hero.stat.caption}` : null,
+    statLines.length ? '' : null,
     ...statLines,
-    ``,
-    industry ? `Industry: ${industry}` : null,
-    `See the full breakdown → ${fullUrl}`,
+    '',
+    fullUrl,
   ]
     .filter((l) => l !== null)
     .join('\n')

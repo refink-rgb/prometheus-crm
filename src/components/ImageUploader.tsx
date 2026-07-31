@@ -32,8 +32,8 @@ export default function ImageUploader({ onChange, value }: ImageUploaderProps) {
         setError('Only image files are allowed.')
         continue
       }
-      if (file.size > 10 * 1024 * 1024) {
-        setError('Each image must be under 10MB.')
+      if (file.size > 20 * 1024 * 1024) {
+        setError('Each image must be under 20MB.')
         continue
       }
 
@@ -100,7 +100,7 @@ export default function ImageUploader({ onChange, value }: ImageUploaderProps) {
           {uploading ? 'Uploading…' : 'Drag & drop or click to upload'}
         </p>
         <p style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-          PNG, JPG, WEBP · Max 10MB each
+          PNG, JPG, WEBP · Max 20MB each
         </p>
       </div>
 
