@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { generateMarketingReport, deleteMarketingReport } from '@/lib/marketing-actions'
+import { extractReportFromCaseStudy } from '@/lib/case-study-import'
 import { buildSlackMessage } from '@/lib/slackMessage'
 import type { CaseStudy } from '@/data/case-studies/types'
 import { caseStudyToInputs, type ReportInputs } from '@/data/case-studies/buildReport'
@@ -28,6 +29,31 @@ export default function GenerateReportPanel({
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState<'url' | 'slack' | null>(null)
+  // Slots extracted from an uploaded case study, used to seed the form.
+  const [imported, setImported] = useState<ReportInputs | null>(null)
+  const [importing, setImporting] = useState(false)
+  const fileRef = useRef<HTMLInputElement | null>(null)
+
+  // Parse the .docx in the browser (mammoth) and send only the text to the
+  // server for structuring, so no file upload handling is needed.
+  async function handleFile(file: File | undefined) {
+    if (!file) return
+    setImporting(true)
+    setError(null)
+    try {
+      const mammoth = await import('mammoth/mammoth.browser')
+      const buf = await file.arrayBuffer()
+      const { value } = await mammoth.extractRawText({ arrayBuffer: buf })
+      const inputs = await extractReportFromCaseStudy(value)
+      setImported(inputs)
+      setMode('form')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not read that document.')
+    } finally {
+      setImporting(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
 
   const path = token ? `/showcase/${token}` : null
   const fullUrl = path && typeof window !== 'undefined' ? `${window.location.origin}${path}` : path
@@ -99,9 +125,29 @@ export default function GenerateReportPanel({
                 Generate marketing moment report
               </button>
             )}
+            {/* Import path: hand it the written case study and it fills the form. */}
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".docx"
+              style={{ display: 'none' }}
+              onChange={(e) => handleFile(e.target.files?.[0])}
+            />
+            <button
+              className="btn-secondary btn-sm"
+              onClick={() => fileRef.current?.click()}
+              disabled={importing || submitting}
+              title="Upload the case study .docx and it fills the report for you"
+            >
+              {importing ? 'Reading…' : '⬆ From case study (.docx)'}
+            </button>
           </div>
         )}
       </div>
+
+      {mode === 'idle' && error && (
+        <div style={{ marginTop: 'var(--space-3)', color: 'var(--danger)', fontSize: 13 }}>{error}</div>
+      )}
 
       {/* Result: link + slack message */}
       {mode === 'idle' && token && path && (
@@ -138,13 +184,15 @@ export default function GenerateReportPanel({
 
       {mode === 'form' && (
         <MomentReportForm
-          initial={data ? caseStudyToInputs(data) : undefined}
+          key={imported ? 'imported' : 'manual'}
+          initial={imported ?? (data ? caseStudyToInputs(data) : undefined)}
           submitting={submitting}
           error={error}
           onSubmit={handleSubmit}
           onCancel={() => {
             setMode('idle')
             setError(null)
+            setImported(null)
           }}
         />
       )}
