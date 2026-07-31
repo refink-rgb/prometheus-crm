@@ -41,11 +41,22 @@ export default function GenerateReportPanel({
     setImporting(true)
     setError(null)
     try {
-      const mammoth = await import('mammoth/mammoth.browser')
+      // mammoth's browser build is CommonJS, so depending on the bundler the
+      // named export can land under `.default`. Accept either shape.
+      const mod = await import('mammoth/mammoth.browser')
+      const mammoth = (mod as unknown as { default?: typeof mod }).default ?? mod
+      if (typeof mammoth?.extractRawText !== 'function') {
+        setError('Could not load the .docx reader in this browser.')
+        return
+      }
       const buf = await file.arrayBuffer()
       const { value } = await mammoth.extractRawText({ arrayBuffer: buf })
-      const inputs = await extractReportFromCaseStudy(value)
-      setImported(inputs)
+      const res = await extractReportFromCaseStudy(value)
+      if (!res.ok) {
+        setError(res.message)
+        return
+      }
+      setImported(res.inputs)
       setMode('form')
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not read that document.')
@@ -63,9 +74,14 @@ export default function GenerateReportPanel({
     setSubmitting(true)
     setError(null)
     try {
-      const { token: t, caseStudy } = await generateMarketingReport(projectId, inputs)
-      setToken(t)
-      setData(caseStudy)
+      const res = await generateMarketingReport(projectId, inputs)
+      if (!res.ok) {
+        setError(res.message)
+        return
+      }
+      setToken(res.token)
+      setData(res.caseStudy)
+      setImported(null)
       setMode('idle')
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to generate the report.')
@@ -78,7 +94,11 @@ export default function GenerateReportPanel({
     if (!confirm('Remove this report? The public link will stop working.')) return
     setSubmitting(true)
     try {
-      await deleteMarketingReport(projectId)
+      const res = await deleteMarketingReport(projectId)
+      if (!res.ok) {
+        setError(res.message)
+        return
+      }
       setToken(null)
       setData(null)
     } catch (e) {

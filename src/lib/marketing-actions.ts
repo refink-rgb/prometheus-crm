@@ -6,9 +6,26 @@ import { canEdit } from '@/lib/permissions'
 import type { CaseStudy } from '@/data/case-studies/types'
 import { buildReportCaseStudy, type ReportInputs } from '@/data/case-studies/buildReport'
 
-export interface GenerateReportResult {
-  token: string
-  caseStudy: CaseStudy
+/**
+ * Result rather than a thrown error: Next.js replaces messages thrown from
+ * server actions with a generic digest in production, which would hide the
+ * anonymization-block message — the one message the author most needs to read.
+ */
+export type GenerateReportResult =
+  | { ok: true; token: string; caseStudy: CaseStudy }
+  | { ok: false; message: string }
+
+export type SimpleResult = { ok: true } | { ok: false; message: string }
+
+class ReportError extends Error {}
+
+// Our own messages are safe and useful to show; anything else is logged so the
+// real cause reaches the Vercel logs rather than vanishing into a digest.
+function toMessage(e: unknown, fallback: string): string {
+  if (e instanceof ReportError) return e.message
+  const detail = e instanceof Error ? e.message : String(e)
+  console.error('[marketing-report]', detail)
+  return `${fallback} ${detail}`
 }
 
 async function requireEditor() {
@@ -16,8 +33,8 @@ async function requireEditor() {
   const {
     data: { user },
   } = await supabase.auth.getUser()
-  if (!user) throw new Error('Not authenticated.')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
+  if (!user) throw new ReportError('Not authenticated.')
+  if (!canEdit(user.email)) throw new ReportError('Not authorized.')
   return supabase
 }
 
@@ -37,7 +54,7 @@ function assertNoBrandLeak(data: CaseStudy, brandName: string | null) {
     c.media.video = null
   })
   if (JSON.stringify(clone).toLowerCase().includes(needle)) {
-    throw new Error(
+    throw new ReportError(
       `Anonymization blocked: the brand name "${brandName}" appears in the report text (copy, labels, captions). Remove it before generating.`,
     )
   }
@@ -47,6 +64,7 @@ export async function generateMarketingReport(
   projectId: string,
   input: ReportInputs,
 ): Promise<GenerateReportResult> {
+  try {
   const supabase = await requireEditor()
 
   // Look up the project + its brand name (for the leak guard).
@@ -55,7 +73,7 @@ export async function generateMarketingReport(
     .select('id, brand_id')
     .eq('id', projectId)
     .single()
-  if (!project) throw new Error('Project not found.')
+  if (!project) throw new ReportError('Project not found.')
 
   let brandName: string | null = null
   if (project.brand_id) {
@@ -100,16 +118,24 @@ export async function generateMarketingReport(
     },
     { onConflict: 'project_id' },
   )
-  if (error) throw new Error(`Could not save report: ${error.message}`)
+  if (error) throw new ReportError(`Could not save report: ${error.message}`)
 
   revalidatePath('/marketing')
-  return { token, caseStudy: data }
+  return { ok: true, token, caseStudy: data }
+  } catch (e) {
+    return { ok: false, message: toMessage(e, 'Could not generate the report.') }
+  }
 }
 
 // Delete a generated report (unpublish). The public URL 404s afterwards.
-export async function deleteMarketingReport(projectId: string): Promise<void> {
-  const supabase = await requireEditor()
-  const { error } = await supabase.from('marketing_reports').delete().eq('project_id', projectId)
-  if (error) throw new Error(`Could not delete report: ${error.message}`)
-  revalidatePath('/marketing')
+export async function deleteMarketingReport(projectId: string): Promise<SimpleResult> {
+  try {
+    const supabase = await requireEditor()
+    const { error } = await supabase.from('marketing_reports').delete().eq('project_id', projectId)
+    if (error) throw new ReportError(`Could not delete report: ${error.message}`)
+    revalidatePath('/marketing')
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, message: toMessage(e, 'Could not remove the report.') }
+  }
 }
