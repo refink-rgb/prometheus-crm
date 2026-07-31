@@ -208,3 +208,48 @@ export function isProjectOverdue(
   const d = calcDaysUntil(dueDate)
   return d !== null && d < 0
 }
+
+// ---------------------------------------------------------------------------
+// Offer approval deadline
+// ---------------------------------------------------------------------------
+
+// An offer for a given month has to be APPROVED by the 5th of that month —
+// anything still sitting in the offer pipeline after that is late (Giovane,
+// 2026-07-31). The 5th is the deadline itself, so a card is overdue from the
+// 6th, not on the 5th.
+//
+// This is what makes the date meaningful downstream: production due dates are
+// the 15th (M1) and month-end (M2), so an offer approved on the 5th leaves ten
+// days to build M1. Slipping the offer eats directly into that.
+export const OFFER_APPROVAL_DAY = 5
+
+// 'YYYY-MM-05' for an offer_cards.target_month ('YYYY-MM-01').
+export function offerApprovalDue(targetMonth: string): string {
+  return `${targetMonth.slice(0, 7)}-${String(OFFER_APPROVAL_DAY).padStart(2, '0')}`
+}
+
+// Urgency of an offer card. Approved cards have no deadline left to miss, so
+// they return null and render calm — same convention as phaseDueTone() for
+// live/done projects.
+export function offerDueTone(targetMonth: string, stage: OfferStage): PhaseDueTone | null {
+  if (stage === 'offer_approved') return null
+  return phaseDueTone(offerApprovalDue(targetMonth))
+}
+
+// Days until the approval deadline; negative once past it.
+export function offerDaysUntilDue(targetMonth: string): number | null {
+  return calcDaysUntil(offerApprovalDue(targetMonth))
+}
+
+// 'Due Aug 5' / '3d left' / '6d late' — the badge text on an offer card.
+export function offerDueLabel(targetMonth: string, stage: OfferStage): string | null {
+  const tone = offerDueTone(targetMonth, stage)
+  if (tone === null) return null
+  const days = offerDaysUntilDue(targetMonth)
+  if (days === null) return null
+  if (days < 0) return `${Math.abs(days)}d late`
+  if (days === 0) return 'Due today'
+  if (days <= 3) return `${days}d left`
+  const due = parseDueDate(offerApprovalDue(targetMonth))
+  return due ? `Due ${due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : null
+}

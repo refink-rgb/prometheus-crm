@@ -15,7 +15,7 @@ import {
   OFFER_STAGE_LABELS, OFFER_STAGE_ORDER, offerMonthLabel, profileName,
   type Brand, type OfferCard, type OfferStage, type Profile,
 } from '@/lib/types'
-import { OFFER_STAGE_COLORS } from '@/lib/stageColors'
+import { OFFER_APPROVAL_DAY, OFFER_STAGE_COLORS, offerDueLabel, offerDueTone } from '@/lib/stageColors'
 import { createOfferCard, updateOfferStage, assignOfferCard } from '@/lib/offer-actions'
 import Avatar from '@/components/Avatar'
 
@@ -23,6 +23,14 @@ type BoardOfferCard = OfferCard & { brands: { id: string; name: string } }
 
 // 'all' | 'unassigned' | a profile id.
 type OwnerFilter = 'all' | 'unassigned' | (string & {})
+
+// Column sort order: late, then due soon, then everything else (approved cards
+// have no tone and sort last).
+const TONE_RANK = { overdue: 0, urgent: 1, neutral: 2 } as const
+function toneRank(targetMonth: string, stage: OfferStage): number {
+  const tone = offerDueTone(targetMonth, stage)
+  return tone ? TONE_RANK[tone] : 3
+}
 
 export default function OffersBoard({
   cards,
@@ -55,6 +63,7 @@ export default function OffersBoard({
   const [showNew, setShowNew] = useState(false)
   const [owner, setOwner] = useState<OwnerFilter>('all')
   const [mineOnly, setMineOnly] = useState(false)
+  const [lateOnly, setLateOnly] = useState(false)
 
   const [activeId, setActiveId] = useState<string | null>(null)
   const [overId, setOverId] = useState<string | null>(null)
@@ -73,24 +82,49 @@ export default function OffersBoard({
     [localCards, currentProfileId]
   )
 
+  // An offer still in the pipeline past the 5th of its own month is late.
+  const lateCount = useMemo(
+    () => localCards.filter(c => offerDueTone(c.target_month, c.stage) === 'overdue').length,
+    [localCards]
+  )
+
   const displayed = useMemo(() => {
     const q = search.trim().toLowerCase()
     return localCards.filter(c => {
       if (q && !c.brands.name.toLowerCase().includes(q)) return false
       if (mineOnly && (!currentProfileId || c.assigned_to !== currentProfileId)) return false
+      if (lateOnly && offerDueTone(c.target_month, c.stage) !== 'overdue') return false
       if (owner === 'unassigned' && c.assigned_to) return false
       if (owner !== 'all' && owner !== 'unassigned' && c.assigned_to !== owner) return false
       return true
     })
-  }, [localCards, search, owner, mineOnly, currentProfileId])
+  }, [localCards, search, owner, mineOnly, lateOnly, currentProfileId])
 
+  // Late first, then closest to the deadline — the top of a column is the part
+  // people actually scan, so the cards that need chasing belong there.
+  // .filter() already returns a fresh array, so sorting it in place is safe.
   const columns = useMemo(
     () => OFFER_STAGE_ORDER.map(stage => ({
       stage,
-      cards: displayed.filter(c => c.stage === stage),
+      cards: displayed
+        .filter(c => c.stage === stage)
+        .sort((a, b) =>
+          toneRank(a.target_month, a.stage) - toneRank(b.target_month, b.stage)
+          || a.target_month.localeCompare(b.target_month)
+          || a.moment_slot - b.moment_slot
+          || a.brands.name.localeCompare(b.brands.name)),
     })),
     [displayed]
   )
+
+  const lateByStage = useMemo(() => {
+    const map = new Map<OfferStage, number>()
+    for (const c of displayed) {
+      if (offerDueTone(c.target_month, c.stage) !== 'overdue') continue
+      map.set(c.stage, (map.get(c.stage) ?? 0) + 1)
+    }
+    return map
+  }, [displayed])
 
   const activeCard = activeId ? localCards.find(c => c.id === activeId) ?? null : null
 
@@ -200,6 +234,26 @@ export default function OffersBoard({
           </button>
         )}
 
+        {/* Only shown when something is actually late — a permanent "Overdue (0)"
+            trains people to ignore it. */}
+        {lateCount > 0 && (
+          <button
+            onClick={() => setLateOnly(v => !v)}
+            className="focus-ring-pill"
+            aria-pressed={lateOnly}
+            title={`Offers still in the pipeline past the 5th of their month`}
+            style={{
+              padding: 'var(--space-2) var(--space-3)', borderRadius: 20, fontSize: 'var(--text-sm)',
+              cursor: 'pointer', border: '1px solid', fontWeight: lateOnly ? 600 : 400,
+              borderColor: lateOnly ? 'var(--danger)' : 'color-mix(in srgb, var(--danger) 35%, transparent)',
+              background: lateOnly ? 'color-mix(in srgb, var(--danger) 14%, transparent)' : 'transparent',
+              color: 'var(--danger)',
+            }}
+          >
+            Late ({lateCount})
+          </button>
+        )}
+
         <button
           onClick={() => setShowNew(v => !v)}
           className="focus-ring-pill"
@@ -237,6 +291,7 @@ export default function OffersBoard({
                 key={stage}
                 stage={stage}
                 cards={columnCards}
+                lateCount={lateByStage.get(stage) ?? 0}
                 isOver={overId === stage}
                 isDragging={activeId !== null}
                 draggedCardId={activeId}
@@ -338,6 +393,7 @@ const OfferColumn = memo(OfferColumnInner)
 function OfferColumnInner({
   stage,
   cards,
+  lateCount,
   isOver,
   isDragging,
   draggedCardId,
@@ -348,6 +404,7 @@ function OfferColumnInner({
 }: {
   stage: OfferStage
   cards: BoardOfferCard[]
+  lateCount: number
   isOver: boolean
   isDragging: boolean
   draggedCardId: string | null
@@ -379,12 +436,26 @@ function OfferColumnInner({
         }}>
           {OFFER_STAGE_LABELS[stage]}
         </span>
-        <span style={{
-          fontSize: 'var(--text-xs)', fontWeight: 700, color: color.text,
-          background: color.bg,
-          borderRadius: 12, padding: '1px 8px',
-        }}>
-          {cards.length}
+        <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          {lateCount > 0 && (
+            <span
+              title={`${lateCount} offer${lateCount === 1 ? '' : 's'} past the ${OFFER_APPROVAL_DAY}th of their month`}
+              style={{
+                fontSize: 'var(--text-xs)', fontWeight: 700, color: 'var(--danger)',
+                background: 'color-mix(in srgb, var(--danger) 14%, transparent)',
+                borderRadius: 12, padding: '1px 8px',
+              }}
+            >
+              {lateCount} late
+            </span>
+          )}
+          <span style={{
+            fontSize: 'var(--text-xs)', fontWeight: 700, color: color.text,
+            background: color.bg,
+            borderRadius: 12, padding: '1px 8px',
+          }}>
+            {cards.length}
+          </span>
         </span>
       </div>
 
@@ -475,15 +546,24 @@ function OfferCardTileInner({
   const prevStage = stageIdx > 0 ? OFFER_STAGE_ORDER[stageIdx - 1] : null
   const nextStage = stageIdx < OFFER_STAGE_ORDER.length - 1 ? OFFER_STAGE_ORDER[stageIdx + 1] : null
 
+  // Same treatment KanbanCard gives an overdue project, so "late" reads
+  // identically on both boards.
+  const tone = offerDueTone(card.target_month, card.stage)
+  const dueLabel = offerDueLabel(card.target_month, card.stage)
+  const isLate = tone === 'overdue'
+  const isUrgent = tone === 'urgent'
+
   return (
     <div
       ref={setNodeRef}
       className="kanban-card"
       style={{
         position: 'relative',
-        background: 'var(--surface)',
-        border: '1px solid var(--border)',
-        borderLeft: `3px solid ${color.border}`,
+        background: isLate
+          ? 'color-mix(in srgb, var(--danger) 5%, var(--surface))'
+          : 'var(--surface)',
+        border: `1px solid ${isLate ? 'rgba(239,68,68,0.35)' : 'var(--border)'}`,
+        borderLeft: `3px solid ${isLate ? 'var(--danger)' : color.border}`,
         borderRadius: 10,
         overflow: 'hidden',
         opacity: isDragging ? 0.35 : 1,
@@ -553,6 +633,30 @@ function OfferCardTileInner({
             }}>
               {OFFER_STAGE_LABELS[card.stage]}
             </span>
+            {/* Approval deadline — the 5th of the offer's own month. Hidden
+                once approved: there's no deadline left to miss. */}
+            {dueLabel && (
+              <span
+                title={`Offers must be approved by the ${OFFER_APPROVAL_DAY}th of ${offerMonthLabel(card.target_month)}`}
+                style={{
+                  fontSize: 'var(--text-2xs)', fontWeight: 700, whiteSpace: 'nowrap',
+                  borderRadius: 5, padding: '2px 6px',
+                  color: isLate ? 'var(--danger)' : isUrgent ? 'var(--warning)' : 'var(--text-muted)',
+                  background: isLate
+                    ? 'color-mix(in srgb, var(--danger) 12%, transparent)'
+                    : isUrgent
+                      ? 'color-mix(in srgb, var(--warning) 12%, transparent)'
+                      : 'transparent',
+                  border: `1px solid ${isLate
+                    ? 'color-mix(in srgb, var(--danger) 30%, transparent)'
+                    : isUrgent
+                      ? 'color-mix(in srgb, var(--warning) 30%, transparent)'
+                      : 'transparent'}`,
+                }}
+              >
+                {dueLabel}
+              </span>
+            )}
             {card.derived_production_card_id && (
               <span style={{
                 fontSize: 'var(--text-2xs)', fontWeight: 600, color: 'var(--success)',
