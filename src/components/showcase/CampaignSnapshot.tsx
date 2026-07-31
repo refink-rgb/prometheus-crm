@@ -1,17 +1,10 @@
-import type { CampaignFigures } from '@/data/case-studies/types'
-import { fmtInt, fmtRoas, fmtUsd } from './format'
+import type { SnapshotTile } from '@/data/case-studies/types'
 
-// Absolute campaign totals (the real supplied numbers), surfaced as a stat band
-// so the page stands on real data. Values come from the data file; labels are
-// fixed here, matching how StatStrip / Comparison are authored.
-export default function CampaignSnapshot({ campaign }: { campaign: CampaignFigures }) {
-  const tiles: { label: string; value: string }[] = [
-    { label: 'Revenue', value: fmtUsd(campaign.revenue) },
-    { label: 'Purchases', value: fmtInt(campaign.purchases) },
-    { label: 'Cost per purchase', value: fmtUsd(campaign.costPerPurchase) },
-    { label: 'Blended ROAS', value: fmtRoas(campaign.blendedRoas) },
-    { label: 'Ads in test', value: fmtInt(campaign.adsInTest) },
-  ]
+// The "at a glance" band. Tiles are authored per report, so each case study can
+// lead with the metrics its story actually turns on.
+export default function CampaignSnapshot({ tiles }: { tiles: SnapshotTile[] }) {
+  const shown = tiles.filter((t) => t.label.trim() && t.value.trim())
+  if (shown.length === 0) return null
 
   return (
     <section aria-label="Campaign at a glance" style={{ padding: '8px 0 64px' }}>
@@ -31,7 +24,7 @@ export default function CampaignSnapshot({ campaign }: { campaign: CampaignFigur
             overflow: 'hidden',
           }}
         >
-          {tiles.map((t) => (
+          {shown.map((t) => (
             <div key={t.label} style={{ background: 'var(--pe-card)', padding: '24px 22px' }}>
               <div
                 style={{
@@ -59,11 +52,6 @@ export default function CampaignSnapshot({ campaign }: { campaign: CampaignFigur
             </div>
           ))}
         </div>
-
-        <p style={{ fontSize: 13, color: 'var(--pe-muted)', margin: '16px 0 0' }}>
-          Measured against the rest of the account: {fmtInt(campaign.restOfAccountAds)} ads,{' '}
-          {fmtUsd(campaign.restOfAccountRevenue)} revenue.
-        </p>
       </div>
     </section>
   )

@@ -111,6 +111,13 @@ export default function Comparison({ comparisons }: { comparisons: ComparisonBar
                   <Column label={c.campaign.label} value={c.campaign.value} max={max} display={c.campaign.display} highlight />
                   <Column label={c.rest.label} value={c.rest.value} max={max} display={c.rest.display} highlight={false} />
                 </div>
+
+                {/* The "so what" a bare chart can't carry. */}
+                {c.note?.trim() ? (
+                  <p style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--pe-muted)', margin: '18px 0 0' }}>
+                    {c.note}
+                  </p>
+                ) : null}
               </div>
             )
           })}

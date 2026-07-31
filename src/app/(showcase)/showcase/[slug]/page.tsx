@@ -13,6 +13,8 @@ import LpShowcase from '@/components/showcase/LpShowcase'
 import CreativeGallery from '@/components/showcase/CreativeGallery'
 import Comparison from '@/components/showcase/Comparison'
 import Incrementality from '@/components/showcase/Incrementality'
+import Methodology from '@/components/showcase/Methodology'
+import { tilesFromCampaign } from '@/data/case-studies/buildReport'
 import ClosingCta from '@/components/showcase/ClosingCta'
 
 // Tokens are minted per report at generation time, so this route is fully
@@ -74,6 +76,10 @@ export default async function ShowcasePage({
   const cs = await loadReport(slug)
   if (!cs) notFound()
 
+  // Reports authored before `snapshotTiles` existed fall back to tiles derived
+  // from their campaign block.
+  const snapshotTiles = cs.snapshotTiles ?? (cs.campaign ? tilesFromCampaign(cs.campaign) : [])
+
   return (
     <div className={PE}>
       <ShowcaseStyles />
@@ -120,15 +126,16 @@ export default async function ShowcasePage({
         <Hero hero={cs.hero} />
         <StatStrip stats={cs.statStrip} />
         {cs.proof && <ProofShot proof={cs.proof} />}
-        <CampaignSnapshot campaign={cs.campaign} />
+        <CampaignSnapshot tiles={snapshotTiles} />
         <Narrative sections={cs.narrative} />
         <LpShowcase landing={cs.landing} />
         <CreativeGallery
           creatives={cs.creatives}
-          moreCount={cs.moreAdsCount ?? Math.max(0, cs.campaign.adsInTest - cs.creatives.length)}
+          moreCount={cs.moreAdsCount ?? Math.max(0, (cs.campaign?.adsInTest ?? 0) - cs.creatives.length)}
         />
         <Comparison comparisons={cs.comparisons} />
         <Incrementality data={cs.incrementality} />
+        <Methodology text={cs.methodology} />
         <ClosingCta cta={cs.closing} />
       </main>
 

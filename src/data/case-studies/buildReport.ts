@@ -1,4 +1,23 @@
-import type { CampaignFigures, CaseStudy, Creative, Incrementality } from './types'
+import type {
+  CaseStudy,
+  ComparisonBar,
+  Creative,
+  Incrementality,
+  NarrativeSection,
+  SnapshotTile,
+  StatComparison,
+} from './types'
+
+// ─── Report inputs → full CaseStudy ──────────────────────────────────────────
+//
+// The page STRUCTURE is fixed and approved (hero → stats → proof → snapshot →
+// narrative → LP → creatives → comparison → incrementality → CTA). What varies
+// per case study is the FOCUS: which metrics lead, what they're benchmarked
+// against, and how the story is framed.
+//
+// So every slot below is authored per report rather than derived from a fixed
+// set of numbers. `FOCUS_PRESETS` pre-fills the slots for the common angles so
+// a new report is "pick a focus, fill the values" instead of typing structure.
 
 // The commercial answer to the first question a sharp reader asks: "sure, but
 // did you ADD revenue, or just move it around?" This is our methodology, so it
@@ -27,82 +46,164 @@ export const DEFAULT_INCREMENTALITY: Incrementality = {
   ],
 }
 
-// ─── Simplified report inputs → full CaseStudy ───────────────────────────────
-//
-// The Marketing form collects only three things: the campaign figures block, the
-// LP image, and a few creative examples (with optional illustrative metrics).
-// Everything else on the report is DERIVED from the campaign block (the 3 stat
-// cards, the comparison bars, the hero number) or TEMPLATED (hero/narrative/
-// closing copy). This keeps the form tiny and the report consistent.
-
 export interface CreativeInput {
   /** Uploaded (public) image URL, or null. */
   posterUrl: string | null
-  /** Illustrative — may be blank. Null renders an explicit "—". */
+  /** Illustrative only; may be blank. */
   revenue: number | null
   roas: number | null
   uniqueOutboundCtr: number | null
 }
 
+export interface HeroInput {
+  headline: string
+  subhead: string
+  /** The oversized number, preformatted (e.g. "$56.4K"). */
+  statValue: string
+  statCaption: string
+}
+
 export interface ReportInputs {
-  campaign: CampaignFigures
-  /** Hero "Industry" label. */
+  /** Which preset the slots were seeded from. Stored for the edit form. */
+  focus: FocusKey
   industry: string
-  /** Uploaded LP screenshot image URL (rendered as the landing page). */
+  hero: HeroInput
+  statCards: StatComparison[]
+  snapshotTiles: SnapshotTile[]
+  narrative: NarrativeSection[]
+  comparisons: ComparisonBar[]
+  /** Where the figures come from. Rendered as a footnote. */
+  methodology: string | null
   lpImageUrl: string | null
-  creatives: CreativeInput[]
-  /** Trailing "+N more" count for the creative carousel (e.g. 40). null → derived. */
-  moreAdsCount: number | null
-  /** Optional ad-account screenshot URL (proof the figures are real). */
   proofImageUrl: string | null
-  /** Closing CTA destination (optional — blank renders a plain "Message Joy" CTA). */
+  creatives: CreativeInput[]
+  /** Trailing "+N more" count for the creative carousel. */
+  moreAdsCount: number | null
+  /** Closing CTA destination. Blank falls back to the Slack DM. */
   closingHref: string | null
 }
 
-// ─── formatters (self-contained; no cross-layer import) ──────────────────────
+// ─── Focus presets ───────────────────────────────────────────────────────────
 
-function compactUsd(n: number): string {
-  if (Math.abs(n) >= 1000) return `$${(n / 1000).toFixed(1)}K`
-  return `$${Math.round(n).toLocaleString('en-US')}`
-}
-function usd0(n: number): string {
-  return `$${Math.round(n).toLocaleString('en-US')}`
-}
-function pct(n: number): string {
-  return `${n}%`
-}
-function roas(n: number): string {
-  return `${n}x`
-}
-function mult(a: number, b: number): string {
-  if (!b) return ''
-  return `~${(a / b).toFixed(1)}x`
-}
-function multRound(a: number, b: number): string {
-  if (!b) return ''
-  return `~${Math.round(a / b)}x`
+export type FocusKey = 'conversion' | 'order-value' | 'efficiency' | 'blank'
+
+export const FOCUS_OPTIONS: { key: FocusKey; label: string; hint: string }[] = [
+  { key: 'conversion', label: 'Conversion', hint: 'The offer converted better than the account. Leads with LP conversion, CTR and incremental ROAS.' },
+  { key: 'order-value', label: 'Order value', hint: 'The moment raised order size. Leads with AOV, CTR and contribution margin.' },
+  { key: 'efficiency', label: 'Efficiency', hint: 'The moment bought results cheaper. Leads with cost per purchase, ROAS and CTR.' },
+  { key: 'blank', label: 'Blank', hint: 'Empty rows. Author every slot yourself.' },
+]
+
+const stat = (label: string, benchmarkLabel: string): StatComparison => ({
+  label,
+  value: '',
+  benchmarkValue: '',
+  benchmarkLabel,
+  multiplier: '',
+  higherIsBetter: true,
+})
+const tile = (label: string): SnapshotTile => ({ label, value: '' })
+const bar = (label: string, campaignLabel: string, restLabel: string): ComparisonBar => ({
+  label,
+  campaign: { label: campaignLabel, value: 0, display: '' },
+  rest: { label: restLabel, value: 0, display: '' },
+  multiplier: '',
+  note: '',
+})
+
+// The four narrative beats are part of the approved structure, so the headings
+// are constant; only the copy changes per case study.
+export const NARRATIVE_HEADINGS = ['The Challenge', 'The Approach', 'The Results', 'The Insight']
+
+const emptyNarrative = (): NarrativeSection[] =>
+  NARRATIVE_HEADINGS.map((heading) => ({ heading, paragraphs: [''] }))
+
+export interface PresetSlots {
+  statCards: StatComparison[]
+  snapshotTiles: SnapshotTile[]
+  comparisons: ComparisonBar[]
 }
 
-const SERVICES = 'Paid Media (Meta) · Offer Strategy · Creative · Landing Page'
-
-export const DEFAULT_INDUSTRY = 'Men’s Grooming & Beard Care'
-
-export function emptyCampaign(): CampaignFigures {
-  return {
-    revenue: 0, purchases: 0, costPerPurchase: 0, blendedRoas: 0,
-    incrementalRoas: 0, incrementalRoasBenchmark: 0,
-    lpConversionRate: 0, lpConversionBenchmark: 0,
-    uniqueOutboundCtr: 0, uniqueOutboundCtrBenchmark: 0,
-    adsInTest: 0, restOfAccountAds: 0, restOfAccountRevenue: 0,
+export function presetSlots(focus: FocusKey): PresetSlots {
+  switch (focus) {
+    case 'conversion':
+      return {
+        statCards: [
+          stat('Landing page conversion rate', 'account average'),
+          stat('Unique outbound CTR', 'rest of account'),
+          stat('Incremental ROAS', 'account average'),
+        ],
+        snapshotTiles: [tile('Revenue'), tile('Purchases'), tile('Cost per purchase'), tile('Blended ROAS'), tile('Ads in test')],
+        comparisons: [
+          bar('Creative performance: unique outbound CTR', 'This campaign', 'Rest of account'),
+          bar('Revenue efficiency: average revenue per ad', 'This campaign', 'Rest of account'),
+        ],
+      }
+    case 'order-value':
+      return {
+        statCards: [
+          stat('Average order value', 'account average'),
+          stat('Unique CTR', 'platform target'),
+          stat('Monthly contribution margin', 'projection'),
+        ],
+        snapshotTiles: [tile('Purchases'), tile('Cost per purchase'), tile('Adds to cart'), tile('New-acquisition ROAS'), tile('Ads in test')],
+        comparisons: [
+          bar('Average order value: the moment vs the account', 'This moment', 'Account average'),
+          bar('Attributed revenue vs revenue converted on the offer', 'Attributed to the moment', 'Converted on the code'),
+        ],
+      }
+    case 'efficiency':
+      return {
+        statCards: [
+          stat('Cost per purchase', 'account average'),
+          stat('ROAS', 'account average'),
+          stat('Unique outbound CTR', 'rest of account'),
+        ],
+        snapshotTiles: [tile('Revenue'), tile('Purchases'), tile('Spend'), tile('ROAS'), tile('Ads in test')],
+        comparisons: [
+          bar('Cost per purchase: the moment vs the account', 'This moment', 'Account average'),
+          bar('Return on ad spend: the moment vs the account', 'This moment', 'Account average'),
+        ],
+      }
+    case 'blank':
+    default:
+      return {
+        statCards: [stat('', 'account average')],
+        snapshotTiles: [tile('')],
+        comparisons: [bar('', 'This moment', 'Account average')],
+      }
   }
 }
 
-// Build a complete, render-ready CaseStudy from the simplified inputs. `slug` is
-// filled in by the server action (the report token).
-export function buildReportCaseStudy(input: ReportInputs, slug = ''): CaseStudy {
-  const c = input.campaign
+const SERVICES = 'Paid Media (Meta) · Offer Strategy · Creative · Landing Page'
+export const DEFAULT_INDUSTRY = 'Men’s Grooming & Beard Care'
 
-  // Flag the highest-revenue creative (only if any revenue was entered).
+/** A blank report seeded from a focus preset. */
+export function emptyInputs(focus: FocusKey = 'conversion'): ReportInputs {
+  const slots = presetSlots(focus)
+  return {
+    focus,
+    industry: '',
+    hero: { headline: '', subhead: '', statValue: '', statCaption: '' },
+    ...slots,
+    narrative: emptyNarrative(),
+    methodology: '',
+    lpImageUrl: null,
+    proofImageUrl: null,
+    creatives: [{ posterUrl: null, revenue: null, roas: null, uniqueOutboundCtr: null }],
+    moreAdsCount: null,
+    closingHref: null,
+  }
+}
+
+// ─── Build ───────────────────────────────────────────────────────────────────
+
+// Assemble a render-ready CaseStudy from the authored slots. `slug` is supplied
+// by the server action (the report token). Nothing is invented here: empty
+// values stay empty and render as explicit blanks.
+export function buildReportCaseStudy(input: ReportInputs, slug = ''): CaseStudy {
+  // Creative labels are forced neutral here so original ad names (which carry
+  // the brand) can never reach the payload.
   const maxRev = Math.max(0, ...input.creatives.map((x) => x.revenue ?? 0))
   const creatives: Creative[] = input.creatives.map((x, i) => ({
     id: `c${i + 1}`,
@@ -124,9 +225,6 @@ export function buildReportCaseStudy(input: ReportInputs, slug = ''): CaseStudy 
     isTopPerformer: maxRev > 0 && x.revenue === maxRev,
   }))
 
-  const revPerAdCampaign = c.adsInTest ? c.revenue / c.adsInTest : 0
-  const revPerAdRest = c.restOfAccountAds ? c.restOfAccountRevenue / c.restOfAccountAds : 0
-
   return {
     slug,
     internalTitle: 'Marketing moment report',
@@ -135,68 +233,39 @@ export function buildReportCaseStudy(input: ReportInputs, slug = ''): CaseStudy 
 
     hero: {
       eyebrow: 'PAID MEDIA CASE STUDY · META',
-      headline: 'One untested offer became this brand’s best-converting campaign ever',
-      subhead:
-        'A single offer test on Meta nearly doubled landing-page conversion and drove outsized incremental revenue against the account benchmark.',
-      stat: { value: compactUsd(c.revenue), caption: 'in revenue, from one offer test' },
+      headline: input.hero.headline,
+      subhead: input.hero.subhead,
+      stat: { value: input.hero.statValue, caption: input.hero.statCaption },
       meta: [
         { label: 'Industry', value: input.industry || DEFAULT_INDUSTRY },
         { label: 'Services', value: SERVICES },
       ],
     },
 
-    // Derived straight from the campaign block.
-    statStrip: [
-      { label: 'Landing page conversion rate', value: pct(c.lpConversionRate), benchmarkValue: pct(c.lpConversionBenchmark), benchmarkLabel: 'account average', multiplier: mult(c.lpConversionRate, c.lpConversionBenchmark) },
-      { label: 'Unique outbound CTR', value: pct(c.uniqueOutboundCtr), benchmarkValue: pct(c.uniqueOutboundCtrBenchmark), benchmarkLabel: 'rest of account', multiplier: mult(c.uniqueOutboundCtr, c.uniqueOutboundCtrBenchmark) },
-      { label: 'Incremental ROAS', value: roas(c.incrementalRoas), benchmarkValue: roas(c.incrementalRoasBenchmark), benchmarkLabel: 'account average', multiplier: mult(c.incrementalRoas, c.incrementalRoasBenchmark) },
-    ],
-
-    // Templated copy.
-    narrative: [
-      { heading: 'The Challenge', paragraphs: ['The account was growing, but growth was expensive. Prospecting sat close to break-even and every new customer cost more than the last. The team needed a lever that moved unit economics, not just another round of creative.'] },
-      { heading: 'The Approach', paragraphs: ['Instead of testing more of the same, we tested the offer itself, built to raise perceived value without discounting the core product. We paired it with a purpose-built landing page and a fresh creative slate, isolated so its impact could be measured against the rest of the account.'] },
-      { heading: 'The Results', paragraphs: ['The offer converted. Landing-page conversion nearly doubled the account average, unique outbound CTR ran well ahead of the rest of the account, and the test returned an incremental ROAS above the benchmark, driving meaningful incremental revenue from a single moment.'] },
-      { heading: 'The Insight', paragraphs: ['The winning variable wasn’t spend or audience. It was the offer. Testing the offer as its own lever, with the landing page and creative built to sell it, turned an untested idea into the account’s best-converting campaign. That’s a repeatable play, not a one-off.'] },
-    ],
+    statStrip: input.statCards,
+    snapshotTiles: input.snapshotTiles,
+    narrative: input.narrative,
 
     landing: {
-      image: { src: input.lpImageUrl, alt: 'The landing page built for the offer test', width: 1200, height: 3000 },
+      image: { src: input.lpImageUrl, alt: 'The landing page built for this moment', width: 1200, height: 3000 },
       device: 'desktop',
-      hotspots: [], // no annotation hotspots in the simplified report — image only
+      hotspots: [],
     },
 
     creatives,
-    creativeBenchmark: { uniqueOutboundCtr: c.uniqueOutboundCtrBenchmark || null, roas: c.incrementalRoasBenchmark || null },
-
-    // Derived comparison bars.
-    comparisons: [
-      {
-        label: 'Creative performance: unique outbound CTR',
-        campaign: { label: 'This campaign', value: c.uniqueOutboundCtr, display: pct(c.uniqueOutboundCtr) },
-        rest: { label: 'Rest of account', value: c.uniqueOutboundCtrBenchmark, display: pct(c.uniqueOutboundCtrBenchmark) },
-        multiplier: mult(c.uniqueOutboundCtr, c.uniqueOutboundCtrBenchmark),
-      },
-      {
-        label: 'Revenue efficiency: average revenue per ad',
-        campaign: { label: `This campaign (${c.adsInTest} ads)`, value: revPerAdCampaign, display: usd0(revPerAdCampaign) },
-        rest: { label: `Rest of account (${c.restOfAccountAds} ads)`, value: revPerAdRest, display: usd0(revPerAdRest) },
-        multiplier: multRound(revPerAdCampaign, revPerAdRest),
-      },
-    ],
-
+    creativeBenchmark: { uniqueOutboundCtr: null, roas: null },
+    comparisons: input.comparisons,
     incrementality: DEFAULT_INCREMENTALITY,
+    methodology: input.methodology || null,
 
     closing: {
       headline: 'Want this for your brand?',
       body: 'Guaranteed revenue in excess of cost, or you don’t pay.',
       note: 'Every dollar you put into a marketing moment comes back in revenue. If it doesn’t, you don’t pay for the work. That’s the deal.',
       buttonLabel: 'Message Me',
-      // Defaults to the Slack DM; a per-report closingHref overrides it.
       href: input.closingHref || 'https://commonthreadco.slack.com/archives/D0B9QMM09ED',
     },
 
-    campaign: c,
     moreAdsCount: input.moreAdsCount,
     proof: input.proofImageUrl
       ? { src: input.proofImageUrl, caption: 'Straight from the ad account. These are the real numbers.' }
@@ -204,12 +273,38 @@ export function buildReportCaseStudy(input: ReportInputs, slug = ''): CaseStudy 
   }
 }
 
-// Reverse-map a stored report back to the simplified inputs (for the edit form).
+// Derive snapshot tiles from the legacy campaign block, so reports generated
+// before `snapshotTiles` existed still render an "at a glance" band.
+export function tilesFromCampaign(c: NonNullable<CaseStudy['campaign']>): SnapshotTile[] {
+  const usd = (n: number) => `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const int = (n: number) => n.toLocaleString('en-US')
+  return [
+    { label: 'Revenue', value: usd(c.revenue) },
+    { label: 'Purchases', value: int(c.purchases) },
+    { label: 'Cost per purchase', value: usd(c.costPerPurchase) },
+    { label: 'Blended ROAS', value: `${c.blendedRoas}x` },
+    { label: 'Ads in test', value: int(c.adsInTest) },
+  ]
+}
+
+// Reverse-map a stored report back into editable inputs for the edit form.
 export function caseStudyToInputs(cs: CaseStudy): ReportInputs {
   return {
-    campaign: cs.campaign,
-    industry: cs.hero.meta.find((m) => /industry/i.test(m.label))?.value ?? DEFAULT_INDUSTRY,
+    focus: 'blank', // stored reports are already authored; don't re-seed slots
+    industry: cs.hero.meta.find((m) => /industry/i.test(m.label))?.value ?? '',
+    hero: {
+      headline: cs.hero.headline,
+      subhead: cs.hero.subhead,
+      statValue: cs.hero.stat.value,
+      statCaption: cs.hero.stat.caption,
+    },
+    statCards: cs.statStrip,
+    snapshotTiles: cs.snapshotTiles ?? (cs.campaign ? tilesFromCampaign(cs.campaign) : []),
+    narrative: cs.narrative,
+    comparisons: cs.comparisons.map((c) => ({ ...c, note: c.note ?? '' })),
+    methodology: cs.methodology ?? '',
     lpImageUrl: cs.landing.image.src,
+    proofImageUrl: cs.proof?.src ?? null,
     creatives: cs.creatives.map((c) => ({
       posterUrl: c.media.poster.src,
       revenue: c.metrics.revenue,
@@ -217,7 +312,6 @@ export function caseStudyToInputs(cs: CaseStudy): ReportInputs {
       uniqueOutboundCtr: c.metrics.uniqueOutboundCtr,
     })),
     moreAdsCount: cs.moreAdsCount ?? null,
-    proofImageUrl: cs.proof?.src ?? null,
     closingHref: cs.closing.href,
   }
 }

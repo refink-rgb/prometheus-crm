@@ -135,15 +135,31 @@ export interface CreativeBenchmark {
 /** The metric keys a reader can sort the creative gallery by. */
 export type CreativeSortKey = 'revenue' | 'roas' | 'uniqueOutboundCtr' | 'spend'
 
-/** A single side-by-side comparison rendered as two visual bars. */
+/** A single side-by-side comparison rendered as two columns. */
 export interface ComparisonBar {
   label: string
-  /** This campaign. */
+  /** The campaign / moment being featured. */
   campaign: { label: string; value: number; display: string }
-  /** Rest of account. */
+  /** What it is measured against (account, target, projection…). */
   rest: { label: string; value: number; display: string }
   /** Headline multiple, e.g. "~1.7x". */
   multiplier: string
+  /**
+   * Optional explainer under the columns. Carries the "so what" a bare chart
+   * can't (e.g. why attributed revenue outran revenue converted on the code).
+   */
+  note?: string | null
+}
+
+/**
+ * One tile in the "at a glance" band. Free-form label + preformatted value so
+ * each case study can lead with whatever metrics its story turns on (revenue
+ * and ROAS for a conversion story, CPA and adds-to-cart for an order-value one).
+ */
+export interface SnapshotTile {
+  label: string
+  /** Already formatted for display, e.g. "$56,427.61", "404", "5.15x". */
+  value: string
 }
 
 export interface ClosingCta {
@@ -229,7 +245,22 @@ export interface CaseStudy {
   /** Why the result is incremental. Optional — the component falls back to the default. */
   incrementality?: Incrementality | null
   closing: ClosingCta
-  campaign: CampaignFigures
+  /**
+   * "At a glance" tiles. Optional: reports generated before this field existed
+   * fall back to deriving tiles from `campaign`.
+   */
+  snapshotTiles?: SnapshotTile[] | null
+  /**
+   * Footnote stating where the figures come from (platform-attributed vs
+   * blended business reporting, comparison window, how spend was derived).
+   * Optional, but it is what makes the numbers credible to a sceptical reader.
+   */
+  methodology?: string | null
+  /**
+   * Raw campaign figures. Optional now that snapshot tiles and stat cards are
+   * authored directly — kept for older reports and the derived-tiles fallback.
+   */
+  campaign?: CampaignFigures
   /** Trailing "+N more" count for the creative carousel (e.g. 40). null → derived. */
   moreAdsCount?: number | null
   /** Optional ad-account screenshot shown between the stat cards and the snapshot. */
