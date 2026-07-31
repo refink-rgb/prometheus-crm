@@ -146,3 +146,25 @@ export async function synthesizeBrandDna(
 
   return parsed as BrandDnaJson
 }
+
+// Restructure a written case study into the marketing-report slots. Extraction
+// only: the model may not invent a figure, because every number ends up on a
+// page we send to prospects. Missing values come back empty for the author to
+// complete in the form.
+export async function extractCaseStudy(systemPrompt: string, document: string): Promise<unknown> {
+  const ai = client()
+  const res = await ai.models.generateContent({
+    model: MODEL,
+    contents: `${systemPrompt}\n\n---\n\nCase study document:\n\n${document}\n\nReturn a single JSON object with the fields described.`,
+    config: { responseMimeType: 'application/json', temperature: 0 },
+  })
+
+  const text = res.text ?? ''
+  if (!text.trim()) throw new Error('Gemini returned empty text.')
+
+  try {
+    return JSON.parse(text)
+  } catch {
+    throw new Error('Gemini returned invalid JSON.')
+  }
+}
