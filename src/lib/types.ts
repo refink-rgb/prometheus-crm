@@ -419,3 +419,42 @@ export const STAGE_LABELS: Record<Stage, string> = {
 }
 
 export const STAGE_ORDER: Stage[] = ['brief', 'in_progress', 'internal_review', 'client_review', 'revisions', 'live', 'done']
+
+// --- Billing (financials ledger) ---------------------------------------------
+// Row shapes for billing_subscriptions / billing_periods (migration
+// 20260731_add_billing.sql). The date/period math and the derived statuses
+// live in src/lib/billing.ts; these are just the stored columns.
+
+export interface BillingSubscription {
+  id: string
+  brand_id: string
+  amount_cents: number
+  start_date: string
+  anchor_day: number
+  status: 'active' | 'paused' | 'cancelled'
+  paused_from: string | null
+  paused_until: string | null
+  ended_at: string | null
+  notes: string | null
+  created_at: string
+  created_by: string | null
+}
+
+export interface BillingPeriod {
+  id: string
+  subscription_id: string
+  brand_id: string
+  period_index: number
+  period_start: string
+  period_end: string
+  due_date: string
+  amount_cents: number
+  status: 'scheduled' | 'paid' | 'waived' | 'void'
+  paid_at: string | null
+  paid_amount_cents: number | null
+  reference: string | null
+  note: string | null
+  marked_by: string | null
+  marked_at: string | null
+  created_at: string
+}

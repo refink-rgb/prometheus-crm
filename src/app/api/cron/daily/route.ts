@@ -3,6 +3,15 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { daysBetween, easternDayOfMonth, easternToday, followingMonthStart } from '@/lib/eastern'
 import { eventsEnabled, logEvents, type EventTrack, type PipelineEventInput } from '@/lib/events'
 import { offerCardName, offerMonthLabel } from '@/lib/types'
+import {
+  addDays,
+  generatePeriods,
+  monthEnd,
+  monthKeyOf,
+  shiftMonthKey,
+  OVERDUE_AFTER_DAYS,
+  type SubscriptionShape,
+} from '@/lib/billing'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -148,8 +157,80 @@ async function runOfferGeneration(supabase: SupabaseService, targetMonth: string
   }
 }
 
+// Billing: keep every retainer's invoices materialized through the end of next
+// month, so /financials can page a month forward and the current month is
+// always complete without anyone pressing a button.
+//
+// Runs EVERY night, not on a fixed day — a client onboarded on the 6th needs
+// their first invoice the same week, not at the next cycle boundary.
+//
+// Only ADDS. The sweep of no-longer-valid periods lives in syncPeriodsFor()
+// (billing-actions.ts) where a human is making the pause/churn decision; the
+// cron never deletes a billing row unattended.
+async function runBillingGeneration(supabase: SupabaseService, today: string) {
+  const { data: subs, error } = await supabase
+    .from('billing_subscriptions')
+    .select('id, brand_id, amount_cents, start_date, anchor_day, status, paused_from, paused_until, ended_at')
+    .neq('status', 'cancelled')
+  if (error) {
+    // 42P01 — migration 20260731_add_billing.sql not applied yet. Report it
+    // rather than failing the whole nightly run.
+    if (error.code === '42P01') return { skipped: 'billing tables not migrated yet' as const }
+    throw new Error(`Billing subscription query failed: ${error.message}`)
+  }
+
+  const through = monthEnd(shiftMonthKey(monthKeyOf(today), 1))
+  const subscriptions = (subs ?? []) as unknown as SubscriptionShape[]
+
+  const { data: existingRows, error: existErr } = await supabase
+    .from('billing_periods')
+    .select('subscription_id, period_index')
+  if (existErr) throw new Error(`Existing billing period query failed: ${existErr.message}`)
+  const exists = new Set((existingRows ?? []).map(p => `${p.subscription_id}:${p.period_index}`))
+
+  const rows: Array<Record<string, unknown>> = []
+  for (const sub of subscriptions) {
+    for (const period of generatePeriods(sub, through)) {
+      if (exists.has(`${sub.id}:${period.period_index}`)) continue
+      rows.push({
+        subscription_id: sub.id,
+        brand_id: sub.brand_id,
+        period_index: period.period_index,
+        period_start: period.period_start,
+        period_end: period.period_end,
+        due_date: period.due_date,
+        amount_cents: period.amount_cents,
+        status: 'scheduled',
+      })
+    }
+  }
+
+  if (rows.length > 0) {
+    // Belt to the pre-check's suspenders, same as offer generation: a
+    // concurrent run losing the race becomes a no-op, not a double invoice.
+    const { error: insErr } = await supabase
+      .from('billing_periods')
+      .upsert(rows, { onConflict: 'subscription_id,period_index', ignoreDuplicates: true })
+    if (insErr) throw new Error(`Billing period insert failed: ${insErr.message}`)
+  }
+
+  console.log(`[cron] billing: ${rows.length} invoice(s) generated through ${through} across ${subscriptions.length} schedule(s).`)
+  return {
+    through,
+    schedules: subscriptions.length,
+    invoices_created: rows.length,
+  }
+}
+
+type OverdueRow = { due_date: string; amount_cents: number; brands: { name: string } | null }
+
 // Alert surface — findings land in the JSON response AND the error log.
-async function collectAlerts(supabase: SupabaseService, dayOfMonth: number, targetMonth: string) {
+async function collectAlerts(
+  supabase: SupabaseService,
+  dayOfMonth: number,
+  targetMonth: string,
+  overdueBefore: string,
+) {
   const alerts: string[] = []
 
   // Approved offers whose production card never materialized (Trigger B net).
@@ -178,6 +259,23 @@ async function collectAlerts(supabase: SupabaseService, dayOfMonth: number, targ
     }
   }
 
+  // Invoices more than a week past due and still unpaid. Surfaces on the
+  // nightly run so a missed payment doesn't wait for someone to open
+  // /financials and notice.
+  const { data: overdue, error: overdueErr } = await supabase
+    .from('billing_periods')
+    .select('due_date, amount_cents, brands(name)')
+    .eq('status', 'scheduled')
+    .lt('due_date', overdueBefore)
+    .order('due_date')
+  if (overdueErr && overdueErr.code !== '42P01') {
+    alerts.push(`Overdue-invoice scan failed: ${overdueErr.message}`)
+  }
+  for (const row of (overdue ?? []) as unknown as OverdueRow[]) {
+    const name = row.brands?.name ?? 'Unknown client'
+    alerts.push(`OVERDUE: ${name} — $${(row.amount_cents / 100).toLocaleString('en-US')} was due ${row.due_date} and is still unpaid.`)
+  }
+
   for (const a of alerts) console.error(`[cron] ALERT: ${a}`)
   return alerts
 }
@@ -203,9 +301,18 @@ export async function GET(request: Request) {
       ? await runOfferGeneration(supabase, targetMonth)
       : { skipped: `not the 24th (Eastern day ${dayOfMonth})${forceGenerate ? '' : '; pass ?force_generate=1 to override'}` as const }
 
-    const alerts = await collectAlerts(supabase, dayOfMonth, targetMonth)
+    const billing = await runBillingGeneration(supabase, today)
 
-    return NextResponse.json({ ok: true, date_eastern: today, slip_scan: slipScan, offer_generation: generation, alerts })
+    const alerts = await collectAlerts(supabase, dayOfMonth, targetMonth, addDays(today, -OVERDUE_AFTER_DAYS))
+
+    return NextResponse.json({
+      ok: true,
+      date_eastern: today,
+      slip_scan: slipScan,
+      offer_generation: generation,
+      billing,
+      alerts,
+    })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     console.error(`[cron] daily run FAILED: ${msg}`)
