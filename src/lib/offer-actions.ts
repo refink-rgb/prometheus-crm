@@ -171,6 +171,10 @@ export async function updateOfferDetails(
     competitor_reference: string | null
     client_ad_inspiration: string | null
     product_images_link: string | null
+    problem_statement: string | null
+    success_metric: string | null
+    success_target: number | null
+    guardrails: string | null
   }
 ) {
   const { supabase } = await requireEditor()

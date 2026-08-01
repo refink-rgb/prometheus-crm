@@ -88,6 +88,14 @@ export default function OfferCardDetail({
     setSaved(false)
     const fd = new FormData(e.currentTarget)
     const str = (key: string) => (fd.get(key) as string)?.trim() || null
+    // Blank stays NULL rather than becoming 0 — an unset target and a target of
+    // zero are different answers.
+    const num = (key: string) => {
+      const raw = str(key)
+      if (raw === null) return null
+      const n = Number(raw)
+      return Number.isFinite(n) ? n : null
+    }
     startTransition(async () => {
       try {
         await updateOfferDetails(card.id, {
@@ -101,6 +109,10 @@ export default function OfferCardDetail({
           competitor_reference: str('competitor_reference'),
           client_ad_inspiration: str('client_ad_inspiration'),
           product_images_link: str('product_images_link'),
+          problem_statement: str('problem_statement'),
+          success_metric: str('success_metric'),
+          success_target: num('success_target'),
+          guardrails: str('guardrails'),
         })
         setSaved(true)
         router.refresh()
@@ -116,6 +128,10 @@ export default function OfferCardDetail({
     margin: '0 0 16px',
   }
   const field: React.CSSProperties = { marginBottom: 14 }
+  const hint: React.CSSProperties = {
+    display: 'block', marginTop: 6,
+    fontSize: 'var(--text-xs)', color: 'var(--text-muted)',
+  }
 
   return (
     <div>
@@ -223,6 +239,56 @@ export default function OfferCardDetail({
             <div style={{ ...field, marginBottom: 0 }}>
               <label>Offer Description</label>
               <textarea name="offer_description" defaultValue={card.offer_description ?? ''} rows={4} style={{ resize: 'vertical' }} placeholder="The full mechanics and angle of this offer…" />
+            </div>
+          </section>
+
+          {/* Rationale — why this offer exists and how it gets judged. All
+              optional: cards are auto-generated empty and a half-written draft
+              must stay saveable. */}
+          <section className="card" style={{ marginBottom: 16 }}>
+            <h2 style={sectionTitle}>Rationale</h2>
+
+            <div style={field}>
+              <label>Problem we&apos;re solving</label>
+              <textarea
+                name="problem_statement"
+                defaultValue={card.problem_statement ?? ''}
+                rows={2}
+                style={{ resize: 'vertical' }}
+                placeholder="The specific problem this moment exists to solve — two lines is plenty."
+              />
+            </div>
+
+            <div style={field}>
+              <label>How we&apos;ll judge it</label>
+              <div className="form-grid-2">
+                <input
+                  type="text"
+                  name="success_metric"
+                  defaultValue={card.success_metric ?? ''}
+                  placeholder="e.g. Purchase conversion rate"
+                />
+                <input
+                  type="number"
+                  name="success_target"
+                  step="any"
+                  defaultValue={card.success_target ?? ''}
+                  placeholder="Target — e.g. 3.5"
+                />
+              </div>
+              <span style={hint}>The metric, and the number that means it worked.</span>
+            </div>
+
+            <div style={{ ...field, marginBottom: 0 }}>
+              <label>Guardrails</label>
+              <textarea
+                name="guardrails"
+                defaultValue={card.guardrails ?? ''}
+                rows={4}
+                style={{ resize: 'vertical' }}
+                placeholder={'Never discount below 20% margin\nNo sitewide code — collection only\nStays off the homepage hero'}
+              />
+              <span style={hint}>One per line.</span>
             </div>
           </section>
 

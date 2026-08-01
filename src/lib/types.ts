@@ -389,6 +389,14 @@ export interface OfferCard {
   competitor_reference: string | null
   client_ad_inspiration: string | null
   product_images_link: string | null
+  // Brief rationale — why this offer exists and how it gets judged. Offer-only
+  // (no matching column on projects), so these do not flow to the Production
+  // Brief on approval. Optional at every stage.
+  problem_statement: string | null
+  success_metric: string | null
+  success_target: number | null
+  // One guardrail per line.
+  guardrails: string | null
   // Production card auto-created on approval (Phase 3). Null until then.
   derived_production_card_id: string | null
   created_at: string
