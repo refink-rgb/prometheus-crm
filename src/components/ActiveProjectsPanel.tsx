@@ -46,7 +46,8 @@ function classify(p: ProjectWithBrand): GroupKey | null {
   if (days !== null && days >= 0 && days <= 7 && !p.is_complete) return 'due_this_week'
   // Client left feedback and a track moved to Revisions — the team owes an edit.
   if (p.lp_stage === 'revisions' || p.creatives_stage === 'revisions') return 'revisions'
-  if ((p.lp_approved && p.lp_stage !== 'done') || (p.creatives_approved && p.creatives_stage !== 'done')) {
+  // Client approved a track but it hasn't shipped yet — the ball is with us.
+  if ((p.lp_approved && p.lp_stage !== 'live') || (p.creatives_approved && p.creatives_stage !== 'live')) {
     return 'client_waiting_on_us'
   }
   if (p.lp_stage === 'client_review' || p.creatives_stage === 'client_review') return 'in_client_review'

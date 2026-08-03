@@ -1,6 +1,12 @@
 import type { CaseStudy } from '@/data/case-studies/types'
 
-export type Stage = 'brief' | 'in_progress' | 'internal_review' | 'client_review' | 'revisions' | 'live' | 'done'
+// 'live' is the terminal track stage. There is no 'done' stage — archiving is a
+// project-level concern (`projects.is_complete`, set by markProjectComplete),
+// not a seventh column. Removed 2026-08-02: the old Done column only ever held
+// cards that had shipped but hadn't been archived yet, so it duplicated 'live'.
+// Historical `pipeline_events` rows still carry to_stage='done'; those are read
+// through normalizeStage()/the insights label map, never through this type.
+export type Stage = 'brief' | 'in_progress' | 'internal_review' | 'client_review' | 'revisions' | 'live'
 
 export type PipelineStatus = 'intro_contact' | 'discovery_call' | 'offer_prep' | 'active'
 
@@ -423,10 +429,20 @@ export const STAGE_LABELS: Record<Stage, string> = {
   client_review:   'Client Review',
   revisions:       'Revisions',
   live:            'Live',
-  done:            'Done',
 }
 
-export const STAGE_ORDER: Stage[] = ['brief', 'in_progress', 'internal_review', 'client_review', 'revisions', 'live', 'done']
+export const STAGE_ORDER: Stage[] = ['brief', 'in_progress', 'internal_review', 'client_review', 'revisions', 'live']
+
+// Read guard for stage values coming out of the database. Rows written before
+// the Done stage was retired still hold 'done' until the 20260802 migration is
+// run, and archived projects are still browsable, so anything reading a stage
+// off a row funnels through here rather than trusting the column blindly. An
+// unknown value falls back to 'brief' so a bad row renders instead of crashing
+// a lookup into STAGE_COLORS/STAGE_PCT.
+export function normalizeStage(value: string | null | undefined): Stage {
+  if (value === 'done') return 'live'
+  return STAGE_ORDER.includes(value as Stage) ? (value as Stage) : 'brief'
+}
 
 // --- Billing (financials ledger) ---------------------------------------------
 // Row shapes for billing_subscriptions / billing_periods (migration

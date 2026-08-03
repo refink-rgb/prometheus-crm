@@ -3,7 +3,7 @@
 import { useOptimistic, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { updateProjectStage } from '@/lib/actions'
-import { STAGE_ORDER, STAGE_LABELS, STAGE_COLORS, type Stage } from '@/lib/stageColors'
+import { STAGE_ORDER, STAGE_LABELS, STAGE_COLORS, normalizeStage, type Stage } from '@/lib/stageColors'
 
 interface StageTrackerProps {
   projectId: string
@@ -24,8 +24,12 @@ export default function StageTracker({
 }: StageTrackerProps) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
+  // An archived project still renders this tracker (disabled), and rows written
+  // before the Done stage was retired hold 'done' until the migration runs —
+  // which would index STAGE_COLORS/STAGE_ORDER out of range and blow up the
+  // render. Normalize on the way in so old projects stay fully viewable.
   const [optimisticStage, setOptimisticStage] = useOptimistic(
-    currentStage,
+    normalizeStage(currentStage),
     (_current: Stage, newStage: Stage) => newStage
   )
   const optimisticIndex = STAGE_ORDER.indexOf(optimisticStage)

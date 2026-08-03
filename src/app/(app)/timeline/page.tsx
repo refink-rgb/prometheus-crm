@@ -54,8 +54,9 @@ export default async function TimelinePage({
   // FK comes back as an object. Route through `unknown` like the rest of the app.
   const all = ((raw ?? []) as unknown) as TimelineProject[]
 
-  // Drop projects where both tracks have already shipped (live/done) — they
-  // have no stage left to exit and would only add noise.
+  // Drop projects where both tracks have already shipped — they have no stage
+  // left to exit and would only add noise. 'done' is still matched for rows
+  // written before that stage was retired (pre-migration).
   const shipped = (s: string) => s === 'live' || s === 'done'
   const projects = all.filter(p => !(shipped(p.lp_stage) && shipped(p.creatives_stage)))
 

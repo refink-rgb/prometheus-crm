@@ -362,7 +362,10 @@ const STAGE_LABELS: Record<string, string> = {
   client_review: 'Client Review',
   revisions: 'Revisions',
   live: 'Live',
-  done: 'Done',
+  // 'done' is retired as a stage, but pipeline_events is append-only and still
+  // holds historical to_stage='done' rows. Keep the label so past cycles read
+  // correctly in the charts instead of falling through to the raw key.
+  done: 'Done (retired)',
 }
 function stageLabel(key: string): string {
   return STAGE_LABELS[key] ?? key

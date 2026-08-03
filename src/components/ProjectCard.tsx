@@ -133,8 +133,8 @@ function UrgencyBadge({
     return (
       <span style={{
         ...base,
-        background: 'var(--stage-done-bg)',
-        color: 'var(--stage-done-text)',
+        background: 'var(--complete-bg)',
+        color: 'var(--complete-text)',
         border: '1px solid color-mix(in srgb, #10B981 30%, transparent)',
       }}>
         ✓ Complete

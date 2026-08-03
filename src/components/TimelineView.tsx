@@ -18,9 +18,9 @@ import {
 // track's own exits only — mirroring the pipeline board's track toggle.
 type TrackFilter = 'both' | 'lp' | 'creative'
 
-// Stages a row can be plotted in. 'done' never appears (those projects are
-// filtered out server-side); 'revisions' is included so a revisions row can't
-// be silently dropped by the stage filter.
+// Stages a row can be plotted in. Shipped projects are filtered out
+// server-side; 'revisions' is included so a revisions row can't be silently
+// dropped by the stage filter.
 const FILTERABLE_STAGES: Stage[] = [
   'brief', 'in_progress', 'internal_review', 'client_review', 'revisions', 'live',
 ]
@@ -117,7 +117,7 @@ export default function TimelineView({
     .filter(project => {
       if (track === 'both') return true
       const s = track === 'lp' ? project.lp_stage : project.creatives_stage
-      return !(s === 'live' || s === 'done')
+      return s !== 'live'
     })
     .map(project => ({
       project,

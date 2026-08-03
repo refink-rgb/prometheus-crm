@@ -46,10 +46,11 @@
   --stage-live-bg:      rgba(101, 163, 13, 0.16);
   --stage-live-text:    #A3E635;
 
-  /* Stage 6: Done */
-  --stage-done:         #10B981;
-  --stage-done-bg:      rgba(16, 185, 129, 0.16);
-  --stage-done-text:    #34D399;
+  /* Complete (archived project) — not a stage. Kept emerald, distinct from
+     Live's lime, so "shipped" and "archived" never read as the same state. */
+  --complete:           #10B981;
+  --complete-bg:        rgba(16, 185, 129, 0.16);
+  --complete-text:      #34D399;
 
   /* ── Urgency ── */
   --urgent-overdue:     #EF4444;
@@ -155,7 +156,7 @@ html.theme-light {
   --stage-internal-bg:  rgba(99, 102, 241, 0.14);
   --stage-client-bg:    rgba(245, 158, 11, 0.18);
   --stage-live-bg:      rgba(101, 163, 13, 0.18);
-  --stage-done-bg:      rgba(16, 185, 129, 0.16);
+  --complete-bg:        rgba(16, 185, 129, 0.16);
 
   /* Stage text on light: use the darker border color (was tuned for dark). */
   --stage-brief-text:   #475569;
@@ -163,7 +164,7 @@ html.theme-light {
   --stage-internal-text:#4338ca;
   --stage-client-text:  #b45309;
   --stage-live-text:    #4d7c0f;
-  --stage-done-text:    #047857;
+  --complete-text:      #047857;
 
   --urgent-overdue-bg:  rgba(239, 68, 68, 0.12);
   --urgent-soon-bg:     rgba(249, 115, 22, 0.14);

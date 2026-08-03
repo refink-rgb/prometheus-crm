@@ -49,12 +49,14 @@ function KanbanCardInner({ p, isGhost = false, columnStage, onMove, editorsById 
   const isOverdue = isProjectOverdue(p.due_date, p.is_complete, p.lp_stage, p.creatives_stage)
 
   // Phase target date: the deadline for the column this card sits in (the
-  // constraining track's stage). Live/done have no phase date — those cards
+  // constraining track's stage). Revisions/Live have no phase date — those cards
   // show only the go-live anchor. `columnStage` is absent on the drag overlay.
   const phaseField = columnStage ? STAGE_DUE_FIELD[columnStage] : null
   const phaseDate = phaseField ? ((p[phaseField as keyof Project] as string | null) ?? null) : null
 
-  const progress = Math.round(((lpIdx + crIdx) / (5 * 2)) * 100)
+  // Derived from STAGE_ORDER so removing/adding a stage can't leave this
+  // hardcoded denominator wrong (it silently was, when Done existed).
+  const progress = Math.round(((lpIdx + crIdx) / ((STAGE_ORDER.length - 1) * 2)) * 100)
 
   const stageKey = STAGE_ORDER[cardIdx]
   const leftBorderColor = isOverdue ? 'var(--danger)' : STAGE_COLORS[stageKey].border

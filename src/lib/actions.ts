@@ -298,8 +298,8 @@ export async function updateProjectStagesBoth(
 // Inline edit of a single stage's target date from the pipeline board, so a PM
 // can set/clear a phase deadline without opening the project. Manual by design
 // — the board is where these dates get managed. Pass `date` as YYYY-MM-DD, or
-// null to clear. Only the four in-flight stages carry a date column; live/done
-// are rejected.
+// null to clear. Only the four in-flight stages carry a date column;
+// revisions/live are rejected.
 const STAGE_DUE_COLUMN: Partial<Record<Stage, string>> = {
   brief:           'stage_brief_due_date',
   in_progress:     'stage_in_progress_due_date',
@@ -391,13 +391,20 @@ export async function markProjectComplete(projectId: string, brandId: string) {
     ? (await supabase.from('projects').select('lp_stage, creatives_stage, marketing_moment').eq('id', projectId).single()).data
     : null
 
+  // Completing archives the project; it does NOT invent a terminal stage. Both
+  // tracks are already at 'live' (the button only appears then), and pinning
+  // them to 'live' keeps a completed project readable — it stays a normal
+  // project row with its real stages, deliverables and history intact, just
+  // filtered out of the in-flight boards by is_complete.
   const { error } = await supabase
     .from('projects')
-    .update({ is_complete: true, lp_stage: 'done', creatives_stage: 'done' })
+    .update({ is_complete: true, lp_stage: 'live', creatives_stage: 'live' })
     .eq('id', projectId)
 
-  if (!error && prev) {
-    await logEvents(bothTrackStageEvents(projectId, brandId, prev, 'done', actorFromUser(user)))
+  if (error) throw new Error(error.message)
+
+  if (prev) {
+    await logEvents(bothTrackStageEvents(projectId, brandId, prev, 'live', actorFromUser(user)))
   }
 
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)

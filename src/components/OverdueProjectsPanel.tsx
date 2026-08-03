@@ -46,7 +46,7 @@ export default function OverdueProjectsPanel({ projects }: OverdueProjectsPanelP
           background: 'var(--surface)',
           border: '1px solid var(--border)',
           borderRadius: 12,
-          color: 'var(--stage-done-text)',
+          color: 'var(--complete-text)',
           fontSize: 14,
           fontWeight: 600,
           textAlign: 'center',

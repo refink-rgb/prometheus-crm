@@ -11,7 +11,7 @@ import RevisionsToggle from '@/components/RevisionsToggle'
 import NotesThread from '@/components/NotesThread'
 import ClientFeedbackPanel from '@/components/ClientFeedbackPanel'
 import type { Project, Brand, ProjectImage, Journey, CreativeAsset, ProjectComment } from '@/lib/types'
-import { calcDaysUntil, isProjectOverdue, overallProgress, parseDueDate } from '@/lib/stageColors'
+import { calcDaysUntil, isProjectLive, isProjectOverdue, overallProgress, parseDueDate } from '@/lib/stageColors'
 import ProjectEditForm from '@/components/ProjectEditForm'
 import OpenEditFormButton from '@/components/OpenEditFormButton'
 import CopyDeckPanel from '@/components/CopyDeckPanel'
@@ -93,7 +93,9 @@ export default async function ProjectPage({
   const isOverdue = isProjectOverdue(p.due_date, p.is_complete, p.lp_stage, p.creatives_stage)
   const dueStr = due ? due.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '—'
 
-  const bothDone = p.lp_stage === 'done' && p.creatives_stage === 'done'
+  // Both tracks shipped = the project is ready to archive. This used to require
+  // both tracks at the Done stage; Live is now terminal, so Live is the gate.
+  const bothLive = isProjectLive(p.lp_stage, p.creatives_stage)
   const overallPct = overallProgress(p.lp_stage, p.creatives_stage)
 
   // Per-stage planning targets (informational). Live = the launch due_date.
@@ -141,7 +143,7 @@ export default async function ProjectPage({
                   </span>
                 )}
                 {p.is_complete && (
-                  <span style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--stage-done-text)', background: 'var(--stage-done-bg)', border: '1px solid color-mix(in srgb, #10B981 30%, transparent)', padding: '2px 8px', borderRadius: 20 }}>
+                  <span style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--complete-text)', background: 'var(--complete-bg)', border: '1px solid color-mix(in srgb, #10B981 30%, transparent)', padding: '2px 8px', borderRadius: 20 }}>
                     ✓ Complete
                   </span>
                 )}
@@ -207,14 +209,14 @@ export default async function ProjectPage({
               <div style={{
                 height: '100%',
                 width: `${overallPct}%`,
-                background: overallPct === 100 ? 'var(--stage-done)' : 'var(--accent)',
+                background: overallPct === 100 ? 'var(--complete)' : 'var(--accent)',
                 transition: 'width 0.4s ease',
               }} />
             </div>
             <span style={{
               fontSize: 'var(--text-base)',
               fontWeight: 700,
-              color: overallPct === 100 ? 'var(--stage-done-text)' : 'var(--text-primary)',
+              color: overallPct === 100 ? 'var(--complete-text)' : 'var(--text-primary)',
               minWidth: 40,
               textAlign: 'right',
             }}>
@@ -264,7 +266,7 @@ export default async function ProjectPage({
           </div>
 
           {/* Mark complete banner */}
-          {!p.is_complete && bothDone && isAuthorized && (
+          {!p.is_complete && bothLive && isAuthorized && (
             <div style={{
               marginTop: 'var(--space-5)',
               background: 'rgba(16,185,129,0.08)',
@@ -274,18 +276,19 @@ export default async function ProjectPage({
               display: 'flex', alignItems: 'center', gap: 'var(--space-4)', flexWrap: 'wrap',
             }}>
               <div style={{ flex: 1, minWidth: 200 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--stage-done-text)', marginBottom: 2 }}>
-                  Both tracks are done
+                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--complete-text)', marginBottom: 2 }}>
+                  Both tracks are live
                 </div>
                 <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
-                  Mark complete to archive and surface deliverables.
+                  Mark complete to archive and surface deliverables. The project
+                  stays here — nothing is deleted.
                 </div>
               </div>
               <form action={markProjectComplete.bind(null, projectId, brandId)}>
                 <SubmitButton
                   pendingText="Marking complete…"
                   style={{
-                    background: 'var(--stage-done)',
+                    background: 'var(--complete)',
                     color: '#fff',
                     border: 'none',
                     borderRadius: 8,
@@ -312,7 +315,7 @@ export default async function ProjectPage({
               borderRadius: 10,
               padding: '12px 16px',
               fontSize: 'var(--text-base)',
-              color: 'var(--stage-done-text)',
+              color: 'var(--complete-text)',
               fontWeight: 600,
             }}>
               🎉 Project complete — all deliverables are below.

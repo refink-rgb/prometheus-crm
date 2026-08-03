@@ -28,8 +28,10 @@ CREATE TABLE IF NOT EXISTS projects (
   target_audience TEXT,
   notes TEXT,
   assigned_designer TEXT,
-  lp_stage TEXT DEFAULT 'brief' CHECK (lp_stage IN ('brief','in_progress','internal_review','client_review','live','done')),
-  creatives_stage TEXT DEFAULT 'brief' CHECK (creatives_stage IN ('brief','in_progress','internal_review','client_review','live','done')),
+  -- Current allowed set (see 20260723_add_revisions_stage.sql and
+  -- 20260802_remove_done_stage.sql): 'live' is terminal, archiving is is_complete.
+  lp_stage TEXT DEFAULT 'brief' CHECK (lp_stage IN ('brief','in_progress','internal_review','client_review','revisions','live')),
+  creatives_stage TEXT DEFAULT 'brief' CHECK (creatives_stage IN ('brief','in_progress','internal_review','client_review','revisions','live')),
   lp_url TEXT,
   creatives_notes TEXT,
   shopify_coupon_code TEXT,
