@@ -148,10 +148,13 @@ export async function synthesizeBrandDna(
 }
 
 /**
- * One detected brand mark, as Gemini reports boxes: [ymin, xmin, ymax, xmax]
- * normalized to 0–1000 of the image passed in.
+ * One detected brand mark. Edges are NAMED rather than a positional array:
+ * the conventional `box_2d` tuple is [ymin, xmin, ymax, xmax], y before x,
+ * and reading it in the other order silently rotates every region 90° — wide
+ * lines of text come back as tall narrow bars. Naming the axes removes the
+ * chance of that entirely. All values are 0–1000 of the image passed in.
  */
-export type DetectedMark = { box: [number, number, number, number]; what: string }
+export type DetectedMark = { x0: number; y0: number; x1: number; y1: number; what: string }
 
 /**
  * Locate every visible occurrence of a brand's identity in an image, so the
@@ -178,9 +181,11 @@ Include occurrences that are small, blurry, partly hidden, low-contrast, cropped
 
 Do NOT box sub-brand or product names that do not contain "${brandName}".
 
+Box each occurrence TIGHTLY — the smallest rectangle that still contains the whole mark. Do not include the surrounding graphic, card, photo or paragraph it sits in. A line of text is a wide, short box.
+
 Return JSON only:
-{"marks":[{"box_2d":[ymin,xmin,ymax,xmax],"what":"short neutral description of where it is, e.g. 'headline text' or 'logo bottom right'"}]}
-Coordinates normalized 0-1000 relative to this image. Return {"marks":[]} if there are none.`
+{"marks":[{"left":0,"top":0,"right":0,"bottom":0,"what":"short neutral description, e.g. 'headline text' or 'logo bottom right'"}]}
+where left/right are horizontal distances from the LEFT edge and top/bottom are vertical distances from the TOP edge, each 0-1000 of this image's width and height respectively. Return {"marks":[]} if there are none.`
 
   const res = await ai.models.generateContent({
     model: MODEL,
@@ -193,17 +198,44 @@ Coordinates normalized 0-1000 relative to this image. Return {"marks":[]} if the
   const text = res.text ?? ''
   if (!text.trim()) return []
 
-  let parsed: { marks?: { box_2d?: number[]; what?: string }[] }
+  type RawMark = {
+    left?: number
+    top?: number
+    right?: number
+    bottom?: number
+    /** Older/again-conventional shape, kept so a stray tuple still parses. */
+    box_2d?: number[]
+    what?: string
+  }
+  let parsed: { marks?: RawMark[] }
   try {
     parsed = JSON.parse(text)
   } catch {
     throw new Error('Gemini brand-mark detection returned invalid JSON.')
   }
 
-  return (parsed.marks ?? []).flatMap((m) => {
-    const b = m.box_2d
-    if (!Array.isArray(b) || b.length !== 4 || b.some((n) => typeof n !== 'number')) return []
-    return [{ box: b as [number, number, number, number], what: m.what ?? 'brand mark' }]
+  const num = (n: unknown): number | null =>
+    typeof n === 'number' && Number.isFinite(n) ? Math.max(0, Math.min(1000, n)) : null
+
+  return (parsed.marks ?? []).flatMap((m): DetectedMark[] => {
+    let edges: (number | null)[]
+    if (m.box_2d && Array.isArray(m.box_2d) && m.box_2d.length === 4) {
+      // Tuple form is y-first by convention.
+      const [ymin, xmin, ymax, xmax] = m.box_2d
+      edges = [num(xmin), num(ymin), num(xmax), num(ymax)]
+    } else {
+      edges = [num(m.left), num(m.top), num(m.right), num(m.bottom)]
+    }
+    if (edges.some((n) => n === null)) return []
+    const [a, b, c, d] = edges as number[]
+    // Sort each axis: a model that reports edges reversed should not produce a
+    // negative-size region that later reads as zero.
+    const x0 = Math.min(a, c)
+    const x1 = Math.max(a, c)
+    const y0 = Math.min(b, d)
+    const y1 = Math.max(b, d)
+    if (x1 <= x0 || y1 <= y0) return []
+    return [{ x0, y0, x1, y1, what: m.what ?? 'brand mark' }]
   })
 }
 

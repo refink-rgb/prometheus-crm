@@ -48,6 +48,8 @@ const PAD_MIN_PCT = 0.12
 const BLUR_RATIO = 0.5
 const BLUR_MIN_CQW = 0.4
 const BLUR_MAX_CQW = 4
+/** Largest share of a tile one mark may claim before it is treated as a miss. */
+const MAX_REGION_AREA = 0.12
 
 type Tile = { buffer: Buffer; topPct: number; heightPct: number }
 
@@ -180,19 +182,28 @@ export async function scanImageForBrandMarks(url: string, brandName: string): Pr
   const { tiles, aspect } = await toTiles(input)
   const perTile = await mapWithLimit(tiles, MAX_CONCURRENCY, async (tile) => {
     const marks = await detectBrandMarks(tile.buffer.toString('base64'), 'image/jpeg', brandName)
-    return marks.map(({ box: [ymin, xmin, ymax, xmax], what }) =>
-      pad(
-        {
-          xPct: clamp((xmin / 1000) * 100),
-          // Box coordinates are relative to the tile — rebase onto the full image.
-          yPct: clamp(tile.topPct + (ymin / 1000) * tile.heightPct),
-          wPct: clamp(((xmax - xmin) / 1000) * 100),
-          hPct: clamp(((ymax - ymin) / 1000) * tile.heightPct),
-          note: what,
-        },
-        aspect,
-      ),
-    )
+    return marks
+      .filter(({ x0, y0, x1, y1 }) => {
+        // A brand mark is never a third of the frame. Anything that big is the
+        // model boxing the card, photo or paragraph the mark sits in, and
+        // blurring it would swallow the very thing the page is showing off.
+        const area = ((x1 - x0) / 1000) * ((y1 - y0) / 1000)
+        return area <= MAX_REGION_AREA
+      })
+      .map(({ x0, y0, x1, y1, what }) =>
+        pad(
+          {
+            xPct: clamp((x0 / 1000) * 100),
+            // Vertical values are relative to the TILE — rebase onto the full
+            // image. Horizontal values already span the full width.
+            yPct: clamp(tile.topPct + (y0 / 1000) * tile.heightPct),
+            wPct: clamp(((x1 - x0) / 1000) * 100),
+            hPct: clamp(((y1 - y0) / 1000) * tile.heightPct),
+            note: what,
+          },
+          aspect,
+        ),
+      )
   })
 
   return merge(perTile.flat().filter((r) => r.wPct > 0 && r.hPct > 0)).map((r) => ({
