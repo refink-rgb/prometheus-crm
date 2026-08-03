@@ -403,6 +403,9 @@ export interface OfferCard {
   success_target: number | null
   // One guardrail per line.
   guardrails: string | null
+  // The message sent to the client to get this offer approved. Generated from
+  // the fields above, then hand-edited before sending. Null = never generated.
+  client_approval_message: string | null
   // Production card auto-created on approval (Phase 3). Null until then.
   derived_production_card_id: string | null
   created_at: string

@@ -11,9 +11,14 @@ import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { canEdit } from '@/lib/permissions'
-import { offerCardName, OFFER_STAGE_ORDER, type OfferStage } from '@/lib/types'
+import { offerCardName, offerMonthLabel, OFFER_STAGE_ORDER, type OfferStage } from '@/lib/types'
 import { actorFromUser, eventsEnabled, logEvents, type PipelineEventInput } from '@/lib/events'
 import { autoCreateEnabled, createProductionCardFromOffer } from '@/lib/offer-to-production'
+import {
+  canGenerateApprovalMessage,
+  generateApprovalMessageText,
+  type ApprovalMessageInput,
+} from '@/lib/ai/approval-message'
 
 async function requireEditor() {
   const supabase = await createClient()
@@ -187,6 +192,110 @@ export async function updateOfferDetails(
 
   revalidatePath(`/offers/${cardId}`)
   revalidatePath('/offers')
+}
+
+// Generate the client approval message from the card's own fields.
+//
+// Returns the text as well as writing it, so the client component can drop it
+// straight into its textarea without waiting on a refresh round-trip. Any
+// message already saved is overwritten — the button is explicitly a regenerate,
+// and the UI warns before firing it over hand-edited text.
+export async function generateApprovalMessage(
+  cardId: string,
+): Promise<{ text: string; unverifiedNumbers: string[] }> {
+  const { supabase } = await requireEditor()
+
+  const { data: card, error: cardErr } = await supabase
+    .from('offer_cards')
+    // Single line on purpose — PostgREST parses this string literally, and
+    // every other select in the codebase follows the same convention.
+    .select('brand_id, target_month, offer_dynamics_type, offer, offer_description, product_featured, product_description, retail_price, page_type, problem_statement, success_metric, success_target, guardrails, competitor_reference, brands(name)')
+    .eq('id', cardId)
+    .single()
+  if (cardErr || !card) throw new Error('Offer card not found.')
+
+  // Brand DNA is optional context — a brand with no DNA record still gets a
+  // message, it just won't reference their positioning.
+  const { data: dna } = await supabase
+    .from('brand_dna')
+    .select('positioning, core_value_prop, price_anchor')
+    .eq('brand_id', card.brand_id)
+    .eq('is_active', true)
+    .maybeSingle()
+
+  const row = card as unknown as {
+    target_month: string
+    offer_dynamics_type: string | null
+    offer: string | null
+    offer_description: string | null
+    product_featured: string | null
+    product_description: string | null
+    retail_price: string | null
+    page_type: string | null
+    problem_statement: string | null
+    success_metric: string | null
+    success_target: number | null
+    guardrails: string | null
+    competitor_reference: string | null
+    brands: { name: string } | null
+  }
+
+  const input: ApprovalMessageInput = {
+    brandName: row.brands?.name ?? 'the brand',
+    monthLabel: offerMonthLabel(row.target_month),
+    offerDynamicsType: row.offer_dynamics_type,
+    offer: row.offer,
+    offerDescription: row.offer_description,
+    productFeatured: row.product_featured,
+    productDescription: row.product_description,
+    retailPrice: row.retail_price,
+    pageType: row.page_type,
+    problemStatement: row.problem_statement,
+    successMetric: row.success_metric,
+    successTarget: row.success_target,
+    guardrails: row.guardrails,
+    competitorReference: row.competitor_reference,
+    positioning: dna?.positioning ?? null,
+    coreValueProp: dna?.core_value_prop ?? null,
+    priceAnchor: dna?.price_anchor ?? null,
+  }
+
+  if (!canGenerateApprovalMessage(input)) {
+    throw new Error('Fill in the offer first — there\'s nothing here to build a message from yet.')
+  }
+
+  const { text, unverifiedNumbers } = await generateApprovalMessageText(input)
+
+  const { error } = await supabase
+    .from('offer_cards')
+    .update({ client_approval_message: text })
+    .eq('id', cardId)
+  if (error) throw new Error(`Message generated but failed to save: ${error.message}`)
+
+  // Logged as well as surfaced: a card that repeatedly trips the check is a
+  // signal the prompt needs work, and that only shows up in aggregate.
+  if (unverifiedNumbers.length) {
+    console.warn(`[approval-message] card ${cardId}: unverified figures ${unverifiedNumbers.join(', ')}`)
+  }
+
+  revalidatePath(`/offers/${cardId}`)
+  return { text, unverifiedNumbers }
+}
+
+// Persist a hand-edited message. Separate from updateOfferDetails so saving the
+// message never depends on the offer form being valid, and vice versa — they're
+// edited at different moments by different people.
+export async function saveApprovalMessage(cardId: string, message: string) {
+  const { supabase } = await requireEditor()
+
+  const trimmed = message.trim()
+  const { error } = await supabase
+    .from('offer_cards')
+    .update({ client_approval_message: trimmed || null })
+    .eq('id', cardId)
+  if (error) throw new Error(`Failed to save message: ${error.message}`)
+
+  revalidatePath(`/offers/${cardId}`)
 }
 
 export async function deleteOfferCard(cardId: string) {

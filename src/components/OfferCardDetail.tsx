@@ -22,6 +22,13 @@ import {
 import { OFFER_STAGE_COLORS } from '@/lib/stageColors'
 import { assignOfferCard, deleteOfferCard, updateOfferDetails, updateOfferStage } from '@/lib/offer-actions'
 import Avatar from '@/components/Avatar'
+import ClientApprovalMessage from '@/components/ClientApprovalMessage'
+
+// Stages where the approval message is part of the job. Before Internal Review
+// the offer isn't settled enough to write to a client about.
+const APPROVAL_MESSAGE_STAGES: OfferStage[] = [
+  'internal_offer_review', 'client_review', 'offer_approved',
+]
 
 const OFFER_DYNAMICS_OPTIONS = [
   'Percentage Discount',
@@ -54,6 +61,8 @@ export default function OfferCardDetail({
 
   const stageColor = OFFER_STAGE_COLORS[card.stage]
   const ownerProfile = owner ? assignees.find(p => p.id === owner) : undefined
+  const showApprovalMessage =
+    APPROVAL_MESSAGE_STAGES.includes(card.stage) || Boolean(card.client_approval_message)
 
   function setStage(stage: OfferStage) {
     setError(null)
@@ -350,6 +359,20 @@ export default function OfferCardDetail({
           )}
         </fieldset>
       </form>
+
+      {/* Approval message — sits outside the offer form (its own actions, and
+          nested forms are invalid). Appears once the offer is past drafting, or
+          any time a message already exists so an approved card keeps its
+          record of what was actually sent. */}
+      {showApprovalMessage && (
+        <div style={{ marginTop: 16 }}>
+          <ClientApprovalMessage
+            cardId={card.id}
+            initialMessage={card.client_approval_message}
+            isEditor={isEditor}
+          />
+        </div>
+      )}
 
       {isEditor && (
         <div style={{ marginTop: 36, paddingTop: 16, borderTop: '1px solid var(--border)' }}>

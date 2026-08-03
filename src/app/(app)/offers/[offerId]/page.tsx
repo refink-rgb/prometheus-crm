@@ -8,6 +8,10 @@ import OfferCardDetail from '@/components/OfferCardDetail'
 
 type OfferWithBrand = OfferCard & { brands: { id: string; name: string } }
 
+// The approval-message generation runs as a server action on this route and
+// takes ~10s against Gemini — comfortably over Vercel's default timeout.
+export const maxDuration = 60
+
 export default async function OfferPage({
   params,
 }: {
