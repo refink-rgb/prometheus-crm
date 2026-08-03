@@ -1,7 +1,12 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import { generateMarketingReport, deleteMarketingReport } from '@/lib/marketing-actions'
+import {
+  generateMarketingReport,
+  deleteMarketingReport,
+  listReportScanTargets,
+  scanReportImage,
+} from '@/lib/marketing-actions'
 import { extractReportFromCaseStudy } from '@/lib/case-study-import'
 import { buildSlackMessage } from '@/lib/slackMessage'
 import type { CaseStudy } from '@/data/case-studies/types'
@@ -29,9 +34,17 @@ export default function GenerateReportPanel({
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState<'url' | 'slack' | null>(null)
-  // What the brand-mark scan blurred on this generation. Shown once, after a
-  // generate — the author should look at the page before sharing the link.
-  const [redaction, setRedaction] = useState<{ scanned: number; regions: number; failures: string[] } | null>(null)
+  // Progress of the brand-mark scan. It walks the report's images one server
+  // call at a time — a landing-page screenshot alone is a dozen vision calls,
+  // and doing the lot in one request runs the function out of time and memory.
+  const [scan, setScan] = useState<{
+    running: boolean
+    done: number
+    total: number
+    regions: number
+    current: string | null
+    errors: string[]
+  } | null>(null)
   // Slots extracted from an uploaded case study, used to seed the form.
   const [imported, setImported] = useState<ReportInputs | null>(null)
   const [importing, setImporting] = useState(false)
@@ -84,14 +97,48 @@ export default function GenerateReportPanel({
       }
       setToken(res.token)
       setData(res.caseStudy)
-      setRedaction(res.redaction ?? null)
       setImported(null)
       setMode('idle')
+      // The report is saved and live at this point; blurring runs after, so a
+      // scan failure never costs the author the form they just filled in.
+      void runScan()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to generate the report.')
     } finally {
       setSubmitting(false)
     }
+  }
+
+  // Walk every image in the stored report, blurring the brand out of each.
+  // Sequential on purpose: one image per request keeps each call well inside
+  // the serverless limit, and a failure names the image rather than the batch.
+  async function runScan() {
+    setScan({ running: true, done: 0, total: 0, regions: 0, current: null, errors: [] })
+
+    const list = await listReportScanTargets(projectId)
+    if (!list.ok) {
+      setScan({ running: false, done: 0, total: 0, regions: 0, current: null, errors: [list.message] })
+      return
+    }
+
+    let regions = 0
+    const errors: string[] = []
+    for (let i = 0; i < list.targets.length; i++) {
+      const t = list.targets[i]
+      setScan({ running: true, done: i, total: list.targets.length, regions, current: t.label, errors: [...errors] })
+      const res = await scanReportImage(projectId, t.key)
+      if (res.ok) regions += res.regions
+      else errors.push(`${t.label}: ${res.message}`)
+    }
+
+    setScan({
+      running: false,
+      done: list.targets.length,
+      total: list.targets.length,
+      regions,
+      current: null,
+      errors,
+    })
   }
 
   async function handleDelete() {
@@ -139,6 +186,16 @@ export default function GenerateReportPanel({
               <>
                 <button className="btn-secondary btn-sm" onClick={() => setMode('form')} disabled={submitting}>
                   Edit / regenerate
+                </button>
+                {/* Re-runnable on its own, so an existing report can be blurred
+                    without touching the copy or the numbers. */}
+                <button
+                  className="btn-secondary btn-sm"
+                  onClick={runScan}
+                  disabled={submitting || scan?.running}
+                  title="Find the brand name in the uploaded images and blur it"
+                >
+                  {scan?.running ? 'Blurring…' : 'Blur brand marks'}
                 </button>
                 <button className="btn-danger btn-sm" onClick={handleDelete} disabled={submitting}>
                   Remove
@@ -188,25 +245,42 @@ export default function GenerateReportPanel({
             </button>
           </div>
 
-          {redaction && (
+          {scan && (
             <div
               style={{
                 fontSize: 12,
-                lineHeight: 1.5,
-                color: redaction.failures.length ? 'var(--danger)' : 'var(--text-muted)',
+                lineHeight: 1.6,
+                color: scan.errors.length ? 'var(--danger)' : 'var(--text-muted)',
                 background: 'var(--surface-raised)',
                 border: '1px solid var(--border)',
                 borderRadius: 8,
                 padding: '8px 12px',
               }}
             >
-              {redaction.regions > 0
-                ? `Blurred ${redaction.regions} brand mark${redaction.regions === 1 ? '' : 's'} across ${redaction.scanned} image${redaction.scanned === 1 ? '' : 's'}.`
-                : `Scanned ${redaction.scanned} image${redaction.scanned === 1 ? '' : 's'} — no brand marks found.`}{' '}
-              {redaction.failures.length > 0 && (
-                <strong>Could not scan: {redaction.failures.join(', ')} — check these by hand. </strong>
+              {scan.running ? (
+                <>
+                  Blurring brand marks
+                  {scan.total > 0 && ` — image ${scan.done + 1} of ${scan.total}`}
+                  {scan.current && ` (${scan.current})`}…
+                </>
+              ) : (
+                <>
+                  {scan.regions > 0
+                    ? `Blurred ${scan.regions} brand mark${scan.regions === 1 ? '' : 's'} across ${scan.total} image${scan.total === 1 ? '' : 's'}.`
+                    : `Scanned ${scan.total} image${scan.total === 1 ? '' : 's'} — no brand marks found.`}{' '}
+                  Open the page and confirm before sharing the link.
+                </>
               )}
-              Open the page and confirm before sharing the link.
+              {scan.errors.length > 0 && (
+                <div style={{ marginTop: 6 }}>
+                  <strong>Not scanned — check these by hand:</strong>
+                  <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+                    {scan.errors.map((e, i) => (
+                      <li key={i}>{e}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           )}
 
