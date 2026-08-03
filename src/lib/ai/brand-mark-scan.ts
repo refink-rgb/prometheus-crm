@@ -24,9 +24,30 @@ const WORK_WIDTH = 1400
 const TILE_ASPECT = 1
 /** Tiles overlap so a mark straddling a cut is still whole in one of them. */
 const TILE_OVERLAP = 0.08
-/** Grow every box by this share of the image — models cut wordmarks fine. */
-const PAD_PCT = 1.2
 const MAX_CONCURRENCY = 4
+
+// Sizing. A redaction should read as deliberate and sit tight to the mark —
+// matching how the treated assets we already ship are done, where the patch
+// hugs the letterforms and stops. Padding proportional to the IMAGE (rather
+// than to the mark) is what made these read as smudges: a fixed 1.2% of a
+// 1632px creative is ~20px of halo on every side of a 35px line of text.
+
+/**
+ * Margin around a mark, as a share of the mark's HEIGHT — on both axes, so the
+ * margin is even in pixels. Scaling each axis by its own dimension instead
+ * overpads a wide line of text, adding more horizontal halo than it removes.
+ */
+const PAD_RATIO = 0.25
+/** Floor, as a share of the image, so a hairline box still gets some margin. */
+const PAD_MIN_PCT = 0.12
+/**
+ * Blur radius as a share of the mark's own height. Scaled to the mark so a
+ * word of body copy gets a small blur and a full logo gets a large one —
+ * a single radius for both is what drew the eye.
+ */
+const BLUR_RATIO = 0.5
+const BLUR_MIN_CQW = 0.4
+const BLUR_MAX_CQW = 4
 
 type Tile = { buffer: Buffer; topPct: number; heightPct: number }
 
@@ -42,9 +63,10 @@ type Tile = { buffer: Buffer; topPct: number; heightPct: number }
  * instead re-decodes it each time — for a 2940x17588 screenshot that is ~200MB
  * of pixels per tile, which is what exhausted the serverless function's memory.
  */
-async function toTiles(input: Buffer): Promise<Tile[]> {
+async function toTiles(input: Buffer): Promise<{ tiles: Tile[]; aspect: number }> {
   const meta = await sharp(input, { limitInputPixels: false }).metadata()
   if (!meta.width || !meta.height) throw new Error('Could not read image dimensions.')
+  const aspect = meta.height / meta.width
 
   const { data, info } = await sharp(input, { limitInputPixels: false })
     .resize({ width: Math.min(meta.width, WORK_WIDTH), withoutEnlargement: true })
@@ -75,23 +97,29 @@ async function toTiles(input: Buffer): Promise<Tile[]> {
       heightPct: (tileHeight / height) * 100,
     })
   }
-  return tiles
+  return { tiles, aspect }
 }
 
 function clamp(n: number): number {
   return Math.max(0, Math.min(100, n))
 }
 
-/** Pad a region and clip it to the image. */
-function pad(r: BlurRegion): BlurRegion {
-  const x = clamp(r.xPct - PAD_PCT)
-  const y = clamp(r.yPct - PAD_PCT)
+/**
+ * Pad a region and clip it to the image. `aspect` (height/width of the source)
+ * converts the mark's height into a share of the image's width, so the margin
+ * comes out the same number of pixels on both axes.
+ */
+function pad(r: BlurRegion, aspect: number): BlurRegion {
+  const px = Math.max(r.hPct * aspect * PAD_RATIO, PAD_MIN_PCT)
+  const py = Math.max(r.hPct * PAD_RATIO, PAD_MIN_PCT)
+  const x = clamp(r.xPct - px)
+  const y = clamp(r.yPct - py)
   return {
     ...r,
     xPct: x,
     yPct: y,
-    wPct: clamp(r.xPct + r.wPct + PAD_PCT) - x,
-    hPct: clamp(r.yPct + r.hPct + PAD_PCT) - y,
+    wPct: clamp(r.xPct + r.wPct + px) - x,
+    hPct: clamp(r.yPct + r.hPct + py) - y,
   }
 }
 
@@ -149,22 +177,30 @@ export async function scanImageForBrandMarks(url: string, brandName: string): Pr
   if (!res.ok) throw new Error(`Could not fetch asset (${res.status}).`)
   const input = Buffer.from(await res.arrayBuffer())
 
-  const tiles = await toTiles(input)
+  const { tiles, aspect } = await toTiles(input)
   const perTile = await mapWithLimit(tiles, MAX_CONCURRENCY, async (tile) => {
     const marks = await detectBrandMarks(tile.buffer.toString('base64'), 'image/jpeg', brandName)
     return marks.map(({ box: [ymin, xmin, ymax, xmax], what }) =>
-      pad({
-        xPct: clamp((xmin / 1000) * 100),
-        // Box coordinates are relative to the tile — rebase onto the full image.
-        yPct: clamp(tile.topPct + (ymin / 1000) * tile.heightPct),
-        wPct: clamp(((xmax - xmin) / 1000) * 100),
-        hPct: clamp(((ymax - ymin) / 1000) * tile.heightPct),
-        note: what,
-      }),
+      pad(
+        {
+          xPct: clamp((xmin / 1000) * 100),
+          // Box coordinates are relative to the tile — rebase onto the full image.
+          yPct: clamp(tile.topPct + (ymin / 1000) * tile.heightPct),
+          wPct: clamp(((xmax - xmin) / 1000) * 100),
+          hPct: clamp(((ymax - ymin) / 1000) * tile.heightPct),
+          note: what,
+        },
+        aspect,
+      ),
     )
   })
 
-  return merge(perTile.flat().filter((r) => r.wPct > 0 && r.hPct > 0))
+  return merge(perTile.flat().filter((r) => r.wPct > 0 && r.hPct > 0)).map((r) => ({
+    ...r,
+    // Sized after merging, so a fused box gets the radius its final size needs.
+    // `hPct` is a share of image HEIGHT; cqw is a share of container WIDTH.
+    blurCqw: +Math.min(BLUR_MAX_CQW, Math.max(BLUR_MIN_CQW, r.hPct * aspect * BLUR_RATIO)).toFixed(2),
+  }))
 }
 
 // ─── Addressing one image inside a stored report ─────────────────────────────

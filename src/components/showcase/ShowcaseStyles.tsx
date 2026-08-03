@@ -85,12 +85,14 @@ export default function ShowcaseStyles() {
 
 /* Redaction (see RedactedImage.tsx). The box is the container the regions are
    measured against; the px radius is the fallback for engines without cqw, so
-   an unsupported unit degrades to a weaker blur rather than to none at all. */
+   an unsupported unit degrades to a weaker blur rather than to none at all.
+   These are only the defaults — a scanned region carries its own radius, sized
+   to the mark, and sets it inline. */
 .${PE} .pe-blur-box { position:relative; container-type:inline-size; }
 .${PE} .pe-blur {
   position:absolute; pointer-events:none; user-select:none;
-  backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
-  backdrop-filter:blur(2.2cqw); -webkit-backdrop-filter:blur(2.2cqw);
+  backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
+  backdrop-filter:blur(1.4cqw); -webkit-backdrop-filter:blur(1.4cqw);
 }
 
 /* Entrance animation (respects reduced-motion below) */

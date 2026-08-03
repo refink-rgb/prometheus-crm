@@ -89,6 +89,12 @@ export interface BlurRegion {
   wPct: number
   /** 0–100, height as a share of the image. */
   hPct: number
+  /**
+   * Blur radius as a share of the rendered image's width (a `cqw`), sized to
+   * this mark rather than fixed, so a word of body copy is not smudged as hard
+   * as a full logo. Omitted → the stylesheet default.
+   */
+  blurCqw?: number
   /** What was detected here, for the author's benefit. Never the brand name. */
   note?: string
 }

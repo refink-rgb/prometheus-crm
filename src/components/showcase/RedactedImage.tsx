@@ -15,6 +15,10 @@ import type { BlurRegion } from '@/data/case-studies/types'
 // full-width landing-page screenshot. A fixed px fallback is declared first in
 // `ShowcaseStyles` for engines without container query units — never no blur.
 //
+// The radius travels with the region rather than being one value for the page:
+// a redaction should sit tight to the mark and read as deliberate, so a word of
+// body copy gets a light blur and a full logo a heavy one.
+//
 // IMPORTANT: percentages are of the IMAGE BOX. Only use these on an image that
 // fills its box without cropping (`object-fit: contain`, or `cover` where the
 // box and the file share an aspect ratio) — a crop would shift every region.
@@ -33,6 +37,14 @@ export function BlurRegions({ regions }: { regions?: BlurRegion[] | null }) {
             top: `${r.yPct}%`,
             width: `${r.wPct}%`,
             height: `${r.hPct}%`,
+            // Per-mark radius. An engine without container units drops this
+            // declaration as invalid and falls back to the class's px value.
+            ...(r.blurCqw
+              ? {
+                  backdropFilter: `blur(${r.blurCqw}cqw)`,
+                  WebkitBackdropFilter: `blur(${r.blurCqw}cqw)`,
+                }
+              : null),
           }}
         />
       ))}
