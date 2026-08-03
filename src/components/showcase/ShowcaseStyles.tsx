@@ -83,6 +83,16 @@ export default function ShowcaseStyles() {
 
 .${PE} :focus-visible { outline:2px solid var(--pe-teal); outline-offset:3px; border-radius:6px; }
 
+/* Redaction (see RedactedImage.tsx). The box is the container the regions are
+   measured against; the px radius is the fallback for engines without cqw, so
+   an unsupported unit degrades to a weaker blur rather than to none at all. */
+.${PE} .pe-blur-box { position:relative; container-type:inline-size; }
+.${PE} .pe-blur {
+  position:absolute; pointer-events:none; user-select:none;
+  backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
+  backdrop-filter:blur(2.2cqw); -webkit-backdrop-filter:blur(2.2cqw);
+}
+
 /* Entrance animation (respects reduced-motion below) */
 @keyframes peFadeUp { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
 .${PE} .pe-fade { animation:peFadeUp .5s ease both; }

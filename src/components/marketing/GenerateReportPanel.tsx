@@ -29,6 +29,9 @@ export default function GenerateReportPanel({
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState<'url' | 'slack' | null>(null)
+  // What the brand-mark scan blurred on this generation. Shown once, after a
+  // generate — the author should look at the page before sharing the link.
+  const [redaction, setRedaction] = useState<{ scanned: number; regions: number; failures: string[] } | null>(null)
   // Slots extracted from an uploaded case study, used to seed the form.
   const [imported, setImported] = useState<ReportInputs | null>(null)
   const [importing, setImporting] = useState(false)
@@ -81,6 +84,7 @@ export default function GenerateReportPanel({
       }
       setToken(res.token)
       setData(res.caseStudy)
+      setRedaction(res.redaction ?? null)
       setImported(null)
       setMode('idle')
     } catch (e) {
@@ -183,6 +187,28 @@ export default function GenerateReportPanel({
               {copied === 'url' ? '✓ Copied!' : 'Copy link'}
             </button>
           </div>
+
+          {redaction && (
+            <div
+              style={{
+                fontSize: 12,
+                lineHeight: 1.5,
+                color: redaction.failures.length ? 'var(--danger)' : 'var(--text-muted)',
+                background: 'var(--surface-raised)',
+                border: '1px solid var(--border)',
+                borderRadius: 8,
+                padding: '8px 12px',
+              }}
+            >
+              {redaction.regions > 0
+                ? `Blurred ${redaction.regions} brand mark${redaction.regions === 1 ? '' : 's'} across ${redaction.scanned} image${redaction.scanned === 1 ? '' : 's'}.`
+                : `Scanned ${redaction.scanned} image${redaction.scanned === 1 ? '' : 's'} — no brand marks found.`}{' '}
+              {redaction.failures.length > 0 && (
+                <strong>Could not scan: {redaction.failures.join(', ')} — check these by hand. </strong>
+              )}
+              Open the page and confirm before sharing the link.
+            </div>
+          )}
 
           {slackText && (
             <div>

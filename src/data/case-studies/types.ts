@@ -70,6 +70,29 @@ export interface Hotspot {
   body: string
 }
 
+/**
+ * A rectangle over an image that is blurred at render time — how a brand mark
+ * left in an uploaded asset gets suppressed WITHOUT destroying the original
+ * file (so a region can be re-authored or removed later). Coordinates are a
+ * percentage of the rendered image box, so they hold at any viewport size and
+ * in the lightbox as well as the thumbnail.
+ *
+ * Authored automatically by the brand-mark scan at generation time
+ * (`src/lib/ai/brand-mark-scan.ts`).
+ */
+export interface BlurRegion {
+  /** 0–100, left edge → right edge of the image. */
+  xPct: number
+  /** 0–100, top edge → bottom edge of the image. */
+  yPct: number
+  /** 0–100, width as a share of the image. */
+  wPct: number
+  /** 0–100, height as a share of the image. */
+  hPct: number
+  /** What was detected here, for the author's benefit. Never the brand name. */
+  note?: string
+}
+
 /** A redacted image reference. `src` may be null until a treated asset exists. */
 export interface ShowcaseImage {
   /** Path/URL to a REDACTED derivative only. null → render an empty placeholder. */
@@ -78,6 +101,8 @@ export interface ShowcaseImage {
   alt: string
   width?: number
   height?: number
+  /** Regions of this image blurred on the public page. */
+  blurRegions?: BlurRegion[] | null
 }
 
 export interface LandingShowcase {
@@ -182,6 +207,8 @@ export interface ProofImage {
   /** Uploaded (public) image URL. */
   src: string
   caption: string
+  /** Regions of this image blurred on the public page. */
+  blurRegions?: BlurRegion[] | null
 }
 
 /** One reason the result holds up as incremental. */

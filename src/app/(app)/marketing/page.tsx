@@ -4,6 +4,11 @@ import GenerateReportPanel from '@/components/marketing/GenerateReportPanel'
 
 export const metadata = { title: 'Marketing · Prometheus' }
 
+// Generating a report scans every uploaded asset for the client's brand mark
+// (several vision calls, more for a tall landing-page screenshot), so the
+// action needs more than the 15s serverless default.
+export const maxDuration = 60
+
 type MarketingReportRow = {
   project_id: string
   report_token: string

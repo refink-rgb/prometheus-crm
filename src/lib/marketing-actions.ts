@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import { canEdit } from '@/lib/permissions'
 import type { CaseStudy } from '@/data/case-studies/types'
 import { buildReportCaseStudy, type ReportInputs } from '@/data/case-studies/buildReport'
+import { applyBrandMarkBlur } from '@/lib/ai/brand-mark-scan'
 
 /**
  * Result rather than a thrown error: Next.js replaces messages thrown from
@@ -12,7 +13,13 @@ import { buildReportCaseStudy, type ReportInputs } from '@/data/case-studies/bui
  * anonymization-block message — the one message the author most needs to read.
  */
 export type GenerateReportResult =
-  | { ok: true; token: string; caseStudy: CaseStudy }
+  | {
+      ok: true
+      token: string
+      caseStudy: CaseStudy
+      /** What the brand-mark scan did, so the author knows what to spot-check. */
+      redaction?: { scanned: number; regions: number; failures: string[] }
+    }
   | { ok: false; message: string }
 
 export type SimpleResult = { ok: true } | { ok: false; message: string }
@@ -42,6 +49,8 @@ async function requireEditor() {
 // the report's text. We deliberately DON'T scan the LP/creative image URLs — the
 // featured landing-page image is an explicit, intentional inclusion. We know the
 // brand from the project, so a leak in copy is a blocking error, not a silent ship.
+// The brand name burned INTO those images is handled separately, by the
+// brand-mark scan below, which blurs it rather than blocking the report.
 function assertNoBrandLeak(data: CaseStudy, brandName: string | null) {
   if (!brandName) return
   const needle = brandName.trim().toLowerCase()
@@ -107,6 +116,12 @@ export async function generateMarketingReport(
   // Block the ship if the brand leaked into any TEXT field.
   assertNoBrandLeak(data, brandName)
 
+  // Then blur the brand out of the uploaded imagery. Best-effort: a failure
+  // here must not cost the author a generation, so it is reported back rather
+  // than thrown. Regenerating re-runs the scan from scratch.
+  let redaction: { scanned: number; regions: number; failures: string[] } | undefined
+  if (brandName) redaction = await applyBrandMarkBlur(data, brandName)
+
   // One report per project — regenerating overwrites the content but keeps the
   // token. onConflict targets the UNIQUE project_id constraint.
   const { error } = await supabase.from('marketing_reports').upsert(
@@ -121,7 +136,7 @@ export async function generateMarketingReport(
   if (error) throw new ReportError(`Could not save report: ${error.message}`)
 
   revalidatePath('/marketing')
-  return { ok: true, token, caseStudy: data }
+  return { ok: true, token, caseStudy: data, redaction }
   } catch (e) {
     return { ok: false, message: toMessage(e, 'Could not generate the report.') }
   }

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Creative } from '@/data/case-studies/types'
+import RedactedImage, { BlurRegions } from './RedactedImage'
 
 // A Netflix-style horizontal carousel of the ad examples we built. Purely
 // illustrative — no per-ad metrics and no sort/filter control. Click a card to
@@ -167,6 +168,7 @@ function CreativeMediaPreview({ creative }: { creative: Creative }) {
 
   return (
     <div
+      className="pe-blur-box"
       style={{
         position: 'relative',
         aspectRatio: '4 / 5',
@@ -203,6 +205,10 @@ function CreativeMediaPreview({ creative }: { creative: Creative }) {
       ) : (
         <PlaceholderArt kind={media.kind} label={creative.label} />
       )}
+
+      {/* Poster regions also cover the video: a video and its poster are the
+          same frame, so a mark burned into one sits in the same rectangle. */}
+      <BlurRegions regions={media.poster.blurRegions} />
 
       {hasVideo && (
         <button
@@ -333,10 +339,12 @@ function CreativeLightbox({ creative, onClose }: { creative: Creative; onClose: 
         </button>
 
         {src ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
+          <RedactedImage
             src={src}
             alt={creative.media.poster.alt}
+            regions={creative.media.poster.blurRegions}
+            loading="eager"
+            wrapperStyle={{ maxWidth: '100%', maxHeight: '82vh', lineHeight: 0 }}
             style={{
               maxWidth: '100%',
               maxHeight: '82vh',

@@ -1,4 +1,5 @@
 import type { ProofImage } from '@/data/case-studies/types'
+import RedactedImage from './RedactedImage'
 
 // The ad-account export, framed like an app window and placed directly between
 // the headline stats and the campaign snapshot — so a reader sees the source of
@@ -31,13 +32,12 @@ export default function ProofShot({ proof }: { proof: ProofImage }) {
           {/* Wide table screenshots scroll inside their own container so the page
               body never scrolls sideways on mobile. */}
           <div style={{ overflowX: 'auto', background: '#fff' }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
+            <RedactedImage
               src={proof.src}
               alt={proof.caption}
-              loading="lazy"
-              decoding="async"
-              style={{ display: 'block', width: '100%', minWidth: 680, height: 'auto' }}
+              regions={proof.blurRegions}
+              wrapperStyle={{ minWidth: 680 }}
+              style={{ display: 'block', width: '100%', height: 'auto' }}
             />
           </div>
         </figure>

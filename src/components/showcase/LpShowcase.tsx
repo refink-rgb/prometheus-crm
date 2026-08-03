@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import type { LandingShowcase } from '@/data/case-studies/types'
+import { BlurRegions } from './RedactedImage'
 
 export default function LpShowcase({ landing }: { landing: LandingShowcase }) {
   const { image, hotspots } = landing
@@ -79,9 +80,9 @@ export default function LpShowcase({ landing }: { landing: LandingShowcase }) {
                 background: 'var(--pe-navy)',
               }}
             >
-              {/* Positioning box: hotspots are % of this box, so they track the
-                  image on any viewport. */}
-              <div style={{ position: 'relative', width: '100%' }}>
+              {/* Positioning box: hotspots AND blur regions are % of this box,
+                  so they track the image on any viewport. */}
+              <div className="pe-blur-box" style={{ position: 'relative', width: '100%' }}>
                 {image.src ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
@@ -94,6 +95,9 @@ export default function LpShowcase({ landing }: { landing: LandingShowcase }) {
                 ) : (
                   <RedactedLpPlaceholder />
                 )}
+
+                {/* Before the hotspots so a marker is never blurred by a region. */}
+                {image.src && <BlurRegions regions={image.blurRegions} />}
 
                 {hotspots.map((h) => {
                   const isActive = h.id === activeId

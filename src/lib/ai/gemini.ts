@@ -147,6 +147,66 @@ export async function synthesizeBrandDna(
   return parsed as BrandDnaJson
 }
 
+/**
+ * One detected brand mark, as Gemini reports boxes: [ymin, xmin, ymax, xmax]
+ * normalized to 0–1000 of the image passed in.
+ */
+export type DetectedMark = { box: [number, number, number, number]; what: string }
+
+/**
+ * Locate every visible occurrence of a brand's identity in an image, so the
+ * showcase page can blur it. Recall matters far more than precision here: a
+ * missed wordmark de-anonymizes a client, while a spurious box only blurs a
+ * patch of a stock photo. The prompt is written accordingly.
+ */
+export async function detectBrandMarks(
+  imageBase64: string,
+  mimeType: string,
+  brandName: string,
+): Promise<DetectedMark[]> {
+  const ai = client()
+
+  const prompt = `You are redacting a client's identity from a marketing case study that will be sent to other prospects. Nothing that identifies the brand "${brandName}" may remain readable.
+
+Find EVERY region of this image containing:
+- the "${brandName}" logo or wordmark, at any size, angle, opacity or style
+- the name "${brandName}" as ordinary text — headline, eyebrow, body copy, caption, button, table cell
+- a web address, handle, email or hashtag containing "${brandName}"
+- "${brandName}" printed on a product, package, label, garment or signage in the photo
+
+Include occurrences that are small, blurry, partly hidden, low-contrast, cropped by the image edge, or already partially obscured. Include each occurrence separately rather than one box around several. If you are unsure whether a region is the brand, INCLUDE it — a false positive is harmless, a miss is not.
+
+Do NOT box sub-brand or product names that do not contain "${brandName}".
+
+Return JSON only:
+{"marks":[{"box_2d":[ymin,xmin,ymax,xmax],"what":"short neutral description of where it is, e.g. 'headline text' or 'logo bottom right'"}]}
+Coordinates normalized 0-1000 relative to this image. Return {"marks":[]} if there are none.`
+
+  const res = await ai.models.generateContent({
+    model: MODEL,
+    contents: [
+      { role: 'user', parts: [{ inlineData: { mimeType, data: imageBase64 } }, { text: prompt }] },
+    ],
+    config: { responseMimeType: 'application/json', temperature: 0 },
+  })
+
+  const text = res.text ?? ''
+  if (!text.trim()) return []
+
+  let parsed: { marks?: { box_2d?: number[]; what?: string }[] }
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    throw new Error('Gemini brand-mark detection returned invalid JSON.')
+  }
+
+  return (parsed.marks ?? []).flatMap((m) => {
+    const b = m.box_2d
+    if (!Array.isArray(b) || b.length !== 4 || b.some((n) => typeof n !== 'number')) return []
+    return [{ box: b as [number, number, number, number], what: m.what ?? 'brand mark' }]
+  })
+}
+
 // Restructure a written case study into the marketing-report slots. Extraction
 // only: the model may not invent a figure, because every number ends up on a
 // page we send to prospects. Missing values come back empty for the author to
