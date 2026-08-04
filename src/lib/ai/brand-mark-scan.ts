@@ -50,6 +50,13 @@ const BLUR_MIN_CQW = 0.4
 const BLUR_MAX_CQW = 4
 /** Largest share of a tile one mark may claim before it is treated as a miss. */
 const MAX_REGION_AREA = 0.12
+/**
+ * Smallest mark worth blurring, as a share of the tile's height. Only the big
+ * logos on the page are redacted — the brand name in body copy is left alone,
+ * because a page speckled with little blurs draws far more attention than the
+ * word does. Roughly: taller than a line of body text.
+ */
+const MIN_REGION_HEIGHT = 0.045
 
 type Tile = { buffer: Buffer; topPct: number; heightPct: number }
 
@@ -184,11 +191,12 @@ export async function scanImageForBrandMarks(url: string, brandName: string): Pr
     const marks = await detectBrandMarks(tile.buffer.toString('base64'), 'image/jpeg', brandName)
     return marks
       .filter(({ x0, y0, x1, y1 }) => {
+        const height = (y1 - y0) / 1000
         // A brand mark is never a third of the frame. Anything that big is the
         // model boxing the card, photo or paragraph the mark sits in, and
         // blurring it would swallow the very thing the page is showing off.
-        const area = ((x1 - x0) / 1000) * ((y1 - y0) / 1000)
-        return area <= MAX_REGION_AREA
+        const area = ((x1 - x0) / 1000) * height
+        return area <= MAX_REGION_AREA && height >= MIN_REGION_HEIGHT
       })
       .map(({ x0, y0, x1, y1, what }) =>
         pad(
@@ -222,19 +230,32 @@ export async function scanImageForBrandMarks(url: string, brandName: string): Pr
 
 export type ScanTarget = { key: string; label: string; src: string }
 
-/** Every uploaded asset in a report that is worth scanning, in page order. */
+/**
+ * The assets scanned for brand marks — the landing page only.
+ *
+ * The creatives and the ad-account screenshot are deliberately left alone. The
+ * creatives we ship already carry their redaction baked in by hand, and the
+ * screenshot shows ad names rather than the brand, so scanning them only added
+ * blurs over artwork the page exists to show. `setScanRegions` still handles
+ * the other keys, so an existing report's stored regions stay renderable.
+ */
 export function listScanTargets(data: CaseStudy): ScanTarget[] {
-  const targets: ScanTarget[] = []
-  if (data.proof?.src) targets.push({ key: 'proof', label: 'Ad account screenshot', src: data.proof.src })
-  if (data.landing.image.src) {
-    targets.push({ key: 'landing', label: 'Landing page', src: data.landing.image.src })
-  }
+  if (!data.landing.image.src) return []
+  return [{ key: 'landing', label: 'Landing page', src: data.landing.image.src }]
+}
+
+/**
+ * Drop regions from anything no longer scanned. Reports blurred before the
+ * scan narrowed to the landing page still carry regions on their creatives,
+ * and those keep rendering until something clears them.
+ */
+export function clearUnscannedRegions(data: CaseStudy): void {
+  const scanned = new Set(listScanTargets(data).map((t) => t.key))
+  if (data.proof && !scanned.has('proof')) data.proof.blurRegions = null
+  if (!scanned.has('landing')) data.landing.image.blurRegions = null
   data.creatives.forEach((c) => {
-    if (c.media.poster.src) {
-      targets.push({ key: `creative:${c.id}`, label: c.label, src: c.media.poster.src })
-    }
+    if (!scanned.has(`creative:${c.id}`)) c.media.poster.blurRegions = null
   })
-  return targets
 }
 
 /** Attach regions to the image named by `key`. Returns false if it is gone. */

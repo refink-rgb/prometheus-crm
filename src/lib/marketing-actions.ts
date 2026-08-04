@@ -6,6 +6,7 @@ import { canEdit } from '@/lib/permissions'
 import type { CaseStudy } from '@/data/case-studies/types'
 import { buildReportCaseStudy, type ReportInputs } from '@/data/case-studies/buildReport'
 import {
+  clearUnscannedRegions,
   listScanTargets,
   scanImageForBrandMarks,
   setScanRegions,
@@ -207,6 +208,8 @@ export async function scanReportImage(projectId: string, key: string): Promise<S
     if (!setScanRegions(data, key, regions)) {
       throw new ReportError('That image is no longer part of the report.')
     }
+    // Also strips blurs left on the creatives by earlier, wider scans.
+    clearUnscannedRegions(data)
 
     const { error } = await supabase
       .from('marketing_reports')
