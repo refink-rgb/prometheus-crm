@@ -43,7 +43,8 @@ export default function GenerateReportPanel({
     total: number
     regions: number
     current: string | null
-    errors: string[]
+    /** Kept per image so a failed one can be retried on its own. */
+    errors: { key: string; label: string; message: string }[]
   } | null>(null)
   // Slots extracted from an uploaded case study, used to seed the form.
   const [imported, setImported] = useState<ReportInputs | null>(null)
@@ -109,36 +110,40 @@ export default function GenerateReportPanel({
     }
   }
 
-  // Walk every image in the stored report, blurring the brand out of each.
+  // Walk the report's images, blurring the brand out of each.
   // Sequential on purpose: one image per request keeps each call well inside
   // the serverless limit, and a failure names the image rather than the batch.
-  async function runScan() {
-    setScan({ running: true, done: 0, total: 0, regions: 0, current: null, errors: [] })
+  // `onlyKeys` re-runs just the images that failed, so a retry does not spend
+  // the model's rate limit redoing work that already succeeded.
+  async function runScan(onlyKeys?: string[]) {
+    setScan({ running: true, done: 0, total: onlyKeys?.length ?? 0, regions: 0, current: null, errors: [] })
 
     const list = await listReportScanTargets(projectId)
     if (!list.ok) {
-      setScan({ running: false, done: 0, total: 0, regions: 0, current: null, errors: [list.message] })
+      setScan({
+        running: false,
+        done: 0,
+        total: 0,
+        regions: 0,
+        current: null,
+        errors: [{ key: '', label: 'Report', message: list.message }],
+      })
       return
     }
 
+    const targets = onlyKeys ? list.targets.filter((t) => onlyKeys.includes(t.key)) : list.targets
+
     let regions = 0
-    const errors: string[] = []
-    for (let i = 0; i < list.targets.length; i++) {
-      const t = list.targets[i]
-      setScan({ running: true, done: i, total: list.targets.length, regions, current: t.label, errors: [...errors] })
+    const errors: { key: string; label: string; message: string }[] = []
+    for (let i = 0; i < targets.length; i++) {
+      const t = targets[i]
+      setScan({ running: true, done: i, total: targets.length, regions, current: t.label, errors: [...errors] })
       const res = await scanReportImage(projectId, t.key)
       if (res.ok) regions += res.regions
-      else errors.push(`${t.label}: ${res.message}`)
+      else errors.push({ key: t.key, label: t.label, message: res.message })
     }
 
-    setScan({
-      running: false,
-      done: list.targets.length,
-      total: list.targets.length,
-      regions,
-      current: null,
-      errors,
-    })
+    setScan({ running: false, done: targets.length, total: targets.length, regions, current: null, errors })
   }
 
   async function handleDelete() {
@@ -191,7 +196,7 @@ export default function GenerateReportPanel({
                     without touching the copy or the numbers. */}
                 <button
                   className="btn-secondary btn-sm"
-                  onClick={runScan}
+                  onClick={() => runScan()}
                   disabled={submitting || scan?.running}
                   title="Find the brand name in the uploaded images and blur it"
                 >
@@ -273,12 +278,24 @@ export default function GenerateReportPanel({
               )}
               {scan.errors.length > 0 && (
                 <div style={{ marginTop: 6 }}>
-                  <strong>Not scanned — check these by hand:</strong>
+                  <strong>Not scanned — still showing the brand, check these by hand:</strong>
                   <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
                     {scan.errors.map((e, i) => (
-                      <li key={i}>{e}</li>
+                      <li key={i}>
+                        {e.label}: {e.message}
+                      </li>
                     ))}
                   </ul>
+                  {!scan.running && scan.errors.some((e) => e.key) && (
+                    <button
+                      className="btn-secondary btn-sm"
+                      style={{ marginTop: 8 }}
+                      onClick={() => runScan(scan.errors.map((e) => e.key).filter(Boolean))}
+                    >
+                      Retry these {scan.errors.filter((e) => e.key).length} image
+                      {scan.errors.filter((e) => e.key).length === 1 ? '' : 's'}
+                    </button>
+                  )}
                 </div>
               )}
             </div>

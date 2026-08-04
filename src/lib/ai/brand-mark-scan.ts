@@ -24,7 +24,13 @@ const WORK_WIDTH = 1400
 const TILE_ASPECT = 1
 /** Tiles overlap so a mark straddling a cut is still whole in one of them. */
 const TILE_OVERLAP = 0.08
-const MAX_CONCURRENCY = 4
+/**
+ * Tiles in flight at once. Kept low deliberately: a landing page is ~7 tiles,
+ * and firing them in a burst is enough to trip the API's per-minute limit —
+ * which comes back as a 503 "high demand", reading like an outage when it is
+ * actually us. Slower and finishing beats faster and half-scanned.
+ */
+const MAX_CONCURRENCY = 2
 
 // Sizing. A redaction should read as deliberate and sit tight to the mark —
 // matching how the treated assets we already ship are done, where the patch

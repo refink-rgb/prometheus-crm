@@ -217,8 +217,22 @@ export async function scanReportImage(projectId: string, key: string): Promise<S
     revalidatePath('/marketing')
     return { ok: true, regions: regions.length }
   } catch (e) {
-    return { ok: false, message: toMessage(e, 'Could not scan that image.') }
+    return { ok: false, message: scanMessage(e) }
   }
+}
+
+/**
+ * The raw Gemini error is a JSON blob that says "high demand", which reads as
+ * an outage. When it survives the retries it is far more often this project's
+ * own per-minute quota, so say what can actually be checked.
+ */
+function scanMessage(e: unknown): string {
+  const detail = e instanceof Error ? e.message : String(e)
+  if (/\b(429|503)\b|UNAVAILABLE|RESOURCE_EXHAUSTED|high demand|overloaded/i.test(detail)) {
+    console.error('[brand-mark-scan] rate limited or unavailable', detail)
+    return 'The vision model refused the request after several retries. This is usually the API key’s per-minute quota rather than an outage — wait a minute and retry, and if it keeps happening check the GEMINI_API_KEY project’s quota and billing tier.'
+  }
+  return toMessage(e, 'Could not scan that image.')
 }
 
 // Delete a generated report (unpublish). The public URL 404s afterwards.
