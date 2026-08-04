@@ -54,9 +54,14 @@ const MAX_REGION_AREA = 0.12
  * Smallest mark worth blurring, as a share of the tile's height. Only the big
  * logos on the page are redacted — the brand name in body copy is left alone,
  * because a page speckled with little blurs draws far more attention than the
- * word does. Roughly: taller than a line of body text.
+ * word does.
+ *
+ * Measured against the real page rather than guessed: on a 2940px-wide
+ * screenshot cut into 1400px tiles, a header logo is ~3.1% of tile height and
+ * a line of body copy ~1.1%, so the floor sits between them. An earlier 4.5%
+ * was above the logo itself and silently suppressed everything.
  */
-const MIN_REGION_HEIGHT = 0.045
+const MIN_REGION_HEIGHT = 0.02
 
 type Tile = { buffer: Buffer; topPct: number; heightPct: number }
 
@@ -187,8 +192,10 @@ export async function scanImageForBrandMarks(url: string, brandName: string): Pr
   const input = Buffer.from(await res.arrayBuffer())
 
   const { tiles, aspect } = await toTiles(input)
+  let detected = 0
   const perTile = await mapWithLimit(tiles, MAX_CONCURRENCY, async (tile) => {
     const marks = await detectBrandMarks(tile.buffer.toString('base64'), 'image/jpeg', brandName)
+    detected += marks.length
     return marks
       .filter(({ x0, y0, x1, y1 }) => {
         const height = (y1 - y0) / 1000
@@ -214,7 +221,14 @@ export async function scanImageForBrandMarks(url: string, brandName: string): Pr
       )
   })
 
-  return merge(perTile.flat().filter((r) => r.wPct > 0 && r.hPct > 0)).map((r) => ({
+  const kept = perTile.flat()
+  // "Found nothing" has two very different causes — the model saw nothing, or
+  // the size filter threw it all away. Log both so they can be told apart.
+  console.log(
+    `[brand-mark-scan] ${tiles.length} tiles, ${detected} detected, ${kept.length} kept after size filter`,
+  )
+
+  return merge(kept.filter((r) => r.wPct > 0 && r.hPct > 0)).map((r) => ({
     ...r,
     // Sized after merging, so a fused box gets the radius its final size needs.
     // `hPct` is a share of image HEIGHT; cqw is a share of container WIDTH.

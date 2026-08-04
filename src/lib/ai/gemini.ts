@@ -171,8 +171,9 @@ export async function detectBrandMarks(
 
   const prompt = `You are redacting a client's identity from a marketing case study that will be sent to other prospects. Nothing that identifies the brand "${brandName}" may remain readable.
 
-Find EVERY region of this image containing:
-- the "${brandName}" logo or wordmark, at any size, angle, opacity or style
+What you are looking for above all is the LOGO: the word "${brandName}" drawn as the brand's own mark — its letters styled, stretched, outlined, filled or set inside a badge, roundel, ribbon or icon, often in the page header, the footer, or printed on the product. It still reads as the word "${brandName}" even when the lettering is heavily stylised. That is the single most important thing to find, at any size.
+
+Also find every region containing:
 - the name "${brandName}" as ordinary text — headline, eyebrow, body copy, caption, button, table cell
 - a web address, handle, email or hashtag containing "${brandName}"
 - "${brandName}" printed on a product, package, label, garment or signage in the photo
