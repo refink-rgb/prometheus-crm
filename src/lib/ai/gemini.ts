@@ -10,37 +10,6 @@ function client() {
   return new GoogleGenAI({ apiKey })
 }
 
-/**
- * Gemini sheds load with 503 UNAVAILABLE (and 429 when rate limited) during
- * demand spikes. These are transient and worth retrying — without this, one
- * overloaded moment shows up to the author as a failed image they have to
- * chase by hand.
- *
- * Delays are deliberately short: callers run inside a serverless request with
- * a hard time limit, so this is meant to ride out a spike, not to wait out an
- * outage. Anything still failing after this is surfaced.
- */
-const RETRY_DELAYS_MS = [1000, 3000, 7000]
-
-function isTransient(e: unknown): boolean {
-  const s = e instanceof Error ? e.message : String(e)
-  return /\b(429|500|502|503|504)\b|UNAVAILABLE|RESOURCE_EXHAUSTED|INTERNAL|overloaded|high demand/i.test(s)
-}
-
-async function withRetry<T>(label: string, fn: () => Promise<T>): Promise<T> {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      return await fn()
-    } catch (e) {
-      if (attempt >= RETRY_DELAYS_MS.length || !isTransient(e)) throw e
-      // Jitter so the tiles of one image don't all retry in lockstep.
-      const wait = RETRY_DELAYS_MS[attempt] * (0.75 + Math.random() * 0.5)
-      console.warn(`[gemini] ${label} transient failure, retrying in ${Math.round(wait)}ms`)
-      await new Promise((r) => setTimeout(r, wait))
-    }
-  }
-}
-
 function researchPrompt(brandName: string, websiteUrl: string): string {
   return `You are a senior brand strategist doing pre-production research for ${brandName} (${websiteUrl}), ahead of building their Brand DNA reference document. This turn is research only — a separate pass will structure your findings into a schema, so write a dossier a design/creative team could act on directly.
 
@@ -218,15 +187,13 @@ Return JSON only:
 {"marks":[{"left":0,"top":0,"right":0,"bottom":0,"what":"short neutral description, e.g. 'headline text' or 'logo bottom right'"}]}
 where left/right are horizontal distances from the LEFT edge and top/bottom are vertical distances from the TOP edge, each 0-1000 of this image's width and height respectively. Return {"marks":[]} if there are none.`
 
-  const res = await withRetry('brand-mark detection', () =>
-    ai.models.generateContent({
-      model: MODEL,
-      contents: [
-        { role: 'user', parts: [{ inlineData: { mimeType, data: imageBase64 } }, { text: prompt }] },
-      ],
-      config: { responseMimeType: 'application/json', temperature: 0 },
-    }),
-  )
+  const res = await ai.models.generateContent({
+    model: MODEL,
+    contents: [
+      { role: 'user', parts: [{ inlineData: { mimeType, data: imageBase64 } }, { text: prompt }] },
+    ],
+    config: { responseMimeType: 'application/json', temperature: 0 },
+  })
 
   const text = res.text ?? ''
   if (!text.trim()) return []
