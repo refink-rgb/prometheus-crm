@@ -1,0 +1,462 @@
+// Checks for the campaign-results math and validation layer. No test framework
+// in this repo, so this is a standalone script (same shape as
+// scripts/verify-billing.ts):
+//
+//   node --experimental-strip-types scripts/verify-results.ts
+//
+// Exits non-zero on any failure. `scripts` is in the tsconfig exclude list, so
+// nothing here reaches `next build`.
+//
+// This script carries more weight than usual: /results cannot be rendered
+// locally (the repo's .env.local holds dummy Supabase credentials — see
+// PROJECT_CONTEXT.md), so these assertions are the only pre-deploy proof that
+// the upsert semantics, the validator, and the rollup math are right.
+//
+// The two behaviours worth breaking the build over:
+//   1. UPSERT IDEMPOTENCY under Meta's restatements — the same (campaign, day)
+//      pulled twice must UPDATE, never append. Simulated here against the same
+//      unique key the DB enforces.
+//   2. WARN-DON'T-DROP — a row whose arithmetic disagrees with itself is
+//      STORED with a warning. A dropped row is indistinguishable from a day
+//      the campaign didn't run.
+
+import {
+  sumResults,
+  cumulativeSeries,
+  safeRoas,
+  safeCpa,
+  safeRate,
+  dayOverDayPct,
+  missingDates,
+  daysLive,
+  freshnessOf,
+  formatCents,
+  formatCentsCompact,
+  formatRoas,
+  formatPercent,
+  parseMoneyToCents,
+  shortDateLabel,
+  addDaysIso,
+  STALE_AFTER_HOURS,
+  type DailyResult,
+} from '../src/lib/results.ts'
+
+import {
+  validateRows,
+  parsePayload,
+  toNumber,
+  toInt,
+  dollarsToCents,
+  isIsoDate,
+  withinTolerance,
+  campaignKey,
+  type CampaignRef,
+  type RawResultRow,
+  type ValidatedRow,
+} from '../src/lib/results/validate.ts'
+
+let fails = 0
+function check(label: string, actual: unknown, expected: unknown) {
+  const ok = JSON.stringify(actual) === JSON.stringify(expected)
+  if (!ok) fails++
+  console.log(`${ok ? '  ok  ' : ' FAIL '} ${label}${ok ? '' : `\n         got      ${JSON.stringify(actual)}\n         expected ${JSON.stringify(expected)}`}`)
+}
+
+function checkTrue(label: string, actual: boolean) {
+  check(label, actual, true)
+}
+
+// ---------------------------------------------------------------------------
+// Fixtures
+// ---------------------------------------------------------------------------
+
+const TODAY = '2026-08-05'
+const CAMPAIGN_ID = 'tc-1'
+
+const CAMPAIGNS: CampaignRef[] = [
+  {
+    id: CAMPAIGN_ID,
+    meta_ad_account_id: 'act_123456',
+    meta_campaign_id: '987654321',
+    launched_on: '2026-08-01',
+    ended_on: null,
+  },
+  {
+    id: 'tc-ended',
+    meta_ad_account_id: 'act_123456',
+    meta_campaign_id: '111222333',
+    launched_on: '2026-07-01',
+    ended_on: '2026-07-20',
+  },
+]
+
+function day(overrides: Partial<DailyResult> & { stat_date: string }): DailyResult {
+  return {
+    id: `r-${overrides.stat_date}`,
+    tracked_campaign_id: CAMPAIGN_ID,
+    spend_cents: 0,
+    revenue_cents: 0,
+    incremental_revenue_cents: null,
+    cpa_cents: null,
+    purchases: 0,
+    landing_page_views: null,
+    roas: null,
+    unique_outbound_ctr: null,
+    lp_conversion_rate: null,
+    attribution_window: '7d_click',
+    source: 'mcp_agent',
+    warnings: [],
+    reported_at: '2026-08-05T10:58:00.000Z',
+    ...overrides,
+  }
+}
+
+// Hand-checked four-day fixture. Totals below were computed by hand, not by
+// running the code — that is the point of a fixture.
+//
+//   day        spend      revenue    purchases   incremental
+//   Aug 1     $100.00     $250.00        5          $80.00
+//   Aug 2     $150.00     $600.00       12         $200.00
+//   Aug 3     $200.00     $400.00        8               —
+//   Aug 4     $250.00   $1,000.00       20         $350.00
+//   ─────────────────────────────────────────────────────────
+//   totals    $700.00   $2,250.00       45         $630.00
+//   ROAS = 2250/700 = 3.2142857… → 3.2143 (4dp)
+//   CPA  = 70000c/45 = 1555.55… → 1556 cents = $15.56
+const FIXTURE: DailyResult[] = [
+  day({ stat_date: '2026-08-01', spend_cents: 10_000, revenue_cents: 25_000, purchases: 5, incremental_revenue_cents: 8_000, landing_page_views: 500 }),
+  day({ stat_date: '2026-08-02', spend_cents: 15_000, revenue_cents: 60_000, purchases: 12, incremental_revenue_cents: 20_000, landing_page_views: 800 }),
+  day({ stat_date: '2026-08-03', spend_cents: 20_000, revenue_cents: 40_000, purchases: 8, landing_page_views: 700 }),
+  day({ stat_date: '2026-08-04', spend_cents: 25_000, revenue_cents: 100_000, purchases: 20, incremental_revenue_cents: 35_000, landing_page_views: 1_000 }),
+]
+
+// ---------------------------------------------------------------------------
+
+console.log('--- rollups against the hand-checked fixture ---')
+const totals = sumResults(FIXTURE)
+check('4 days', totals.days, 4)
+check('spend = $700', formatCents(totals.spend_cents), '$700')
+check('revenue = $2,250', formatCents(totals.revenue_cents), '$2,250')
+check('purchases = 45', totals.purchases, 45)
+check('LP views = 3,000', totals.landing_page_views, 3_000)
+check('ROAS = 3.2143 (derived from summed cents)', totals.roas, 3.2143)
+check('ROAS renders 3.21x', formatRoas(totals.roas), '3.21x')
+check('CPA = 1556 cents', totals.cpa_cents, 1556)
+check('CPA renders $15.56', formatCents(totals.cpa_cents), '$15.56')
+
+console.log('\n--- ratios are derived from totals, NOT averaged from daily ratios ---')
+// Averaging the four daily ROASes gives (2.5 + 4.0 + 2.0 + 4.0)/4 = 3.125.
+// The correct spend-weighted answer is 3.2143. If this ever equals 3.125 again,
+// someone has "simplified" sumResults into a mean.
+const naiveMean = (2.5 + 4.0 + 2.0 + 4.0) / 4
+checkTrue('weighted ROAS differs from the naive mean', totals.roas !== naiveMean)
+check('naive mean would have been 3.125', naiveMean, 3.125)
+
+console.log('\n--- incremental revenue: partial coverage sums, total absence is null ---')
+// Aug 3 has no incremental figure. The other three sum to $630 — the day
+// without one must NOT be counted as $0.
+check('incremental = $630 across the 3 days that reported it', formatCents(totals.incremental_revenue_cents), '$630')
+const noneReported = sumResults(FIXTURE.map(r => ({ ...r, incremental_revenue_cents: null })))
+check('no row reported it → null, NOT 0', noneReported.incremental_revenue_cents, null)
+check('and it renders as an em dash', formatCents(noneReported.incremental_revenue_cents), '—')
+
+console.log('\n--- divide-by-zero returns null, never 0 ---')
+check('ROAS on 0 spend → null', safeRoas(50_000, 0), null)
+check('CPA on 0 purchases → null', safeCpa(50_000, 0), null)
+check('rate on 0 denominator → null', safeRate(5, 0), null)
+check('empty set → zeroed totals with null ratios', sumResults([]).roas, null)
+
+console.log('\n--- percentages are PERCENT, not fractions ---')
+// 5 purchases / 500 views = 1% . Stored and returned as 1, not 0.01.
+check('5/500 → 1 (meaning 1%)', safeRate(5, 500), 1)
+check('renders as 1.00%', formatPercent(safeRate(5, 500)), '1.00%')
+check('2.45 renders as 2.45%, not 245%', formatPercent(2.45), '2.45%')
+
+console.log('\n--- cumulative series ---')
+const series = cumulativeSeries(FIXTURE)
+check('cumulative spend runs 100/250/450/700', series.map(p => p.cumulative_spend_cents), [10_000, 25_000, 45_000, 70_000])
+check('cumulative revenue runs 250/850/1250/2250', series.map(p => p.cumulative_revenue_cents), [25_000, 85_000, 125_000, 225_000])
+check('final cumulative ROAS matches the total', series[3].cumulative_roas, totals.roas)
+check('day-1 cumulative ROAS = 2.5', series[0].cumulative_roas, 2.5)
+
+console.log('\n--- series sorts by date regardless of input order ---')
+const shuffled = [FIXTURE[2], FIXTURE[0], FIXTURE[3], FIXTURE[1]]
+check('shuffled input yields the same ordered dates',
+  cumulativeSeries(shuffled).map(p => p.stat_date),
+  ['2026-08-01', '2026-08-02', '2026-08-03', '2026-08-04'])
+check('and the same cumulative totals',
+  cumulativeSeries(shuffled).map(p => p.cumulative_spend_cents),
+  [10_000, 25_000, 45_000, 70_000])
+
+console.log('\n--- day-over-day ---')
+check('100 → 150 is +50%', dayOverDayPct(150, 100), 50)
+check('150 → 100 is -33.3333%', dayOverDayPct(100, 150), -33.3333)
+check('no previous day → null', dayOverDayPct(100, null), null)
+check('previous was 0 → null (not Infinity)', dayOverDayPct(100, 0), null)
+
+console.log('\n--- gap detection ---')
+check('no gaps in a complete run', missingDates(FIXTURE, '2026-08-01', '2026-08-04'), [])
+check('Aug 5 missing when the window extends to it', missingDates(FIXTURE, '2026-08-01', '2026-08-05'), ['2026-08-05'])
+const holed = FIXTURE.filter(r => r.stat_date !== '2026-08-02')
+check('a hole in the middle is found', missingDates(holed, '2026-08-01', '2026-08-04'), ['2026-08-02'])
+check('window ending before launch → no phantom gaps', missingDates([], '2026-08-01', '2026-07-30'), [])
+
+console.log('\n--- days live (launch day counts as day 1) ---')
+check('launched today → 1', daysLive('2026-08-05', null, TODAY), 1)
+check('launched Aug 1, today Aug 5 → 5', daysLive('2026-08-01', null, TODAY), 5)
+check('ended campaign stops counting at ended_on', daysLive('2026-07-01', '2026-07-20', TODAY), 20)
+check('future launch → 0', daysLive('2026-08-10', null, TODAY), 0)
+
+console.log('\n--- freshness: a stale dashboard must never look fresh ---')
+const NOW = Date.parse('2026-08-05T12:00:00.000Z')
+const freshRows = [day({ stat_date: '2026-08-04', reported_at: '2026-08-05T10:58:00.000Z' })]
+check('pulled 1h ago → fresh', freshnessOf(freshRows, NOW).state, 'fresh')
+check('and reports data_through', freshnessOf(freshRows, NOW).data_through, '2026-08-04')
+
+// 37h > the 36h threshold: at least one 7am run was missed.
+const staleRows = [day({ stat_date: '2026-08-02', reported_at: '2026-08-03T23:00:00.000Z' })]
+check(`pulled 37h ago → stale (threshold ${STALE_AFTER_HOURS}h)`, freshnessOf(staleRows, NOW).state, 'stale')
+check('no rows at all → never', freshnessOf([], NOW).state, 'never')
+// Freshness follows the LATEST pull across the set, not the first row.
+const mixed = [
+  day({ stat_date: '2026-08-01', reported_at: '2026-08-01T11:00:00.000Z' }),
+  day({ stat_date: '2026-08-04', reported_at: '2026-08-05T11:00:00.000Z' }),
+]
+check('mixed pulls take the most recent', freshnessOf(mixed, NOW).state, 'fresh')
+check('and the latest stat_date', freshnessOf(mixed, NOW).data_through, '2026-08-04')
+
+console.log('\n--- cents ↔ display round-trips ---')
+check("'$2,500' → 250000", parseMoneyToCents('$2,500'), 250_000)
+check("'1234.56' → 123456", parseMoneyToCents('1234.56'), 123_456)
+check("'abc' → null", parseMoneyToCents('abc'), null)
+check("'' → null", parseMoneyToCents(''), null)
+check('250000 → $2,500', formatCents(250_000), '$2,500')
+check('123456 → $1,234.56', formatCents(123_456), '$1,234.56')
+check('round-trip $1,234.56', formatCents(parseMoneyToCents('$1,234.56') as number), '$1,234.56')
+check('Meta decimal 1234.56 → 123456 cents', dollarsToCents('1234.56'), 123_456)
+check('Meta numeric 0.07 → 7 cents', dollarsToCents(0.07), 7)
+check('null stays null', dollarsToCents(null), null)
+check('compact: $12,400 → $12.4k', formatCentsCompact(1_240_000), '$12.4k')
+check('compact: $2,000,000 → $2M', formatCentsCompact(200_000_000), '$2M')
+check('compact: null → em dash', formatCentsCompact(null), '—')
+check('date label', shortDateLabel('2026-08-04'), 'Aug 4')
+check('addDaysIso crosses a month boundary', addDaysIso('2026-07-31', 1), '2026-08-01')
+
+// ---------------------------------------------------------------------------
+// Validation
+// ---------------------------------------------------------------------------
+
+function raw(overrides: Partial<RawResultRow> = {}): RawResultRow {
+  return {
+    ad_account_id: 'act_123456',
+    campaign_id: '987654321',
+    stat_date: '2026-08-04',
+    spend: 250,
+    revenue: 1000,
+    purchases: 20,
+    landing_page_views: 1000,
+    roas: 4,
+    cpa: 12.5,
+    unique_outbound_ctr: 1.2,
+    lp_conversion_rate: 2,
+    attribution_window: '7d_click',
+    ...overrides,
+  }
+}
+
+function run(rows: RawResultRow[], today = TODAY) {
+  return validateRows(rows, CAMPAIGNS, today)
+}
+
+function only(rows: RawResultRow[], today = TODAY): ValidatedRow {
+  const r = run(rows, today)
+  if (r.valid.length !== 1) throw new Error(`expected 1 valid row, got ${r.valid.length}`)
+  return r.valid[0]
+}
+
+console.log('\n--- validator: the happy path is clean ---')
+const clean = run([raw()])
+check('1 valid, 0 rejected', [clean.valid.length, clean.rejected.length], [1, 0])
+check('no warnings on consistent data', clean.valid[0].warnings, [])
+check('money converted to cents', [clean.valid[0].spend_cents, clean.valid[0].revenue_cents], [25_000, 100_000])
+check('linked to the tracked campaign', clean.valid[0].tracked_campaign_id, CAMPAIGN_ID)
+
+console.log('\n--- validator: REJECT — nowhere to put the row ---')
+check('unknown campaign is rejected',
+  run([raw({ campaign_id: '000000' })]).rejected.length, 1)
+check('...and never auto-creates a tracked campaign',
+  run([raw({ campaign_id: '000000' })]).valid.length, 0)
+checkTrue('...with a reason naming the fix',
+  run([raw({ campaign_id: '000000' })]).rejected[0].reason.includes('Link it on the project first'))
+check('unknown AD ACCOUNT with a known campaign id is still rejected',
+  run([raw({ ad_account_id: 'act_999' })]).rejected.length, 1)
+check('missing ids rejected', run([raw({ campaign_id: null })]).rejected.length, 1)
+check('date before launch rejected', run([raw({ stat_date: '2026-07-31' })]).rejected.length, 1)
+check('future date rejected', run([raw({ stat_date: '2026-08-06' })]).rejected.length, 1)
+check('malformed date rejected', run([raw({ stat_date: '08/04/2026' })]).rejected.length, 1)
+check('impossible calendar date rejected', run([raw({ stat_date: '2026-02-31' })]).rejected.length, 1)
+check('missing spend rejected', run([raw({ spend: null })]).rejected.length, 1)
+check("non-numeric spend ('N/A') rejected — NOT coerced to 0", run([raw({ spend: 'N/A' })]).rejected.length, 1)
+check('negative spend rejected', run([raw({ spend: -10 })]).rejected.length, 1)
+check('date after tracking ended is rejected',
+  validateRows(
+    [raw({ campaign_id: '111222333', stat_date: '2026-07-21' })],
+    CAMPAIGNS, TODAY,
+  ).rejected.length, 1)
+check('...but a date inside the tracked window is accepted',
+  validateRows(
+    [raw({ campaign_id: '111222333', stat_date: '2026-07-15', spend: 100, revenue: 200, purchases: 4, roas: 2, cpa: 25, landing_page_views: null, lp_conversion_rate: null })],
+    CAMPAIGNS, TODAY,
+  ).valid.length, 1)
+
+console.log('\n--- validator: WARN, DON\'T DROP — the row is stored and flagged ---')
+// This is the rule that keeps "bad data" distinguishable from "no campaign".
+const badRoas = run([raw({ roas: 47 })])
+check('inconsistent ROAS still yields a stored row', badRoas.valid.length, 1)
+check('...and nothing is rejected', badRoas.rejected.length, 0)
+check('...with exactly one warning', badRoas.valid[0].warnings.length, 1)
+checkTrue('...naming the disagreement', badRoas.valid[0].warnings[0].includes('disagrees with revenue/spend'))
+
+check('ROAS within 2% tolerance is NOT flagged', only([raw({ roas: 4.05 })]).warnings, [])
+checkTrue('ROAS 10% off IS flagged', only([raw({ roas: 4.4 })]).warnings.length === 1)
+checkTrue('inconsistent CPA is flagged',
+  only([raw({ cpa: 99 })]).warnings.some(w => w.includes('CPA disagrees')))
+checkTrue('CPA on a zero-purchase day is flagged',
+  only([raw({ purchases: 0, revenue: 0, roas: 0, lp_conversion_rate: 0, cpa: 12.5 })]).warnings.some(w => w.includes('0 purchases')))
+checkTrue('inconsistent LP conversion is flagged',
+  only([raw({ lp_conversion_rate: 15 })]).warnings.some(w => w.includes('LP conversion')))
+checkTrue('implausible ROAS is flagged',
+  only([raw({ spend: 1, revenue: 1000, roas: 1000, cpa: 0.05 })]).warnings.some(w => w.includes('implausibly high')))
+checkTrue('a rate over 100% is flagged as a units error',
+  only([raw({ unique_outbound_ctr: 250 })]).warnings.some(w => w.includes('check units')))
+checkTrue('revenue with 0 purchases is flagged',
+  only([raw({ purchases: 0, cpa: null, lp_conversion_rate: 0 })]).warnings.some(w => w.includes('revenue reported with 0 purchases')))
+checkTrue('incremental > total revenue is flagged',
+  only([raw({ incremental_revenue: 5000 })]).warnings.some(w => w.includes('exceeds total revenue')))
+checkTrue("today's partial day is flagged",
+  only([raw({ stat_date: TODAY })], TODAY).warnings.some(w => w.includes('partial day')))
+checkTrue('a non-default attribution window is flagged, not silently accepted',
+  only([raw({ attribution_window: '28d_click' })]).warnings.some(w => w.includes("not '7d_click'")))
+check('...and the window is still STORED so the chart step is explainable',
+  only([raw({ attribution_window: '28d_click' })]).attribution_window, '28d_click')
+checkTrue('an unrecognized window is flagged',
+  only([raw({ attribution_window: 'made_up' })]).warnings.some(w => w.includes('unrecognized')))
+
+console.log('\n--- validator: absent metrics stay null, they never become 0 ---')
+const sparse = only([raw({
+  incremental_revenue: null, landing_page_views: null,
+  roas: null, cpa: null, unique_outbound_ctr: null, lp_conversion_rate: null,
+})])
+check('incremental null', sparse.incremental_revenue_cents, null)
+check('LP views null', sparse.landing_page_views, null)
+check('ROAS null', sparse.roas, null)
+check('CPA null', sparse.cpa_cents, null)
+check('CTR null', sparse.unique_outbound_ctr, null)
+check('no warnings — absence is honest, not an error', sparse.warnings, [])
+check("the string 'N/A' for an optional metric becomes null, not 0",
+  only([raw({ unique_outbound_ctr: 'N/A' })]).unique_outbound_ctr, null)
+check('missing purchases is warned AND stored as 0',
+  only([raw({ purchases: null, cpa: null, lp_conversion_rate: null })]).purchases, 0)
+checkTrue('...with the warning saying so',
+  only([raw({ purchases: null, cpa: null, lp_conversion_rate: null })]).warnings.some(w => w.includes('purchases missing')))
+
+console.log('\n--- validator: quoted numbers from an LLM are accepted ---')
+const quoted = only([raw({ spend: '250.00', revenue: '1,000.00', purchases: '20', roas: '4.0' })])
+check("'250.00' → 25000 cents", quoted.spend_cents, 25_000)
+check("'1,000.00' → 100000 cents", quoted.revenue_cents, 100_000)
+check("'20' → 20", quoted.purchases, 20)
+
+console.log('\n--- validator: duplicate dates inside one payload ---')
+const dupes = run([raw({ spend: 100 }), raw({ spend: 250 })])
+check('collapsed to one row', dupes.valid.length, 1)
+check('last one wins', dupes.valid[0].spend_cents, 25_000)
+checkTrue('and the collision is reported, not hidden',
+  dupes.valid[0].warnings.some(w => w.includes('duplicate row')))
+
+console.log('\n--- coercion primitives ---')
+check("toNumber('1,234.5')", toNumber('1,234.5'), 1234.5)
+check("toNumber('2.45%') strips the sign", toNumber('2.45%'), 2.45)
+check("toNumber('null') → null", toNumber('null'), null)
+check("toNumber('') → null", toNumber(''), null)
+check('toNumber(NaN) → null', toNumber(NaN), null)
+check('toNumber(true) → null', toNumber(true), null)
+check('toNumber([]) → null', toNumber([]), null)
+check("toInt('19.6') rounds", toInt('19.6'), 20)
+check('isIsoDate ok', isIsoDate('2026-08-04'), true)
+check('isIsoDate rejects Feb 31', isIsoDate('2026-02-31'), false)
+check('isIsoDate rejects a timestamp', isIsoDate('2026-08-04T00:00:00Z'), false)
+check('withinTolerance is RELATIVE', withinTolerance(1.01, 1.0), true)
+check('...so a small absolute gap on a small value fails', withinTolerance(0.07, 0.05), false)
+check('campaignKey trims', campaignKey(' act_1 ', ' 2 '), 'act_1|2')
+
+console.log('\n--- payload envelope ---')
+check('non-object body rejected', 'error' in parsePayload('nope'), true)
+check('missing rows rejected', 'error' in parsePayload({ reported_at: '2026-08-05T11:00:00Z' }), true)
+check('empty rows rejected', 'error' in parsePayload({ rows: [] }), true)
+check('oversized payload rejected', 'error' in parsePayload({ rows: new Array(5001).fill({}) }), true)
+const okPayload = parsePayload({ reported_at: '2026-08-05T11:00:00Z', rows: [raw()] })
+check('valid payload parses', 'payload' in okPayload, true)
+check('reported_at normalized to ISO',
+  'payload' in okPayload ? okPayload.payload.reported_at : null, '2026-08-05T11:00:00.000Z')
+const noStamp = parsePayload({ rows: [raw()] })
+checkTrue('missing reported_at falls back to the server clock, not to garbage',
+  'payload' in noStamp && !Number.isNaN(Date.parse(noStamp.payload.reported_at)))
+const badStamp = parsePayload({ reported_at: 'yesterday-ish', rows: [raw()] })
+checkTrue('unparseable reported_at also falls back rather than being stored',
+  'payload' in badStamp && !Number.isNaN(Date.parse(badStamp.payload.reported_at)))
+
+// ---------------------------------------------------------------------------
+// Upsert semantics — the restatement fix
+// ---------------------------------------------------------------------------
+//
+// The DB enforces this with uq_campaign_daily_results_campaign_date. Simulated
+// here against the same key so a regression in the key we build surfaces
+// before deploy, not three weeks into a doubling daily table.
+
+console.log('\n--- upsert on (tracked_campaign_id, stat_date) ---')
+
+function applyUpsert(store: Map<string, ValidatedRow>, rows: ValidatedRow[]): Map<string, ValidatedRow> {
+  for (const r of rows) store.set(`${r.tracked_campaign_id}|${r.stat_date}`, r)
+  return store
+}
+
+const store = new Map<string, ValidatedRow>()
+applyUpsert(store, run([raw()]).valid)
+check('first pull writes 1 row', store.size, 1)
+
+// Same day pulled again, unchanged — the daily re-pull of the trailing window.
+applyUpsert(store, run([raw()]).valid)
+check('IDENTICAL re-pull is still 1 row (idempotent, not appended)', store.size, 1)
+
+// Meta restates: a week later Aug 4 reports higher revenue.
+applyUpsert(store, run([raw({ revenue: 1400, roas: 5.6, cpa: 12.5 })]).valid)
+check('restated re-pull is STILL 1 row', store.size, 1)
+check('...and the new number won (update in place)',
+  store.get(`${CAMPAIGN_ID}|2026-08-04`)?.revenue_cents, 140_000)
+
+// A different day is a different row — the key must not collapse the campaign.
+applyUpsert(store, run([raw({ stat_date: '2026-08-03', spend: 200, revenue: 400, purchases: 8, roas: 2, cpa: 25, landing_page_views: 700, lp_conversion_rate: 1.1429 })]).valid)
+check('a second date adds a second row', store.size, 2)
+
+console.log('\n--- restatement re-derives the totals it should ---')
+// Before: 4 days totalling $2,250 revenue. After Aug 4 restates $1,000 → $1,400.
+const restated = FIXTURE.map(r => r.stat_date === '2026-08-04' ? { ...r, revenue_cents: 140_000 } : r)
+const restatedTotals = sumResults(restated)
+check('revenue rises to $2,650', formatCents(restatedTotals.revenue_cents), '$2,650')
+check('spend is unchanged at $700', formatCents(restatedTotals.spend_cents), '$700')
+check('ROAS re-derives to 3.7857', restatedTotals.roas, 3.7857)
+check('still 4 days — a restatement adds NO rows', restatedTotals.days, 4)
+
+console.log('\n--- manual rows are the repair path ---')
+// The agent must never overwrite a human correction. The endpoint enforces
+// this by filtering source='manual' out of the upsert target set; here we
+// assert the shape that filter depends on.
+const manualRow = day({ stat_date: '2026-08-04', source: 'manual', revenue_cents: 999_999 })
+const protectedIds = new Set([manualRow.stat_date])
+const incoming = run([raw({ revenue: 1000 })]).valid
+const writable = incoming.filter(r => !protectedIds.has(r.stat_date))
+check('an agent row targeting a manual date is filtered out', writable.length, 0)
+check('a manual row keeps source=manual', manualRow.source, 'manual')
+
+console.log(fails === 0 ? '\nALL CHECKS PASSED' : `\n${fails} CHECK(S) FAILED`)
+process.exit(fails === 0 ? 0 : 1)

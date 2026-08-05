@@ -20,6 +20,9 @@ import Avatar from '@/components/Avatar'
 import { getCachedProfiles } from '@/lib/profiles'
 import { profileName, editorsFor } from '@/lib/types'
 import SubmitButton from '@/components/SubmitButton'
+import CampaignTrackingPanel from '@/components/CampaignTrackingPanel'
+import { easternToday } from '@/lib/eastern'
+import type { TrackedCampaign } from '@/lib/results'
 
 // AI revision/edit Server Actions (gpt-image-2) run ~60-90s. Without this they hit
 // Vercel's default function timeout and the client gets "unexpected response from
@@ -48,6 +51,7 @@ export default async function ProjectPage({
     { data: lpFeedbackRaw },
     { data: notesRaw },
     { data: brandJourneysRaw },
+    { data: trackedCampaignsRaw },
     profiles,
   ] = await Promise.all([
     supabase.from('projects').select('*').eq('id', projectId).single(),
@@ -61,6 +65,15 @@ export default async function ProjectPage({
     supabase.from('project_comments').select('*').eq('project_id', projectId).in('track', ['lp', 'general']).neq('audience', 'internal').order('created_at'),
     supabase.from('project_comments').select('*').eq('project_id', projectId).eq('track', 'note').order('created_at'),
     supabase.from('journeys').select('*').eq('brand_id', brandId).order('created_at', { ascending: true }),
+    // Campaign tracking. Errors are swallowed by the `{ data }` destructure —
+    // deliberate, so the page still renders on an environment where the
+    // 20260805 migration hasn't been hand-run yet (the panel just shows its
+    // empty link form). Same tolerance the cron has for a missing table.
+    supabase
+      .from('tracked_campaigns')
+      .select('id, project_id, brand_id, meta_ad_account_id, meta_campaign_id, campaign_name, launched_on, ended_on, created_at')
+      .eq('project_id', projectId)
+      .order('launched_on', { ascending: false }),
     getCachedProfiles(),
   ])
 
@@ -76,6 +89,8 @@ export default async function ProjectPage({
   const creativeFeedback = imageComments.filter(c => c.audience !== 'internal')
   const notes = (notesRaw ?? []) as ProjectComment[]
   const brandJourneys = (brandJourneysRaw ?? []) as Journey[]
+  const trackedCampaigns = (trackedCampaignsRaw ?? []) as unknown as TrackedCampaign[]
+  const todayIso = easternToday()
   const isAuthorized = canEdit(user?.email)
   const userDisplayName = user?.email?.split('@')[0] ?? 'Team'
 
@@ -726,6 +741,17 @@ export default async function ProjectPage({
                 )}
               </div>
             </div>
+
+            {/* Campaign tracking — the manual campaign→moment link that feeds
+                the Results tab. Placed after the client-review link because
+                that is roughly when a moment goes live and gets a campaign. */}
+            <CampaignTrackingPanel
+              projectId={projectId}
+              brandId={brandId}
+              campaigns={trackedCampaigns}
+              todayIso={todayIso}
+              canEdit={isAuthorized}
+            />
 
             {/* Client feedback — everything the client left on the review link.
                 The notification bell links here via #client-feedback. */}

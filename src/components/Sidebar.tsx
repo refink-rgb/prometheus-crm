@@ -46,6 +46,14 @@ const FinancialsIcon = (
   </svg>
 )
 
+const ResultsIcon = (
+  <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 17l5-6 4 4 5-7" />
+    <polyline points="15 8 17 8 17 10" />
+    <line x1="3" y1="21" x2="21" y2="21" strokeWidth="1.4" opacity="0.7" />
+  </svg>
+)
+
 const PipelineIcon = (
   <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
     <rect x="3" y="4" width="4" height="16" rx="1" />
@@ -141,6 +149,12 @@ export default function Sidebar({ email, showFinancials, capacity = null }: Side
           icon: FinancialsIcon,
         }]
       : []),
+    {
+      href: '/results',
+      label: 'Results',
+      matches: (p) => p.startsWith('/results'),
+      icon: ResultsIcon,
+    },
     {
       href: '/offers',
       label: 'Offers',
