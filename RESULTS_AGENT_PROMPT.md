@@ -15,6 +15,8 @@ These three are manual and nothing works until they're done.
 
 1. `supabase/migrations/20260805_add_campaign_results.sql` — the three tables
 2. `supabase/migrations/20260805_add_adset_tracking.sql` — ad-set level tracking
+3. `supabase/migrations/20260805_adset_id_is_identity.sql` — ad set ID alone identifies a moment
+4. `supabase/migrations/20260805_add_brand_cod.sql` — cost of delivery per brand
 
 (Repo convention — migrations are hand-run, see `PROJECT_CONTEXT.md`.) Until
 the first lands, `/results` shows a "tables don't exist yet" notice rather than
@@ -58,14 +60,17 @@ the ad account ID (`act_…`), the numeric campaign ID, the campaign name, and
 the launch date.
 
 **Then answer the question that matters:** is this moment a whole campaign, or
-one ad set inside a bigger campaign?
+one ad set inside a bigger campaign? Fill in ONE of the two ID fields.
 
-- **Whole campaign** — leave the ad set fields blank.
-- **One ad set** — fill in the ad set ID and name, and set the launch date to
-  the **ad set's** start date, not the campaign's. The agent will pull only
-  that ad set.
+- **One ad set** — paste the ad set ID. That is all that's needed: Meta object
+  IDs are globally unique, so the ad set ID identifies it on its own. The
+  campaign it belongs to and both display names are filled in automatically
+  from Meta on the first pull. Set the launch date to the **ad set's** start
+  date, not the campaign's.
+- **Whole campaign** — paste the campaign ID and name instead. Only correct
+  when that campaign holds nothing but this one moment.
 
-Getting this wrong doesn't produce an error, it produces confident wrong
+Getting the scope wrong doesn't produce an error, it produces confident wrong
 numbers, so it's worth thirty seconds in Ads Manager to check.
 
 Don't link both a campaign and an ad set inside it — that counts the ad set's
@@ -222,7 +227,14 @@ Store the secret in that account's own secret storage, not in the prompt text.
 > as a plain multiple. You may batch every entry's rows into one POST.
 >
 > Omit `adset_id` (or send null) for `level: "campaign"` entries. Include it for
-> every `level: "adset"` entry. Sending campaign totals for an ad-set-tracked
+> every `level: "adset"` entry — it is what the row is matched on, so a row
+> without it cannot be attributed to an ad-set-tracked moment.
+>
+> You may also echo `campaign_id`, `campaign_name`, and `adset_name` on any
+> row. These are CONTEXT, never used for matching: the CRM stores them on the
+> tracked row the first time it sees them, so the tab can say "ad set in
+> <campaign>" without a human having typed it. Sending a wrong one cannot
+> misroute a row, and an existing value is never overwritten. Sending campaign totals for an ad-set-tracked
 > campaign is REJECTED, not stored — that rejection is a guardrail against
 > writing several moments' combined numbers into one moment's history, so if
 > you see it, fix the pull rather than working around it.

@@ -6,6 +6,7 @@ import {
   parsePayload,
   validateRows,
   type CampaignRef,
+  type RawResultRow,
   type RejectedRow,
   type ValidatedRow,
 } from '@/lib/results/validate'
@@ -48,8 +49,10 @@ function authorized(request: Request): boolean {
 interface WorkItem {
   tracked_campaign_id: string
   ad_account_id: string
-  campaign_id: string
-  campaign_name: string
+  // Context, and null on an ad-set row until the agent backfills it. The agent
+  // does not need it to pull: adset_id is enough.
+  campaign_id: string | null
+  campaign_name: string | null
   brand_name: string | null
   // Non-null = pull the breakdown for THIS AD SET ONLY, not the campaign.
   // Several clients run each marketing moment as an ad set inside one
@@ -128,7 +131,7 @@ export async function GET(request: Request) {
   // go into the agent's run output so a human reading it sees names, not ids).
   let rows = (campaigns ?? []) as unknown as Array<
     CampaignRef & {
-      campaign_name: string
+      campaign_name: string | null
       adset_name: string | null
       brands: { id: string; name: string } | null
     }
@@ -269,16 +272,28 @@ export async function POST(request: Request) {
   // send the agent chasing a link that already exists.
   const { data: campaigns, error: campaignErr } = await supabase
     .from('tracked_campaigns')
-    .select('id, meta_ad_account_id, meta_campaign_id, meta_adset_id, launched_on, ended_on')
+    .select('id, meta_ad_account_id, meta_campaign_id, campaign_name, meta_adset_id, adset_name, launched_on, ended_on')
   if (campaignErr) {
     return NextResponse.json({ error: `Failed to read tracked campaigns: ${campaignErr.message}` }, { status: 500 })
   }
 
-  const { valid, rejected } = validateRows(
-    rows,
-    (campaigns ?? []) as unknown as CampaignRef[],
-    today,
-  )
+  const tracked = (campaigns ?? []) as unknown as Array<
+    CampaignRef & { campaign_name: string | null; adset_name: string | null }
+  >
+
+  const { valid, rejected } = validateRows(rows, tracked, today)
+
+  // ── Context backfill ─────────────────────────────────────────────────────
+  // Linking an ad set needs only its id, so campaign_id and the display names
+  // start out empty. The agent gets all three back from Meta on its first
+  // pull, so fill them in here rather than making a human type what Meta
+  // already knows.
+  //
+  // CONTEXT ONLY — never the identity. Writing campaign_id onto an ad-set row
+  // cannot change what that row matches, because the identity key is
+  // COALESCE(adset_id, campaign_id) and adset_id is already set. Best-effort:
+  // a failure here must not fail an otherwise good ingest.
+  await backfillContext(supabase, tracked, rows)
 
   // A MANUAL ROW IS NEVER OVERWRITTEN BY THE AGENT. That is the repair path:
   // when the agent gets a day wrong, a human fixes it in the UI and the fix
@@ -407,6 +422,63 @@ export async function POST(request: Request) {
     rows_flagged: flagged.length,
     flagged: flagged.map(r => ({ stat_date: r.stat_date, warnings: r.warnings })),
   })
+}
+
+type TrackedWithNames = CampaignRef & { campaign_name: string | null; adset_name: string | null }
+
+// Fills in campaign_id / campaign_name / adset_name on tracked rows that don't
+// have them yet, from whatever the agent reported. Only ever writes a field
+// that is currently NULL — a name a human typed is never overwritten by one
+// Meta returned, because the human's is the one they'll recognise on the tab.
+async function backfillContext(
+  supabase: ReturnType<typeof createServiceClient>,
+  tracked: TrackedWithNames[],
+  rows: readonly RawResultRow[],
+): Promise<void> {
+  // First sighting of each identity in the payload, with whatever context it
+  // carried. Later rows for the same entity say the same thing.
+  const seen = new Map<string, { campaign_id?: string; campaign_name?: string; adset_name?: string }>()
+  for (const r of rows) {
+    const account = str(r.ad_account_id)
+    const identity = str(r.adset_id) ?? str(r.campaign_id)
+    if (!account || !identity) continue
+    const key = `${account}|${identity}`
+    if (seen.has(key)) continue
+    seen.set(key, {
+      campaign_id: str(r.campaign_id) ?? undefined,
+      campaign_name: str(r.campaign_name) ?? undefined,
+      adset_name: str(r.adset_name) ?? undefined,
+    })
+  }
+
+  const updates: Array<PromiseLike<unknown>> = []
+  for (const t of tracked) {
+    const identity = t.meta_adset_id ?? t.meta_campaign_id
+    if (!identity) continue
+    const reported = seen.get(`${t.meta_ad_account_id}|${identity}`)
+    if (!reported) continue
+
+    const patch: Record<string, string> = {}
+    if (!t.meta_campaign_id && reported.campaign_id) patch.meta_campaign_id = reported.campaign_id
+    if (!t.campaign_name && reported.campaign_name) patch.campaign_name = reported.campaign_name
+    if (t.meta_adset_id && !t.adset_name && reported.adset_name) patch.adset_name = reported.adset_name
+    if (Object.keys(patch).length === 0) continue
+
+    updates.push(
+      supabase.from('tracked_campaigns').update(patch).eq('id', t.id)
+        .then(({ error }) => {
+          if (error) console.error(`[results/ingest] context backfill failed for ${t.id}: ${error.message}`)
+        }),
+    )
+  }
+
+  if (updates.length > 0) await Promise.all(updates)
+}
+
+function str(v: unknown): string | null {
+  if (typeof v !== 'string') return null
+  const t = v.trim()
+  return t === '' ? null : t
 }
 
 function maxIso(a: string, b: string): string {

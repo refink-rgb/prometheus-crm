@@ -65,18 +65,28 @@ export async function linkCampaign(formData: FormData) {
 
   const adAccountId = normalizeAdAccountId(accountRaw)
   if (!adAccountId) throw new Error('Ad account ID must look like act_1234567890.')
-  if (!/^\d+$/.test(campaignId)) throw new Error('Campaign ID must be the numeric Meta campaign ID.')
-  if (!campaignName) throw new Error('Campaign name is required — it is the label the Results tab shows.')
   if (!ISO_DATE.test(launchedOn)) throw new Error('Launch date is required (YYYY-MM-DD).')
 
   const adsetId = adsetIdRaw === '' ? null : adsetIdRaw
   if (adsetId !== null && !/^\d+$/.test(adsetId)) {
-    throw new Error('Ad set ID must be the numeric Meta ad set ID, or left blank to track the whole campaign.')
+    throw new Error('Ad set ID must be the numeric Meta ad set ID.')
   }
-  // Without a name the Results tab would label the moment "Ad set 5253039…",
-  // which is unreadable in a client conversation.
-  if (adsetId !== null && !adsetName) {
-    throw new Error('Ad set name is required when tracking a specific ad set.')
+
+  // IDENTITY: the ad set id when tracking an ad set, the campaign id when
+  // tracking a whole campaign. Exactly one is required, and only the identity
+  // is mandatory — Meta object IDs are globally unique, so an ad set id needs
+  // nothing beside it.
+  if (adsetId === null) {
+    if (!/^\d+$/.test(campaignId)) {
+      throw new Error('Enter either a campaign ID (to track the whole campaign) or an ad set ID (to track one moment inside it).')
+    }
+    if (!campaignName) {
+      throw new Error('Campaign name is required — it is the label the Results tab shows.')
+    }
+  } else if (campaignId !== '' && !/^\d+$/.test(campaignId)) {
+    // Optional context when tracking an ad set, but a malformed value would be
+    // stored and shown, so it still has to be a number if given at all.
+    throw new Error('Campaign ID must be numeric, or left blank — the agent fills it in from Meta.')
   }
 
   // A launch date in the future would make the work list ask the agent for
@@ -88,10 +98,12 @@ export async function linkCampaign(formData: FormData) {
     project_id: projectId,
     brand_id: brandId,
     meta_ad_account_id: adAccountId,
-    meta_campaign_id: campaignId,
-    campaign_name: campaignName,
+    // Null on an ad-set row unless you happened to paste it. The agent
+    // backfills both from Meta on its first pull.
+    meta_campaign_id: campaignId === '' ? null : campaignId,
+    campaign_name: campaignName === '' ? null : campaignName,
     meta_adset_id: adsetId,
-    adset_name: adsetId === null ? null : adsetName,
+    adset_name: adsetId === null ? null : (adsetName === '' ? null : adsetName),
     launched_on: launchedOn,
     created_by: user.id,
   })

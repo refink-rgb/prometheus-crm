@@ -147,49 +147,22 @@ export default function CampaignTrackingPanel({
           <input type="hidden" name="project_id" value={projectId} />
           <input type="hidden" name="brand_id" value={brandId} />
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 'var(--space-3)' }}>
-            <div>
-              <label style={LABEL_STYLE} htmlFor="meta_ad_account_id">Ad account ID</label>
-              <input
-                id="meta_ad_account_id"
-                name="meta_ad_account_id"
-                placeholder="act_1234567890"
-                required
-                style={INPUT_STYLE}
-              />
-            </div>
-            <div>
-              <label style={LABEL_STYLE} htmlFor="meta_campaign_id">Campaign ID</label>
-              <input
-                id="meta_campaign_id"
-                name="meta_campaign_id"
-                placeholder="23851234567890123"
-                required
-                style={INPUT_STYLE}
-              />
-            </div>
-          </div>
-
           <div>
-            <label style={LABEL_STYLE} htmlFor="campaign_name">Campaign name</label>
+            <label style={LABEL_STYLE} htmlFor="meta_ad_account_id">Ad account ID</label>
             <input
-              id="campaign_name"
-              name="campaign_name"
-              placeholder="As it reads in Ads Manager"
+              id="meta_ad_account_id"
+              name="meta_ad_account_id"
+              placeholder="act_10035647"
               required
-              style={INPUT_STYLE}
+              style={{ ...INPUT_STYLE, maxWidth: 260 }}
             />
-            {/* Snapshot, not a live mirror: Meta campaign names get edited
-                mid-flight and the Results tab should keep showing what we
-                linked. */}
-            <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>
-              Stored as a snapshot — later renames in Ads Manager won&apos;t change it here.
-            </div>
           </div>
 
-          {/* Ad-set narrowing. Optional, and the copy has to earn its place:
-              getting this wrong is the difference between a moment's real
-              numbers and several moments summed under one moment's name. */}
+          {/* ONE id identifies the thing being tracked — the ad set's, or the
+              campaign's. Meta object IDs are globally unique, so nothing else
+              is needed. The form is split this way because choosing the wrong
+              scope is the difference between one moment's numbers and every
+              moment in the campaign added together. */}
           <div style={{
             border: '1px solid var(--border)',
             borderRadius: 8,
@@ -197,33 +170,55 @@ export default function CampaignTrackingPanel({
             background: 'var(--surface-2)',
           }}>
             <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 'var(--space-3)' }}>
-              <strong>Is this moment a whole campaign, or one ad set inside a bigger campaign?</strong>
-              <br />
-              Leave the fields below blank for a whole campaign. If the moment is one ad set in an
-              evergreen campaign, fill them in — otherwise the numbers here will be every moment in
-              that campaign added together.
+              <strong>Is this moment one ad set, or a whole campaign?</strong> Fill in{' '}
+              <em>one</em> of the two below.
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 'var(--space-3)' }}>
-              <div>
-                <label style={LABEL_STYLE} htmlFor="meta_adset_id">Ad set ID <span style={{ textTransform: 'none', letterSpacing: 0 }}>(optional)</span></label>
-                <input
-                  id="meta_adset_id"
-                  name="meta_adset_id"
-                  placeholder="52530393856787"
-                  style={INPUT_STYLE}
-                />
-              </div>
-              <div>
-                <label style={LABEL_STYLE} htmlFor="adset_name">Ad set name</label>
-                <input
-                  id="adset_name"
-                  name="adset_name"
-                  placeholder="260729 - Molly's Favorites"
-                  style={INPUT_STYLE}
-                />
+
+            <div style={{ marginBottom: 'var(--space-4)' }}>
+              <label style={LABEL_STYLE} htmlFor="meta_adset_id">
+                Ad set ID — one moment inside a bigger campaign
+              </label>
+              <input
+                id="meta_adset_id"
+                name="meta_adset_id"
+                placeholder="52530393856787"
+                style={{ ...INPUT_STYLE, maxWidth: 260 }}
+              />
+              <input
+                id="adset_name"
+                name="adset_name"
+                placeholder="Ad set name (optional — filled in from Meta)"
+                style={{ ...INPUT_STYLE, marginTop: 6 }}
+              />
+              <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>
+                The ad set ID is all that&apos;s needed. The campaign it belongs to and both names
+                are filled in automatically on the first pull.
               </div>
             </div>
-            <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 6 }}>
+
+            <div style={{ borderTop: '1px solid var(--border)', paddingTop: 'var(--space-3)' }}>
+              <label style={LABEL_STYLE} htmlFor="meta_campaign_id">
+                Campaign ID — the whole campaign is this one moment
+              </label>
+              <input
+                id="meta_campaign_id"
+                name="meta_campaign_id"
+                placeholder="23851234567890123"
+                style={{ ...INPUT_STYLE, maxWidth: 260 }}
+              />
+              <input
+                id="campaign_name"
+                name="campaign_name"
+                placeholder="Campaign name (required for campaign tracking)"
+                style={{ ...INPUT_STYLE, marginTop: 6 }}
+              />
+              <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>
+                Only use this when the campaign holds nothing but this moment. If it holds several,
+                track the ad set instead — otherwise the numbers here are all of them added together.
+              </div>
+            </div>
+
+            <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 10 }}>
               Don&apos;t link both a campaign and an ad set inside it — that counts the ad set&apos;s
               spend twice on the Results tiles.
             </div>

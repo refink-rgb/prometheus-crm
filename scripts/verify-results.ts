@@ -53,6 +53,7 @@ import {
   isIsoDate,
   withinTolerance,
   campaignKey,
+  identityOf,
   type CampaignRef,
   type RawResultRow,
   type ValidatedRow,
@@ -111,6 +112,17 @@ const CAMPAIGNS: CampaignRef[] = [
     meta_campaign_id: '6987812298183',
     meta_adset_id: '52527904953587',   // 260723 - Summer Launch
     launched_on: '2026-07-23',
+    ended_on: null,
+  },
+  // Freshly linked with the ad set id ALONE — campaign_id not backfilled yet.
+  // This is the state every ad-set link starts in, so matching must work
+  // without any campaign context at all.
+  {
+    id: 'tc-adset-bare',
+    meta_ad_account_id: 'act_10035647',
+    meta_campaign_id: null,
+    meta_adset_id: '52520956981987',   // 260703 - 4th of July Flash Sale
+    launched_on: '2026-07-03',
     ended_on: null,
   },
 ]
@@ -539,6 +551,21 @@ checkTrue('...and the reason says it is tracked per ad set',
 checkTrue('...and names the ad sets to pull instead',
   campaignLevelSent.rejected[0].reason.includes('52530393856787'))
 
+console.log('\n--- an ad set links with its ID ALONE, no campaign id needed ---')
+// The whole point of the identity change: campaign_id is context, not identity.
+const bare = run([adsetRaw({ adset_id: '52520956981987', campaign_id: null, stat_date: '2026-07-04' })])
+check('matched with no campaign_id at all', bare.valid.length, 1)
+check('routed to the right tracked row', bare.valid[0].tracked_campaign_id, 'tc-adset-bare')
+// And it still matches once the agent starts echoing campaign_id back, because
+// the campaign id was never part of the key.
+const bareWithCtx = run([adsetRaw({ adset_id: '52520956981987', campaign_id: '6987812298183', stat_date: '2026-07-04' })])
+check('still matches once campaign_id is echoed back', bareWithCtx.valid.length, 1)
+check('to the SAME tracked row — identity did not move',
+  bareWithCtx.valid[0].tracked_campaign_id, 'tc-adset-bare')
+// A wrong campaign id must not break matching either: it is not the identity.
+const bareWrongCtx = run([adsetRaw({ adset_id: '52520956981987', campaign_id: '999999', stat_date: '2026-07-04' })])
+check('a wrong campaign_id does not break the match', bareWrongCtx.valid.length, 1)
+
 console.log('\n--- an ad set that is not tracked is rejected ---')
 const unknownAdset = run([adsetRaw({ adset_id: '99999999999' })])
 check('rejected', [unknownAdset.valid.length, unknownAdset.rejected.length], [0, 1])
@@ -566,12 +593,17 @@ check('2026-07-28 rejected (before the AD SET launched)',
 check('2026-07-29 accepted (launch day)',
   run([adsetRaw({ stat_date: '2026-07-29' })]).valid.length, 1)
 
-console.log('\n--- campaignKey ---')
-check('campaign-level key has a blank third segment',
-  campaignKey('act_1', '2'), 'act_1|2|')
-check('ad-set key carries the id', campaignKey('act_1', '2', '3'), 'act_1|2|3')
-checkTrue('the two are different keys', campaignKey('act_1', '2') !== campaignKey('act_1', '2', '3'))
-check('null adset == campaign-level', campaignKey('act_1', '2', null), 'act_1|2|')
+console.log('\n--- campaignKey: one account + ONE identity id ---')
+check('account + identity', campaignKey('act_1', '2'), 'act_1|2')
+check('trims', campaignKey(' act_1 ', ' 2 '), 'act_1|2')
+// Meta object ids are globally unique, so a campaign id and an ad set id are
+// different values from the same namespace and can never collide.
+checkTrue('a campaign id and an ad set id key differently',
+  campaignKey('act_1', '6987812298183') !== campaignKey('act_1', '52530393856787'))
+check('identityOf prefers the ad set',
+  identityOf({ meta_adset_id: '525', meta_campaign_id: '698' }), '525')
+check('identityOf falls back to the campaign',
+  identityOf({ meta_adset_id: null, meta_campaign_id: '698' }), '698')
 
 console.log('\n--- coercion primitives ---')
 check("toNumber('1,234.5')", toNumber('1,234.5'), 1234.5)
@@ -587,7 +619,6 @@ check('isIsoDate rejects Feb 31', isIsoDate('2026-02-31'), false)
 check('isIsoDate rejects a timestamp', isIsoDate('2026-08-04T00:00:00Z'), false)
 check('withinTolerance is RELATIVE', withinTolerance(1.01, 1.0), true)
 check('...so a small absolute gap on a small value fails', withinTolerance(0.07, 0.05), false)
-check('campaignKey trims', campaignKey(' act_1 ', ' 2 '), 'act_1|2|')
 
 console.log('\n--- payload envelope ---')
 check('non-object body rejected', 'error' in parsePayload('nope'), true)

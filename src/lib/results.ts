@@ -42,8 +42,12 @@ export interface TrackedCampaign {
   project_id: string
   brand_id: string
   meta_ad_account_id: string
-  meta_campaign_id: string
-  campaign_name: string
+  // IDENTITY when meta_adset_id is null. CONTEXT when it isn't — backfilled by
+  // the agent, used for display and clearer rejections, never for matching.
+  meta_campaign_id: string | null
+  campaign_name: string | null
+  // IDENTITY for ad-set tracking. Meta object IDs are globally unique, so this
+  // alone identifies the ad set — nothing else is required to link one.
   meta_adset_id: string | null
   adset_name: string | null
   launched_on: string
@@ -51,15 +55,36 @@ export interface TrackedCampaign {
   created_at: string
 }
 
-// What the Results tab shows as the thing's name. An ad-set-level row is named
-// after the ad set — that's the moment — with the campaign as context.
-export function trackedLabel(c: Pick<TrackedCampaign, 'campaign_name' | 'adset_name' | 'meta_adset_id'>): string {
-  if (c.meta_adset_id) return c.adset_name ?? `Ad set ${c.meta_adset_id}`
-  return c.campaign_name
+// The one id that identifies a tracked row. Mirrors the DB's
+// COALESCE(meta_adset_id, meta_campaign_id) unique key.
+export function trackedIdentity(
+  c: Pick<TrackedCampaign, 'meta_adset_id' | 'meta_campaign_id'>,
+): string | null {
+  return c.meta_adset_id ?? c.meta_campaign_id
 }
 
-export function trackedSublabel(c: Pick<TrackedCampaign, 'campaign_name' | 'meta_adset_id'>): string | null {
-  return c.meta_adset_id ? `ad set in ${c.campaign_name}` : null
+export function isAdsetLevel(c: Pick<TrackedCampaign, 'meta_adset_id'>): boolean {
+  return c.meta_adset_id !== null
+}
+
+// What the Results tab shows as the thing's name. An ad-set-level row is named
+// after the ad set — that IS the moment. Falls back to the id when no name has
+// been supplied or backfilled yet, which is honest about what we know rather
+// than borrowing the campaign's name and implying the wrong scope.
+export function trackedLabel(
+  c: Pick<TrackedCampaign, 'campaign_name' | 'adset_name' | 'meta_adset_id' | 'meta_campaign_id'>,
+): string {
+  if (c.meta_adset_id) return c.adset_name ?? `Ad set ${c.meta_adset_id}`
+  return c.campaign_name ?? `Campaign ${c.meta_campaign_id ?? '—'}`
+}
+
+// Context line. Null until the agent backfills the campaign name, so it simply
+// doesn't render rather than showing "ad set in null".
+export function trackedSublabel(
+  c: Pick<TrackedCampaign, 'campaign_name' | 'meta_adset_id'>,
+): string | null {
+  if (!c.meta_adset_id) return null
+  return c.campaign_name ? `ad set in ${c.campaign_name}` : 'ad set'
 }
 
 // A row of `campaign_daily_results`.
