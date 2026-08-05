@@ -4,8 +4,10 @@ import type { NextRequest } from 'next/server'
 
 // Token-authed routes bypass the session check: /api/preview and /api/review
 // use the project's share_token; /api/creative uses a Bearer editor token
-// validated at the route level; /api/cron checks CRON_SECRET in-route.
-const PUBLIC_PREFIXES = ['/login', '/review', '/portal', '/showcase', '/auth', '/api/preview', '/api/review', '/api/creative', '/api/cron']
+// validated at the route level; /api/cron checks CRON_SECRET in-route;
+// /api/results checks RESULTS_INGEST_SECRET in-route (the scheduled Meta-MCP
+// agent posts daily campaign results and has no session cookie).
+const PUBLIC_PREFIXES = ['/login', '/review', '/portal', '/showcase', '/auth', '/api/preview', '/api/review', '/api/creative', '/api/cron', '/api/results']
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!.trim()
 const PROJECT_REF = new URL(SUPABASE_URL).hostname.split('.')[0]
