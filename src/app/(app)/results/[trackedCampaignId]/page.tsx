@@ -18,6 +18,8 @@ import {
   formatCount,
   formatPercent,
   shortDateLabel,
+  trackedLabel,
+  trackedSublabel,
   safeRate,
   type TrackedCampaign,
 } from '@/lib/results'
@@ -46,7 +48,7 @@ export default async function CampaignResultsPage({
 
   const { data: campaignRaw } = await supabase
     .from('tracked_campaigns')
-    .select('id, project_id, brand_id, meta_ad_account_id, meta_campaign_id, campaign_name, launched_on, ended_on, created_at, projects(id, name), brands(id, name)')
+    .select('id, project_id, brand_id, meta_ad_account_id, meta_campaign_id, campaign_name, meta_adset_id, adset_name, launched_on, ended_on, created_at, projects(id, name), brands(id, name)')
     .eq('id', trackedCampaignId)
     .single()
 
@@ -103,10 +105,17 @@ export default async function CampaignResultsPage({
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 'var(--space-4)', flexWrap: 'wrap', marginBottom: 'var(--space-6)' }}>
         <div style={{ minWidth: 0 }}>
           <h1 style={{ fontSize: 'var(--text-xl)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 'var(--space-2)' }}>
-            {campaign.campaign_name}
+            {trackedLabel(campaign)}
           </h1>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6 }}>
-            <span style={{ fontFamily: 'monospace' }}>{campaign.meta_ad_account_id} · {campaign.meta_campaign_id}</span>
+            {/* Ad-set-level tracking is stated up front. These numbers are one
+                ad set's, not the parent campaign's, and the page must say so
+                before anyone quotes a figure off it. */}
+            {trackedSublabel(campaign) && <>{trackedSublabel(campaign)}<br /></>}
+            <span style={{ fontFamily: 'monospace' }}>
+              {campaign.meta_ad_account_id} · {campaign.meta_campaign_id}
+              {campaign.meta_adset_id && ` · ${campaign.meta_adset_id}`}
+            </span>
             <br />
             Launched {shortDateLabel(campaign.launched_on)} · day {live}
             {campaign.ended_on && ` · tracking ended ${shortDateLabel(campaign.ended_on)}`}

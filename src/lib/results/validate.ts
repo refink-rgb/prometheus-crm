@@ -39,6 +39,9 @@
 export interface RawResultRow {
   ad_account_id?: unknown
   campaign_id?: unknown
+  // Present only for ad-set-level tracking. When the tracked row names an ad
+  // set, the agent MUST send this or the row won't match — see campaignKey.
+  adset_id?: unknown
   stat_date?: unknown
   spend?: unknown
   revenue?: unknown
@@ -74,6 +77,7 @@ export interface RejectedRow {
   // Echoed back so the agent's run output names the row it got wrong.
   ad_account_id: string | null
   campaign_id: string | null
+  adset_id?: string | null
   stat_date: string | null
   reason: string
 }
@@ -84,10 +88,12 @@ export interface ValidationResult {
 }
 
 // The subset of a tracked_campaigns row validation needs.
+// `meta_adset_id: null` = the whole campaign is tracked.
 export interface CampaignRef {
   id: string
   meta_ad_account_id: string
   meta_campaign_id: string
+  meta_adset_id: string | null
   launched_on: string
   ended_on: string | null
 }
@@ -193,11 +199,19 @@ export function validateRows(
   campaigns: readonly CampaignRef[],
   todayIso: string,
 ): ValidationResult {
-  // (ad_account_id, campaign_id) → campaign. The pair is the unique key in the
-  // DB, so it is the lookup key here too.
+  // (ad_account_id, campaign_id, adset_id-or-blank) → tracked row. Same key
+  // the DB's unique index uses, so what matches here is what can be stored.
   const byMetaIds = new Map<string, CampaignRef>()
+  // Ad sets tracked under each campaign, used only to write a better rejection
+  // message when the agent sends campaign-level rows for a campaign that is
+  // actually tracked per ad set.
+  const adsetsByCampaign = new Map<string, string[]>()
   for (const c of campaigns) {
-    byMetaIds.set(campaignKey(c.meta_ad_account_id, c.meta_campaign_id), c)
+    byMetaIds.set(campaignKey(c.meta_ad_account_id, c.meta_campaign_id, c.meta_adset_id), c)
+    if (c.meta_adset_id) {
+      const k = campaignKey(c.meta_ad_account_id, c.meta_campaign_id)
+      adsetsByCampaign.set(k, [...(adsetsByCampaign.get(k) ?? []), c.meta_adset_id])
+    }
   }
 
   const valid: ValidatedRow[] = []
@@ -210,9 +224,15 @@ export function validateRows(
   for (const raw of rows) {
     const accountId = toTrimmedString(raw.ad_account_id)
     const campaignId = toTrimmedString(raw.campaign_id)
+    const adsetId = toTrimmedString(raw.adset_id)
     const statDate = toTrimmedString(raw.stat_date)
 
-    const echo = { ad_account_id: accountId, campaign_id: campaignId, stat_date: statDate }
+    const echo = {
+      ad_account_id: accountId,
+      campaign_id: campaignId,
+      adset_id: adsetId,
+      stat_date: statDate,
+    }
 
     if (!accountId || !campaignId) {
       rejected.push({ ...echo, reason: 'Missing ad_account_id or campaign_id.' })
@@ -222,11 +242,27 @@ export function validateRows(
     // THE MANUAL LINK IS THE CONTRACT. An unknown campaign is rejected, never
     // auto-created: ingestion inventing rows in tracked_campaigns would mean
     // the Results tab quietly grows campaigns nobody chose to watch.
-    const campaign = byMetaIds.get(campaignKey(accountId, campaignId))
+    const campaign = byMetaIds.get(campaignKey(accountId, campaignId, adsetId))
     if (!campaign) {
+      // The likeliest real mistake: the campaign IS tracked, but per ad set,
+      // and the agent sent campaign-level totals. Silently accepting those
+      // would write the parent campaign's numbers — every other moment in the
+      // bucket included — into one moment's history. Name the fix instead.
+      const trackedAdsets = adsetsByCampaign.get(campaignKey(accountId, campaignId))
+      if (!adsetId && trackedAdsets && trackedAdsets.length > 0) {
+        rejected.push({
+          ...echo,
+          reason:
+            `Campaign ${campaignId} is tracked per AD SET (${trackedAdsets.join(', ')}), not as a whole. ` +
+            'Send adset_id on each row and pull the breakdown at ad-set level.',
+        })
+        continue
+      }
       rejected.push({
         ...echo,
-        reason: `No tracked campaign for ${accountId} / ${campaignId}. Link it on the project first.`,
+        reason: adsetId
+          ? `No tracked ad set for ${accountId} / ${campaignId} / ${adsetId}. Link it on the project first.`
+          : `No tracked campaign for ${accountId} / ${campaignId}. Link it on the project first.`,
       })
       continue
     }
@@ -402,8 +438,18 @@ function nonNegativeOrNull(n: number | null, label: string, warnings: string[]):
   return n
 }
 
-export function campaignKey(accountId: string, campaignId: string): string {
-  return `${accountId.trim()}|${campaignId.trim()}`
+// The identity of a tracked thing: an ad account + campaign, optionally
+// narrowed to one ad set. Mirrors the DB's unique index, which normalises a
+// NULL ad set to '' for exactly the same reason.
+//
+// The empty third segment is what makes campaign-level and ad-set-level rows
+// DIFFERENT keys. A payload row carrying no adset_id can only ever match a
+// whole-campaign tracking row, and a row carrying one can only match that
+// specific ad set — so an agent that forgets to send adset_id gets a clean
+// rejection instead of silently writing the parent campaign's numbers into an
+// ad set's history.
+export function campaignKey(accountId: string, campaignId: string, adsetId?: string | null): string {
+  return `${accountId.trim()}|${campaignId.trim()}|${(adsetId ?? '').trim()}`
 }
 
 // ---------------------------------------------------------------------------

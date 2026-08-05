@@ -50,6 +50,13 @@ interface WorkItem {
   ad_account_id: string
   campaign_id: string
   campaign_name: string
+  // Non-null = pull the breakdown for THIS AD SET ONLY, not the campaign.
+  // Several clients run each marketing moment as an ad set inside one
+  // evergreen campaign, so campaign totals would be several moments summed.
+  adset_id: string | null
+  adset_name: string | null
+  // Explicit so the agent never has to infer it from adset_id being present.
+  level: 'campaign' | 'adset'
   launched_on: string
   // Inclusive range the agent should pull.
   from_date: string
@@ -76,7 +83,7 @@ export async function GET(request: Request) {
 
   const { data: campaigns, error } = await supabase
     .from('tracked_campaigns')
-    .select('id, meta_ad_account_id, meta_campaign_id, campaign_name, launched_on, ended_on')
+    .select('id, meta_ad_account_id, meta_campaign_id, campaign_name, meta_adset_id, adset_name, launched_on, ended_on')
     .is('ended_on', null)          // NULL means live — the whole filter
     .order('launched_on', { ascending: false })
 
@@ -84,9 +91,11 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: `Failed to read tracked campaigns: ${error.message}` }, { status: 500 })
   }
 
-  // CampaignRef plus the display name, which only the work list needs (it goes
-  // into the agent's run output so a human reading it sees names, not ids).
-  const rows = (campaigns ?? []) as unknown as Array<CampaignRef & { campaign_name: string }>
+  // CampaignRef plus the display names, which only the work list needs (they
+  // go into the agent's run output so a human reading it sees names, not ids).
+  const rows = (campaigns ?? []) as unknown as Array<
+    CampaignRef & { campaign_name: string; adset_name: string | null }
+  >
 
   // The latest stat_date we already hold per campaign decides
   // backfill-vs-trailing.
@@ -137,6 +146,9 @@ export async function GET(request: Request) {
       ad_account_id: c.meta_ad_account_id,
       campaign_id: c.meta_campaign_id,
       campaign_name: c.campaign_name,
+      adset_id: c.meta_adset_id,
+      adset_name: c.adset_name,
+      level: c.meta_adset_id ? 'adset' : 'campaign',
       launched_on: c.launched_on,
       from_date: from,
       to_date: through,
@@ -153,11 +165,15 @@ export async function GET(request: Request) {
     // Restated verbatim so the agent's standing rules travel with the work
     // list rather than living only in a prompt someone can edit.
     instructions:
-      'Pull the daily breakdown for each campaign over [from_date, to_date] inclusive, at the 7d_click ' +
-      'attribution window, and POST the rows back to this endpoint. Report ONLY what the tool returned. ' +
-      'If a metric is unavailable, send null — never estimate, interpolate, or round to something that ' +
-      'looks better. incremental_revenue comes from the ad account\'s existing "Incremental Revenue" ' +
-      'column; if the account has no such column, send null.',
+      'Pull the daily breakdown for each entry over [from_date, to_date] inclusive, at the 7d_click ' +
+      'attribution window, and POST the rows back to this endpoint. ' +
+      'IMPORTANT — check `level` on each entry. level="campaign" means pull campaign totals. ' +
+      'level="adset" means pull ONLY that ad set (filter by its adset_id) and echo adset_id back on ' +
+      'every row you post for it; campaign totals there would be several marketing moments summed ' +
+      'together and will be rejected. ' +
+      'Report ONLY what the tool returned. If a metric is unavailable, send null — never estimate, ' +
+      'interpolate, or round to something that looks better. incremental_revenue comes from the ad ' +
+      'account\'s existing "Incremental Revenue" column; if the account has no such column, send null.',
     campaigns: work,
   })
 }
@@ -189,7 +205,7 @@ export async function POST(request: Request) {
   // send the agent chasing a link that already exists.
   const { data: campaigns, error: campaignErr } = await supabase
     .from('tracked_campaigns')
-    .select('id, meta_ad_account_id, meta_campaign_id, launched_on, ended_on')
+    .select('id, meta_ad_account_id, meta_campaign_id, meta_adset_id, launched_on, ended_on')
   if (campaignErr) {
     return NextResponse.json({ error: `Failed to read tracked campaigns: ${campaignErr.message}` }, { status: 500 })
   }

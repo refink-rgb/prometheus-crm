@@ -17,6 +17,8 @@ import {
   formatRoas,
   formatCount,
   shortDateLabel,
+  trackedLabel,
+  trackedSublabel,
   type DailyResult,
   type TrackedCampaign,
 } from '@/lib/results'
@@ -42,7 +44,7 @@ export default async function ResultsPage() {
 
   const { data: campaignsRaw, error: campaignErr } = await supabase
     .from('tracked_campaigns')
-    .select('id, project_id, brand_id, meta_ad_account_id, meta_campaign_id, campaign_name, launched_on, ended_on, created_at, projects(id, name), brands(id, name)')
+    .select('id, project_id, brand_id, meta_ad_account_id, meta_campaign_id, campaign_name, meta_adset_id, adset_name, launched_on, ended_on, created_at, projects(id, name), brands(id, name)')
     .is('ended_on', null)
     .order('launched_on', { ascending: false })
 
@@ -162,9 +164,12 @@ function CampaignCard({
             href={`/results/${campaign.id}`}
             style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', textDecoration: 'none' }}
           >
-            {campaign.campaign_name}
+            {trackedLabel(campaign)}
           </Link>
           <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+            {/* Says "ad set in <campaign>" when tracking is narrowed, so nobody
+                reads these numbers as the whole campaign's. */}
+            {trackedSublabel(campaign) && <>{trackedSublabel(campaign)} · </>}
             Launched {shortDateLabel(campaign.launched_on)} · day {live}
           </div>
         </div>

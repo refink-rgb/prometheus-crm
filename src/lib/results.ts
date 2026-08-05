@@ -32,6 +32,11 @@ function daysBetweenIso(fromIso: string, toIso: string): number {
 export type ResultSource = 'mcp_agent' | 'manual'
 
 // A row of `tracked_campaigns`. `ended_on: null` MEANS LIVE.
+//
+// `meta_adset_id: null` means track the WHOLE campaign. A non-null value
+// narrows tracking to one ad set inside it — which is how several clients
+// actually structure marketing moments (Noble runs every moment as an ad set
+// inside one evergreen campaign). See 20260805_add_adset_tracking.sql.
 export interface TrackedCampaign {
   id: string
   project_id: string
@@ -39,9 +44,22 @@ export interface TrackedCampaign {
   meta_ad_account_id: string
   meta_campaign_id: string
   campaign_name: string
+  meta_adset_id: string | null
+  adset_name: string | null
   launched_on: string
   ended_on: string | null
   created_at: string
+}
+
+// What the Results tab shows as the thing's name. An ad-set-level row is named
+// after the ad set — that's the moment — with the campaign as context.
+export function trackedLabel(c: Pick<TrackedCampaign, 'campaign_name' | 'adset_name' | 'meta_adset_id'>): string {
+  if (c.meta_adset_id) return c.adset_name ?? `Ad set ${c.meta_adset_id}`
+  return c.campaign_name
+}
+
+export function trackedSublabel(c: Pick<TrackedCampaign, 'campaign_name' | 'meta_adset_id'>): string | null {
+  return c.meta_adset_id ? `ad set in ${c.campaign_name}` : null
 }
 
 // A row of `campaign_daily_results`.

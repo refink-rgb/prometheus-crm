@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { linkCampaign, endCampaignTracking, resumeCampaignTracking, unlinkCampaign } from '@/lib/results-actions'
 import SubmitButton from '@/components/SubmitButton'
 import ConfirmDeleteForm from '@/components/ConfirmDeleteForm'
-import { daysLive, shortDateLabel, type TrackedCampaign } from '@/lib/results'
+import { daysLive, shortDateLabel, trackedLabel, trackedSublabel, type TrackedCampaign } from '@/lib/results'
 
 // The manual campaign→moment link, on the project page. ~10 seconds per moment,
 // and it is the ONLY way a campaign enters the Results tab — /api/results/ingest
@@ -74,10 +74,18 @@ export default function CampaignTrackingPanel({
                       href={`/results/${c.id}`}
                       style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', textDecoration: 'none' }}
                     >
-                      {c.campaign_name}
+                      {trackedLabel(c)}
                     </Link>
+                    {/* An ad-set-level row is named after the ad set — that IS
+                        the moment — with the parent campaign as context. */}
+                    {trackedSublabel(c) && (
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                        {trackedSublabel(c)}
+                      </div>
+                    )}
                     <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3, fontFamily: 'monospace' }}>
                       {c.meta_ad_account_id} · {c.meta_campaign_id}
+                      {c.meta_adset_id && ` · ${c.meta_adset_id}`}
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>
                       Launched {shortDateLabel(c.launched_on)} ·{' '}
@@ -86,9 +94,16 @@ export default function CampaignTrackingPanel({
                         : `ended ${shortDateLabel(c.ended_on as string)} · ${daysLive(c.launched_on, c.ended_on, todayIso)} days tracked`}
                     </div>
                   </div>
-                  <span className={live ? 'badge badge-live' : 'badge badge-upcoming'}>
-                    {live ? 'Tracking' : 'Ended'}
-                  </span>
+                  <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                    <span className="badge badge-brief" title={c.meta_adset_id
+                      ? 'Only this ad set is pulled — not the whole campaign.'
+                      : 'The whole campaign is pulled.'}>
+                      {c.meta_adset_id ? 'Ad set' : 'Campaign'}
+                    </span>
+                    <span className={live ? 'badge badge-live' : 'badge badge-upcoming'}>
+                      {live ? 'Tracking' : 'Ended'}
+                    </span>
+                  </div>
                 </div>
 
                 {canEdit && (
@@ -169,6 +184,48 @@ export default function CampaignTrackingPanel({
                 linked. */}
             <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>
               Stored as a snapshot — later renames in Ads Manager won&apos;t change it here.
+            </div>
+          </div>
+
+          {/* Ad-set narrowing. Optional, and the copy has to earn its place:
+              getting this wrong is the difference between a moment's real
+              numbers and several moments summed under one moment's name. */}
+          <div style={{
+            border: '1px solid var(--border)',
+            borderRadius: 8,
+            padding: '12px 14px',
+            background: 'var(--surface-2)',
+          }}>
+            <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 'var(--space-3)' }}>
+              <strong>Is this moment a whole campaign, or one ad set inside a bigger campaign?</strong>
+              <br />
+              Leave the fields below blank for a whole campaign. If the moment is one ad set in an
+              evergreen campaign, fill them in — otherwise the numbers here will be every moment in
+              that campaign added together.
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 'var(--space-3)' }}>
+              <div>
+                <label style={LABEL_STYLE} htmlFor="meta_adset_id">Ad set ID <span style={{ textTransform: 'none', letterSpacing: 0 }}>(optional)</span></label>
+                <input
+                  id="meta_adset_id"
+                  name="meta_adset_id"
+                  placeholder="52530393856787"
+                  style={INPUT_STYLE}
+                />
+              </div>
+              <div>
+                <label style={LABEL_STYLE} htmlFor="adset_name">Ad set name</label>
+                <input
+                  id="adset_name"
+                  name="adset_name"
+                  placeholder="260729 - Molly's Favorites"
+                  style={INPUT_STYLE}
+                />
+              </div>
+            </div>
+            <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 6 }}>
+              Don&apos;t link both a campaign and an ad set inside it — that counts the ad set&apos;s
+              spend twice on the Results tiles.
             </div>
           </div>
 

@@ -78,6 +78,7 @@ const CAMPAIGNS: CampaignRef[] = [
     id: CAMPAIGN_ID,
     meta_ad_account_id: 'act_123456',
     meta_campaign_id: '987654321',
+    meta_adset_id: null,          // whole-campaign tracking
     launched_on: '2026-08-01',
     ended_on: null,
   },
@@ -85,8 +86,29 @@ const CAMPAIGNS: CampaignRef[] = [
     id: 'tc-ended',
     meta_ad_account_id: 'act_123456',
     meta_campaign_id: '111222333',
+    meta_adset_id: null,
     launched_on: '2026-07-01',
     ended_on: '2026-07-20',
+  },
+  // Ad-set-level tracking, modelled on the real Noble case: two marketing
+  // moments living as ad sets inside ONE evergreen campaign (6987812298183,
+  // "CTC - ACQ - Marketing Moments"). Tracking the campaign here would report
+  // both moments' spend under whichever one you linked.
+  {
+    id: 'tc-adset-molly',
+    meta_ad_account_id: 'act_10035647',
+    meta_campaign_id: '6987812298183',
+    meta_adset_id: '52530393856787',   // 260729 - Molly's Favorites
+    launched_on: '2026-07-29',
+    ended_on: null,
+  },
+  {
+    id: 'tc-adset-summer',
+    meta_ad_account_id: 'act_10035647',
+    meta_campaign_id: '6987812298183',
+    meta_adset_id: '52527904953587',   // 260723 - Summer Launch
+    launched_on: '2026-07-23',
+    ended_on: null,
   },
 ]
 
@@ -373,6 +395,95 @@ check('last one wins', dupes.valid[0].spend_cents, 25_000)
 checkTrue('and the collision is reported, not hidden',
   dupes.valid[0].warnings.some(w => w.includes('duplicate row')))
 
+// ---------------------------------------------------------------------------
+// Ad-set-level tracking
+// ---------------------------------------------------------------------------
+//
+// The failure this whole feature-within-a-feature exists to prevent: several
+// clients run every marketing moment as an AD SET inside one evergreen
+// campaign. Tracking the campaign and calling it one moment reports every
+// moment in the bucket added together, under one moment's name — with a launch
+// date months before that moment existed. Every individual number is real,
+// which is precisely why no arithmetic check can catch it.
+
+function adsetRaw(overrides: Partial<RawResultRow> = {}): RawResultRow {
+  return {
+    ad_account_id: 'act_10035647',
+    campaign_id: '6987812298183',
+    adset_id: '52530393856787',
+    stat_date: '2026-08-04',
+    spend: 100,
+    revenue: 200,
+    purchases: 4,
+    roas: 2,
+    cpa: 25,
+    landing_page_views: null,
+    lp_conversion_rate: null,
+    unique_outbound_ctr: null,
+    ...overrides,
+  }
+}
+
+console.log('\n--- ad-set tracking: the right ad set matches ---')
+const adsetOk = run([adsetRaw()])
+check('1 valid, 0 rejected', [adsetOk.valid.length, adsetOk.rejected.length], [1, 0])
+check("routed to Molly's tracking row, not the campaign", adsetOk.valid[0].tracked_campaign_id, 'tc-adset-molly')
+check('no warnings', adsetOk.valid[0].warnings, [])
+
+console.log('\n--- sibling ad sets in the SAME campaign stay separate ---')
+const bothAdsets = run([
+  adsetRaw({ spend: 100, revenue: 200 }),
+  adsetRaw({ adset_id: '52527904953587', spend: 300, revenue: 900, purchases: 12, roas: 3, cpa: 25 }),
+])
+check('both stored', bothAdsets.valid.length, 2)
+check('as two DIFFERENT tracked rows',
+  bothAdsets.valid.map(r => r.tracked_campaign_id), ['tc-adset-molly', 'tc-adset-summer'])
+// If the key ignored adset_id, these would collapse to one row on the same
+// date and the second would silently overwrite the first.
+check('not collapsed by the dedupe key', new Set(bothAdsets.valid.map(r => r.tracked_campaign_id)).size, 2)
+
+console.log('\n--- THE BUG THIS PREVENTS: campaign totals sent for an ad-set-tracked campaign ---')
+const campaignLevelSent = run([adsetRaw({ adset_id: null, spend: 2700, revenue: 5900 })])
+check('REJECTED, not silently stored', [campaignLevelSent.valid.length, campaignLevelSent.rejected.length], [0, 1])
+checkTrue('...and the reason says it is tracked per ad set',
+  campaignLevelSent.rejected[0].reason.includes('tracked per AD SET'))
+checkTrue('...and names the ad sets to pull instead',
+  campaignLevelSent.rejected[0].reason.includes('52530393856787'))
+
+console.log('\n--- an ad set that is not tracked is rejected ---')
+const unknownAdset = run([adsetRaw({ adset_id: '99999999999' })])
+check('rejected', [unknownAdset.valid.length, unknownAdset.rejected.length], [0, 1])
+checkTrue('reason names the ad set, not just the campaign',
+  unknownAdset.rejected[0].reason.includes('No tracked ad set'))
+
+console.log('\n--- an adset_id sent for a campaign-tracked row is rejected ---')
+// The mirror image: tracking is whole-campaign, but the agent narrowed to an
+// ad set. Accepting it would write one ad set's numbers as the campaign's.
+const strayAdset = run([raw({ adset_id: '55555555555' })])
+check('rejected', [strayAdset.valid.length, strayAdset.rejected.length], [0, 1])
+
+console.log('\n--- campaign-level tracking still works untouched ---')
+check('no adset_id, campaign-tracked → matches', run([raw()]).valid[0].tracked_campaign_id, CAMPAIGN_ID)
+check('an undefined adset_id is the same as absent',
+  run([raw({ adset_id: undefined })]).valid[0].tracked_campaign_id, CAMPAIGN_ID)
+check('an empty-string adset_id is the same as absent',
+  run([raw({ adset_id: '' })]).valid[0].tracked_campaign_id, CAMPAIGN_ID)
+
+console.log('\n--- ad-set launch date is enforced independently of the campaign ---')
+// The campaign started 2026-05-22; Molly's ad set started 2026-07-29. A date
+// in between is real for the campaign and impossible for the moment.
+check('2026-07-28 rejected (before the AD SET launched)',
+  run([adsetRaw({ stat_date: '2026-07-28' })]).rejected.length, 1)
+check('2026-07-29 accepted (launch day)',
+  run([adsetRaw({ stat_date: '2026-07-29' })]).valid.length, 1)
+
+console.log('\n--- campaignKey ---')
+check('campaign-level key has a blank third segment',
+  campaignKey('act_1', '2'), 'act_1|2|')
+check('ad-set key carries the id', campaignKey('act_1', '2', '3'), 'act_1|2|3')
+checkTrue('the two are different keys', campaignKey('act_1', '2') !== campaignKey('act_1', '2', '3'))
+check('null adset == campaign-level', campaignKey('act_1', '2', null), 'act_1|2|')
+
 console.log('\n--- coercion primitives ---')
 check("toNumber('1,234.5')", toNumber('1,234.5'), 1234.5)
 check("toNumber('2.45%') strips the sign", toNumber('2.45%'), 2.45)
@@ -387,7 +498,7 @@ check('isIsoDate rejects Feb 31', isIsoDate('2026-02-31'), false)
 check('isIsoDate rejects a timestamp', isIsoDate('2026-08-04T00:00:00Z'), false)
 check('withinTolerance is RELATIVE', withinTolerance(1.01, 1.0), true)
 check('...so a small absolute gap on a small value fails', withinTolerance(0.07, 0.05), false)
-check('campaignKey trims', campaignKey(' act_1 ', ' 2 '), 'act_1|2')
+check('campaignKey trims', campaignKey(' act_1 ', ' 2 '), 'act_1|2|')
 
 console.log('\n--- payload envelope ---')
 check('non-object body rejected', 'error' in parsePayload('nope'), true)

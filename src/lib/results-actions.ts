@@ -56,6 +56,10 @@ export async function linkCampaign(formData: FormData) {
   const campaignId = (formData.get('meta_campaign_id') as string)?.trim() ?? ''
   const campaignName = (formData.get('campaign_name') as string)?.trim() ?? ''
   const launchedOn = (formData.get('launched_on') as string)?.trim() ?? ''
+  // Optional. Blank = track the whole campaign; an ID narrows tracking to one
+  // ad set, which is how several clients structure marketing moments.
+  const adsetIdRaw = (formData.get('meta_adset_id') as string)?.trim() ?? ''
+  const adsetName = (formData.get('adset_name') as string)?.trim() ?? ''
 
   if (!projectId || !brandId) throw new Error('Project and brand are required.')
 
@@ -64,6 +68,16 @@ export async function linkCampaign(formData: FormData) {
   if (!/^\d+$/.test(campaignId)) throw new Error('Campaign ID must be the numeric Meta campaign ID.')
   if (!campaignName) throw new Error('Campaign name is required — it is the label the Results tab shows.')
   if (!ISO_DATE.test(launchedOn)) throw new Error('Launch date is required (YYYY-MM-DD).')
+
+  const adsetId = adsetIdRaw === '' ? null : adsetIdRaw
+  if (adsetId !== null && !/^\d+$/.test(adsetId)) {
+    throw new Error('Ad set ID must be the numeric Meta ad set ID, or left blank to track the whole campaign.')
+  }
+  // Without a name the Results tab would label the moment "Ad set 5253039…",
+  // which is unreadable in a client conversation.
+  if (adsetId !== null && !adsetName) {
+    throw new Error('Ad set name is required when tracking a specific ad set.')
+  }
 
   // A launch date in the future would make the work list ask the agent for
   // days that haven't happened, and every one would be rejected as future.
@@ -76,15 +90,20 @@ export async function linkCampaign(formData: FormData) {
     meta_ad_account_id: adAccountId,
     meta_campaign_id: campaignId,
     campaign_name: campaignName,
+    meta_adset_id: adsetId,
+    adset_name: adsetId === null ? null : adsetName,
     launched_on: launchedOn,
     created_by: user.id,
   })
 
   if (error) {
-    // uq_tracked_campaigns_meta_ids. Linking one campaign to two projects
-    // would double-count it in the header tiles.
+    // uq_tracked_campaigns_meta_ids, now keyed on
+    // (account, campaign, COALESCE(adset,'')). Linking the same thing to two
+    // projects would double-count it in the header tiles.
     if (error.code === '23505') {
-      throw new Error('That campaign is already tracked — it can only be linked to one project.')
+      throw new Error(adsetId
+        ? 'That ad set is already tracked — it can only be linked to one project.'
+        : 'That campaign is already tracked — it can only be linked to one project.')
     }
     throw new Error(`Failed to link campaign: ${error.message}`)
   }

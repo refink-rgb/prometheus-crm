@@ -9,12 +9,25 @@ side is built and deployed; this is the handoff.
 
 These three are manual and nothing works until they're done.
 
-### 1. Run the migration
+### 1. Run the migrations
 
-Paste `supabase/migrations/20260805_add_campaign_results.sql` into the Supabase
-SQL editor and run it. (Repo convention — migrations are hand-run, see
-`PROJECT_CONTEXT.md`.) Until this lands, `/results` shows a "tables don't exist
-yet" notice rather than a broken page.
+**Two files, in order:**
+
+1. `supabase/migrations/20260805_add_campaign_results.sql` — the three tables
+2. `supabase/migrations/20260805_add_adset_tracking.sql` — ad-set level tracking
+
+(Repo convention — migrations are hand-run, see `PROJECT_CONTEXT.md`.) Until
+the first lands, `/results` shows a "tables don't exist yet" notice rather than
+a broken page.
+
+**Why the second one exists.** The original design assumed one Meta campaign per
+marketing moment. That's true for some clients but not all: Noble runs every
+moment as an **ad set** inside one evergreen campaign
+(`CTC - ACQ - Marketing Moments`, campaign `6987812298183`), which holds five
+moments at once. Tracking that campaign as a single moment would have reported
+$2,700 of spend against a moment that actually spent $1,304, starting two months
+before that moment existed — every number real, the label wrong. So a tracked
+row now names an optional ad set.
 
 Verify at the bottom of that file. The one that matters:
 
@@ -44,9 +57,24 @@ Open a project that has a live campaign → **Campaign Tracking** panel → past
 the ad account ID (`act_…`), the numeric campaign ID, the campaign name, and
 the launch date.
 
+**Then answer the question that matters:** is this moment a whole campaign, or
+one ad set inside a bigger campaign?
+
+- **Whole campaign** — leave the ad set fields blank.
+- **One ad set** — fill in the ad set ID and name, and set the launch date to
+  the **ad set's** start date, not the campaign's. The agent will pull only
+  that ad set.
+
+Getting this wrong doesn't produce an error, it produces confident wrong
+numbers, so it's worth thirty seconds in Ads Manager to check.
+
+Don't link both a campaign and an ad set inside it — that counts the ad set's
+spend twice on the Results tiles. The schema permits it (they're different
+rows) but nothing wants it.
+
 Nothing is auto-discovered. The link is the contract: the ingest endpoint
-rejects any campaign that wasn't linked here, on purpose — otherwise the
-Results tab would quietly grow campaigns nobody chose to watch.
+rejects anything that wasn't linked here, on purpose — otherwise the Results
+tab would quietly grow campaigns nobody chose to watch.
 
 ---
 
@@ -135,16 +163,23 @@ Store the secret in that account's own secret storage, not in the prompt text.
 > `GET https://prometheus-crm-psi.vercel.app/api/results/ingest`
 > with header `Authorization: Bearer <RESULTS_INGEST_SECRET>`.
 >
-> The response lists every campaign to pull and the exact date range for each.
+> The response lists every entry to pull and the exact date range for each.
 > The CRM decides the ranges. Do not substitute your own dates, do not "catch
-> up" on ranges it didn't ask for, and do not skip a campaign because the range
+> up" on ranges it didn't ask for, and do not skip an entry because the range
 > looks redundant — the trailing re-pull is deliberate.
 >
-> **Step 2 — pull each campaign from the Meta MCP.**
+> **Step 2 — pull each entry from the Meta MCP.**
 >
-> For each campaign in the list, get the **daily breakdown** (one row per day)
-> over `[from_date, to_date]` inclusive, for that `ad_account_id` and
-> `campaign_id`, at the **7-day-click attribution window**.
+> Each entry has a `level` field. **Read it before you pull.**
+>
+> - `level: "campaign"` — get the daily breakdown for that `campaign_id`.
+> - `level: "adset"` — get the daily breakdown for that `adset_id` ONLY, at ad
+>   set level. That campaign holds several marketing moments as sibling ad
+>   sets, so campaign totals would be several moments added together. Echo
+>   `adset_id` back on every row you post for that entry.
+>
+> Get the **daily breakdown** (one row per day) over `[from_date, to_date]`
+> inclusive, at the **7-day-click attribution window**.
 >
 > Metrics needed per day: spend, revenue (total attributed), incremental
 > revenue, purchases, landing page views, ROAS, CPA, unique outbound CTR, and
@@ -166,6 +201,7 @@ Store the secret in that account's own secret storage, not in the prompt text.
 >     {
 >       "ad_account_id": "act_123456",
 >       "campaign_id": "987654321",
+>       "adset_id": "52530393856787",
 >       "stat_date": "2026-08-04",
 >       "spend": 250.00,
 >       "revenue": 1000.00,
@@ -183,7 +219,13 @@ Store the secret in that account's own secret storage, not in the prompt text.
 > ```
 >
 > Money in dollars. Percentages as percent (`2.0` means 2.0%, not 200%). ROAS
-> as a plain multiple. You may batch every campaign's rows into one POST.
+> as a plain multiple. You may batch every entry's rows into one POST.
+>
+> Omit `adset_id` (or send null) for `level: "campaign"` entries. Include it for
+> every `level: "adset"` entry. Sending campaign totals for an ad-set-tracked
+> campaign is REJECTED, not stored — that rejection is a guardrail against
+> writing several moments' combined numbers into one moment's history, so if
+> you see it, fix the pull rather than working around it.
 >
 > **STANDING RULE — the one that matters most:** report only what the tool
 > returned. If a metric is unavailable, send `null`. Never estimate, never
