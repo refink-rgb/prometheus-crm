@@ -207,6 +207,20 @@ check('CM = $762.50', formatCents(m35.cm_cents), '$762.50')
 check('CM% = 33.8889% of revenue', m35.cm_pct, 33.8889)
 check('renders as 33.89%', formatPercent(m35.cm_pct), '33.89%')
 
+// The formula as Giovane states it (2026-08-05): rev * (1 - cod%) - spend.
+// contributionMargin() subtracts the delivery cost as its own term instead,
+// which is the same thing rearranged. Asserted directly so a future refactor
+// of either form has to keep agreeing with the other.
+console.log('\n--- CM matches rev * (1 - cod%) - spend, stated directly ---')
+for (const codPct of [0, 15, 35, 42.5, 60, 100]) {
+  const direct = Math.round(totals.revenue_cents * (1 - codPct / 100)) - totals.spend_cents
+  const viaFn = contributionMargin(
+    { cod_value: codPct, cod_mode: 'percent' },
+    totals.revenue_cents, totals.spend_cents, totals.purchases,
+  ).cm_cents
+  check(`cod ${codPct}% → ${formatCents(direct)}`, viaFn, direct)
+}
+
 console.log('\n--- contribution margin: dollars-per-order mode ---')
 // $18.50/order × 45 orders = $832.50 delivery. CM = 2250 - 832.50 - 700 = $717.50
 const perOrder = { cod_value: 18.5, cod_mode: 'per_order' as const }
