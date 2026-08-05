@@ -7,6 +7,7 @@ import FreshnessStamp from '@/components/FreshnessStamp'
 import CampaignDailyCharts from '@/components/CampaignDailyCharts'
 import DailyResultsTable from '@/components/DailyResultsTable'
 import { fetchDailyResults } from '@/lib/results-queries'
+import BrandCodEditor from '@/components/BrandCodEditor'
 import {
   sumResults,
   cumulativeSeries,
@@ -21,6 +22,9 @@ import {
   trackedLabel,
   trackedSublabel,
   safeRate,
+  contributionMargin,
+  breakEvenRoas,
+  type BrandCod,
   type TrackedCampaign,
 } from '@/lib/results'
 
@@ -28,7 +32,7 @@ export const maxDuration = 60
 
 interface CampaignRow extends TrackedCampaign {
   projects: { id: string; name: string } | null
-  brands: { id: string; name: string } | null
+  brands: ({ id: string; name: string } & BrandCod) | null
 }
 
 // The literal ask: every campaign we launched, one row per day, from launch
@@ -48,7 +52,7 @@ export default async function CampaignResultsPage({
 
   const { data: campaignRaw } = await supabase
     .from('tracked_campaigns')
-    .select('id, project_id, brand_id, meta_ad_account_id, meta_campaign_id, campaign_name, meta_adset_id, adset_name, launched_on, ended_on, created_at, projects(id, name), brands(id, name)')
+    .select('id, project_id, brand_id, meta_ad_account_id, meta_campaign_id, campaign_name, meta_adset_id, adset_name, launched_on, ended_on, created_at, projects(id, name), brands(id, name, cod_value, cod_mode)')
     .eq('id', trackedCampaignId)
     .single()
 
@@ -76,6 +80,16 @@ export default async function CampaignResultsPage({
   const overallLpConv = totals.landing_page_views === null
     ? null
     : safeRate(totals.purchases, totals.landing_page_views)
+
+  // Contribution margin is DERIVED AT RENDER from the brand's current COD, not
+  // stored on the daily rows. Correcting a brand's COD therefore fixes every
+  // historical day at once, instead of leaving months of rows computed against
+  // a number nobody remembers setting.
+  const cod: BrandCod = campaign.brands
+    ? { cod_value: campaign.brands.cod_value, cod_mode: campaign.brands.cod_mode }
+    : { cod_value: null, cod_mode: 'percent' }
+  const margin = contributionMargin(cod, totals.revenue_cents, totals.spend_cents, totals.purchases)
+  const be = breakEvenRoas(cod)
 
   return (
     <div style={{ padding: 'var(--space-6) 32px 40px' }}>
@@ -162,7 +176,33 @@ export default async function CampaignResultsPage({
             />
             <Tile label="LP conversion" value={formatPercent(overallLpConv)} sub="purchases ÷ LP views" />
             <Tile label="Days recorded" value={formatCount(totals.days)} sub={`of ${live} live`} />
+            {/* Margin tiles sit with the rest rather than in their own block:
+                ROAS without CM beside it is what makes a losing campaign look
+                like a winning one. */}
+            <Tile
+              label="Contribution margin"
+              value={formatCents(margin.cm_cents)}
+              sub={margin.cm_cents === null ? 'set a COD below' : 'revenue − delivery − spend'}
+            />
+            <Tile
+              label="CM %"
+              value={formatPercent(margin.cm_pct)}
+              sub={margin.cm_pct === null ? 'set a COD below' : 'of revenue'}
+            />
           </div>
+
+          {/* Break-even is the single most actionable number once a COD is
+              set: it turns "is 2.1x good?" into a yes or no. */}
+          {be !== null && totals.roas !== null && (
+            <div style={{ marginBottom: 'var(--space-6)' }}>
+              <Notice tone={totals.roas >= be ? 'muted' : 'warn'}>
+                Break-even ROAS for {campaign.brands?.name ?? 'this brand'} is{' '}
+                <strong>{formatRoas(be)}</strong>. This campaign is running at{' '}
+                <strong>{formatRoas(totals.roas)}</strong> —{' '}
+                {totals.roas >= be ? 'above break-even, so it is contributing margin.' : 'below break-even, so it is losing money on every order.'}
+              </Notice>
+            </div>
+          )}
 
           {(gaps.length > 0 || flagged.length > 0 || manualCount > 0) && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', marginBottom: 'var(--space-6)' }}>
@@ -193,6 +233,17 @@ export default async function CampaignResultsPage({
           <div style={{ marginBottom: 'var(--space-8)' }}>
             <CampaignDailyCharts points={series} />
           </div>
+
+          {campaign.brands && (
+            <div style={{ marginBottom: 'var(--space-6)' }}>
+              <BrandCodEditor
+                brandId={campaign.brands.id}
+                brandName={campaign.brands.name}
+                cod={cod}
+                canEdit={canEdit(user.email)}
+              />
+            </div>
+          )}
 
           <DailyResultsTable
             rows={rows}

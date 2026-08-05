@@ -26,6 +26,9 @@ import {
   safeRoas,
   safeCpa,
   safeRate,
+  contributionMargin,
+  breakEvenRoas,
+  formatCodLabel,
   dayOverDayPct,
   missingDates,
   daysLive,
@@ -194,6 +197,73 @@ check('5/500 → 1 (meaning 1%)', safeRate(5, 500), 1)
 check('renders as 1.00%', formatPercent(safeRate(5, 500)), '1.00%')
 check('2.45 renders as 2.45%, not 245%', formatPercent(2.45), '2.45%')
 
+console.log('\n--- contribution margin: percent-of-revenue mode ---')
+// Fixture totals: $700 spend, $2,250 revenue, 45 purchases.
+// At 35% COD: delivery = $787.50, CM = 2250 - 787.50 - 700 = $762.50
+const pct35 = { cod_value: 35, cod_mode: 'percent' as const }
+const m35 = contributionMargin(pct35, totals.revenue_cents, totals.spend_cents, totals.purchases)
+check('delivery cost = $787.50', formatCents(m35.cod_cents), '$787.50')
+check('CM = $762.50', formatCents(m35.cm_cents), '$762.50')
+check('CM% = 33.8889% of revenue', m35.cm_pct, 33.8889)
+check('renders as 33.89%', formatPercent(m35.cm_pct), '33.89%')
+
+console.log('\n--- contribution margin: dollars-per-order mode ---')
+// $18.50/order × 45 orders = $832.50 delivery. CM = 2250 - 832.50 - 700 = $717.50
+const perOrder = { cod_value: 18.5, cod_mode: 'per_order' as const }
+const mPer = contributionMargin(perOrder, totals.revenue_cents, totals.spend_cents, totals.purchases)
+check('delivery cost = $832.50', formatCents(mPer.cod_cents), '$832.50')
+check('CM = $717.50', formatCents(mPer.cm_cents), '$717.50')
+// The two modes MUST give different answers on the same data — if they ever
+// agree, one of them is being ignored.
+checkTrue('the two modes are genuinely different', m35.cm_cents !== mPer.cm_cents)
+
+console.log('\n--- an unset COD reports nothing, never zero ---')
+// The dangerous bug: treating "no COD" as 0% would report gross profit as
+// contribution margin, overstating every campaign by the full delivery cost.
+const noCod = contributionMargin({ cod_value: null, cod_mode: 'percent' }, 225_000, 70_000, 45)
+check('CM is null, NOT $1,550 (revenue − spend)', noCod.cm_cents, null)
+check('delivery is null', noCod.cod_cents, null)
+check('CM% is null', noCod.cm_pct, null)
+check('and it renders as an em dash', formatCents(noCod.cm_cents), '—')
+check('null cod object → null', contributionMargin(null, 225_000, 70_000, 45).cm_cents, null)
+
+console.log('\n--- a losing campaign reports a NEGATIVE margin, not a floor of 0 ---')
+// $100 spend, $100 revenue, 60% COD → delivery $60, CM = 100 - 60 - 100 = -$60
+const losing = contributionMargin({ cod_value: 60, cod_mode: 'percent' }, 10_000, 10_000, 2)
+check('CM = -$60', formatCents(losing.cm_cents), '-$60')
+checkTrue('and it is negative', (losing.cm_cents as number) < 0)
+check('CM% = -60%', losing.cm_pct, -60)
+
+console.log('\n--- per-order COD on a day with no purchases costs nothing ---')
+const noPurchases = contributionMargin(perOrder, 0, 5_000, 0)
+check('delivery = $0 (no orders to deliver)', noPurchases.cod_cents, 0)
+check('CM = -$50 (pure spend)', formatCents(noPurchases.cm_cents), '-$50')
+check('CM% on zero revenue is null, not 0%', noPurchases.cm_pct, null)
+
+console.log('\n--- break-even ROAS ---')
+// At 35% COD: 1/(1-0.35) = 1.5385x
+check('35% COD → 1.5385x', breakEvenRoas(pct35), 1.5385)
+check('renders as 1.54x', formatRoas(breakEvenRoas(pct35)), '1.54x')
+check('50% COD → exactly 2x', breakEvenRoas({ cod_value: 50, cod_mode: 'percent' }), 2)
+check('0% COD → 1x', breakEvenRoas({ cod_value: 0, cod_mode: 'percent' }), 1)
+check('100% COD → null (never breaks even)', breakEvenRoas({ cod_value: 100, cod_mode: 'percent' }), null)
+check('per-order mode has no single break-even ROAS', breakEvenRoas(perOrder), null)
+check('unset COD → null', breakEvenRoas({ cod_value: null, cod_mode: 'percent' }), null)
+
+console.log('\n--- break-even agrees with the margin math (the invariant) ---')
+// At exactly break-even ROAS, CM must be 0. If these two ever disagree, the
+// tab is telling a brand to hit a number that doesn't actually break even.
+const beRoas = breakEvenRoas(pct35) as number
+const spendAtBe = 100_000
+const revenueAtBe = Math.round(spendAtBe * beRoas)
+const atBe = contributionMargin(pct35, revenueAtBe, spendAtBe, 10)
+checkTrue('CM at break-even ROAS is ~$0', Math.abs(atBe.cm_cents as number) < 100)
+
+console.log('\n--- COD label formatting ---')
+check('percent mode', formatCodLabel(pct35), '35% of revenue')
+check('per-order mode', formatCodLabel(perOrder), '$18.50 per order')
+check('unset', formatCodLabel({ cod_value: null, cod_mode: 'percent' }), '—')
+
 console.log('\n--- cumulative series ---')
 const series = cumulativeSeries(FIXTURE)
 check('cumulative spend runs 100/250/450/700', series.map(p => p.cumulative_spend_cents), [10_000, 25_000, 45_000, 70_000])
@@ -261,6 +331,11 @@ check('null stays null', dollarsToCents(null), null)
 check('compact: $12,400 → $12.4k', formatCentsCompact(1_240_000), '$12.4k')
 check('compact: $2,000,000 → $2M', formatCentsCompact(200_000_000), '$2M')
 check('compact: null → em dash', formatCentsCompact(null), '—')
+// Sign before the symbol. '$-60' is a misreading waiting to happen, and
+// contribution margin made negative money possible for the first time.
+check('negative: -$60, not $-60', formatCents(-6_000), '-$60')
+check('negative with cents: -$60.50', formatCents(-6_050), '-$60.50')
+check('compact negative: -$12.4k', formatCentsCompact(-1_240_000), '-$12.4k')
 check('date label', shortDateLabel('2026-08-04'), 'Aug 4')
 check('addDaysIso crosses a month boundary', addDaysIso('2026-07-31', 1), '2026-08-01')
 

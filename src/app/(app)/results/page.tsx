@@ -19,6 +19,10 @@ import {
   shortDateLabel,
   trackedLabel,
   trackedSublabel,
+  formatPercent,
+  contributionMargin,
+  breakEvenRoas,
+  type BrandCod,
   type DailyResult,
   type TrackedCampaign,
 } from '@/lib/results'
@@ -30,7 +34,7 @@ export const maxDuration = 60
 
 interface CampaignRow extends TrackedCampaign {
   projects: { id: string; name: string } | null
-  brands: { id: string; name: string } | null
+  brands: ({ id: string; name: string } & BrandCod) | null
 }
 
 export default async function ResultsPage() {
@@ -44,7 +48,7 @@ export default async function ResultsPage() {
 
   const { data: campaignsRaw, error: campaignErr } = await supabase
     .from('tracked_campaigns')
-    .select('id, project_id, brand_id, meta_ad_account_id, meta_campaign_id, campaign_name, meta_adset_id, adset_name, launched_on, ended_on, created_at, projects(id, name), brands(id, name)')
+    .select('id, project_id, brand_id, meta_ad_account_id, meta_campaign_id, campaign_name, meta_adset_id, adset_name, launched_on, ended_on, created_at, projects(id, name), brands(id, name, cod_value, cod_mode)')
     .is('ended_on', null)
     .order('launched_on', { ascending: false })
 
@@ -71,6 +75,21 @@ export default async function ResultsPage() {
   // Header tiles span every live campaign. Ratios come from summed cents, not
   // from averaging per-campaign ratios — see sumResults.
   const overall = sumResults(daily)
+
+  // Portfolio contribution margin. Summed PER CAMPAIGN because COD is a brand
+  // property — one blended rate across brands would be meaningless. Campaigns
+  // whose brand has no COD set are excluded and counted, so a partial figure
+  // never passes for a complete one.
+  let cmTotal: number | null = null
+  let cmMissing = 0
+  for (const c of campaigns) {
+    const rows = byCampaign.get(c.id) ?? []
+    if (rows.length === 0) continue
+    const t = sumResults(rows)
+    const m = contributionMargin(codOf(c), t.revenue_cents, t.spend_cents, t.purchases)
+    if (m.cm_cents === null) { cmMissing++; continue }
+    cmTotal = (cmTotal ?? 0) + m.cm_cents
+  }
   // Read once per request and threaded down, so every card's freshness is
   // measured against the same instant. (`new Date()` rather than `Date.now()`
   // — the react-hooks/purity rule flags the latter inside a component, and
@@ -110,6 +129,15 @@ export default async function ResultsPage() {
               hint={overall.incremental_revenue_cents === null
                 ? 'No account reports this column'
                 : 'As reported by the ad account'}
+            />
+            <Tile
+              label="Contribution margin"
+              value={formatCents(cmTotal)}
+              hint={cmTotal === null
+                ? 'No brand has a cost of delivery set'
+                : cmMissing > 0
+                  ? `${cmMissing} campaign${cmMissing === 1 ? '' : 's'} excluded — no COD set`
+                  : 'Revenue − delivery − spend'}
             />
           </div>
 
@@ -151,6 +179,8 @@ function CampaignCard({
   // here is normal under restatement lag; a growing one is a broken agent.
   const gaps = missingDates(ordered, campaign.launched_on, previousDay(todayIso))
   const flagged = ordered.filter(r => r.warnings.length > 0).length
+  const margin = contributionMargin(codOf(campaign), totals.revenue_cents, totals.spend_cents, totals.purchases)
+  const be = breakEvenRoas(codOf(campaign))
 
   return (
     <div className="card" style={{ padding: '18px 20px' }}>
@@ -205,6 +235,11 @@ function CampaignCard({
             <MiniStat label="ROAS" sub="since launch" value={formatRoas(totals.roas)} />
             <MiniStat label="Purchases" sub="since launch" value={formatCount(totals.purchases)} />
             <MiniStat
+              label="Contrib. margin"
+              sub={margin.cm_pct === null ? 'no COD set' : `${formatPercent(margin.cm_pct, 1)} of revenue`}
+              value={formatCents(margin.cm_cents)}
+            />
+            <MiniStat
               label="Latest day"
               sub={latest ? shortDateLabel(latest.stat_date) : '—'}
               value={latest ? `${formatCentsCompact(latest.revenue_cents)} · ${formatRoas(latest.roas)}` : '—'}
@@ -214,6 +249,16 @@ function CampaignCard({
           <div style={{ marginTop: 'var(--space-4)' }}>
             <ResultsSparkline points={series} />
           </div>
+
+          {/* Below break-even is the one state worth interrupting for: every
+              other badge is about data quality, this one is about money. */}
+          {be !== null && totals.roas !== null && totals.roas < be && (
+            <div style={{ marginTop: 'var(--space-3)' }}>
+              <span className="badge badge-overdue" title={`Break-even ROAS is ${formatRoas(be)} at this brand's cost of delivery.`}>
+                below break-even ({formatRoas(totals.roas)} vs {formatRoas(be)})
+              </span>
+            </div>
+          )}
 
           {(gaps.length > 0 || flagged > 0) && (
             <div style={{ display: 'flex', gap: 'var(--space-2)', marginTop: 'var(--space-3)', flexWrap: 'wrap' }}>
@@ -329,6 +374,14 @@ function SetupNotice() {
       </div>
     </div>
   )
+}
+
+// COD lives on the brand; a campaign whose brand join failed has none, which
+// renders as an em dash rather than as free delivery.
+function codOf(campaign: CampaignRow): BrandCod {
+  return campaign.brands
+    ? { cod_value: campaign.brands.cod_value, cod_mode: campaign.brands.cod_mode }
+    : { cod_value: null, cod_mode: 'percent' }
 }
 
 function previousDay(iso: string): string {

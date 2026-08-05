@@ -250,6 +250,65 @@ Store the secret in that account's own secret storage, not in the prompt text.
 > for a full re-pull from each campaign's launch date, which absorbs Meta's
 > older restatements that fall outside the normal 7-day trailing window.
 
+---
+
+## Running it on demand
+
+You don't have to wait for 7am. The work list takes filters, so any run can be
+narrowed to one brand or one campaign — same endpoint, same POST back, just a
+smaller work list.
+
+| Parameter | Effect |
+|---|---|
+| `?brand=noble` | Case-insensitive substring on brand name |
+| `?brand_id=<uuid>` | Exact brand |
+| `?tracked_campaign_id=<uuid>` | One tracked campaign or ad set |
+| `?days=N` | Override the 7-day trailing window (1–365) |
+| `?full=1` | Re-pull from launch, ignoring what's already stored |
+| `?include_ended=1` | Include campaigns whose tracking has ended |
+
+They combine. Refresh everything for Noble, from launch:
+
+```bash
+curl -s -H "Authorization: Bearer $SECRET" \
+  "$CRM/api/results/ingest?brand=noble&full=1" | jq
+```
+
+The response echoes a `filters` object back and adds a `note` when filters
+matched nothing — so a typo'd brand name reads as "nothing matched", not as a
+successful empty run.
+
+**In practice:** ask Claude (this account, which has the Meta MCP) to "refresh
+Noble now". It calls the work list with `?brand=noble`, pulls, posts, and
+reports what landed. The scheduled 7am task passes no filters and does
+everything.
+
+---
+
+## Contribution margin
+
+ROAS says how much revenue a dollar of spend returned. It does not say whether
+money was made. A 2.0x ROAS is strong at 30% cost of delivery and a loss at
+60%, and nothing on the tab could tell those apart.
+
+So each brand carries a **cost of delivery**, set on the Results detail page:
+
+- **Percent of revenue** — `35` means 35%. `CM = revenue − (35% × revenue) − spend`
+- **Dollars per order** — `18.50` means $18.50/order. `CM = revenue − ($18.50 × purchases) − spend`
+
+Pick whichever way the brand actually quotes it; the editor spells out the
+formula it will apply before you save, because the wrong mode silently rescales
+every margin figure.
+
+Once set, the tab also shows **break-even ROAS** — `1 / (1 − COD)` — and badges
+a campaign running below it. That turns "is 2.1x good?" into a yes or no.
+
+An unset COD shows contribution margin as `—`, never as zero. Treating it as
+zero would report gross profit as if delivery were free, overstating every
+campaign by exactly the cost of delivering it. Margin is recomputed at render
+from the brand's current COD, never frozen onto the daily rows, so correcting a
+COD fixes every historical day at once.
+
 ### Why the trailing re-pull exists
 
 Meta backfills attribution for days *after* the event. Tuesday's ROAS is a

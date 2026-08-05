@@ -50,6 +50,7 @@ interface WorkItem {
   ad_account_id: string
   campaign_id: string
   campaign_name: string
+  brand_name: string | null
   // Non-null = pull the breakdown for THIS AD SET ONLY, not the campaign.
   // Several clients run each marketing moment as an ad set inside one
   // evergreen campaign, so campaign totals would be several moments summed.
@@ -78,14 +79,46 @@ export async function GET(request: Request) {
   // tomorrow anyway.
   const through = addDaysIso(today, -1)
 
-  // Full re-pull, for the weekly run that absorbs older restatements.
-  const full = new URL(request.url).searchParams.get('full') === '1'
+  const params = new URL(request.url).searchParams
 
-  const { data: campaigns, error } = await supabase
+  // Full re-pull, for the weekly run that absorbs older restatements.
+  const full = params.get('full') === '1'
+
+  // ── On-demand filters ────────────────────────────────────────────────────
+  // The scheduled 7am run passes none of these and gets everything live.
+  // They exist so a human doesn't have to wait for tomorrow's run to see one
+  // brand refreshed: narrow the work list, hand it to the agent, done.
+  //
+  //   ?brand=noble                  case-insensitive substring on brand name
+  //   ?brand_id=<uuid>              exact brand
+  //   ?tracked_campaign_id=<uuid>   one tracked campaign or ad set
+  //   ?days=N                       override the trailing window (1-365)
+  //   ?full=1                       re-pull from launch, ignoring what we hold
+  //   ?include_ended=1              include campaigns whose tracking ended
+  const brandName = params.get('brand')?.trim() ?? ''
+  const brandId = params.get('brand_id')?.trim() ?? ''
+  const onlyTracked = params.get('tracked_campaign_id')?.trim() ?? ''
+  const includeEnded = params.get('include_ended') === '1'
+
+  const daysRaw = Number(params.get('days'))
+  // Silently clamping a nonsense value would make the response quietly
+  // disagree with what was asked for, so fall back to the default instead.
+  const trailingDays = Number.isInteger(daysRaw) && daysRaw >= 1 && daysRaw <= 365
+    ? daysRaw
+    : TRAILING_DAYS
+
+  let query = supabase
     .from('tracked_campaigns')
-    .select('id, meta_ad_account_id, meta_campaign_id, campaign_name, meta_adset_id, adset_name, launched_on, ended_on')
-    .is('ended_on', null)          // NULL means live — the whole filter
+    .select('id, meta_ad_account_id, meta_campaign_id, campaign_name, meta_adset_id, adset_name, launched_on, ended_on, brands(id, name)')
     .order('launched_on', { ascending: false })
+
+  // NULL ended_on means live — the default filter. An explicit on-demand run
+  // may want an ended campaign's history refreshed after a restatement.
+  if (!includeEnded) query = query.is('ended_on', null)
+  if (brandId) query = query.eq('brand_id', brandId)
+  if (onlyTracked) query = query.eq('id', onlyTracked)
+
+  const { data: campaigns, error } = await query
 
   if (error) {
     return NextResponse.json({ error: `Failed to read tracked campaigns: ${error.message}` }, { status: 500 })
@@ -93,9 +126,21 @@ export async function GET(request: Request) {
 
   // CampaignRef plus the display names, which only the work list needs (they
   // go into the agent's run output so a human reading it sees names, not ids).
-  const rows = (campaigns ?? []) as unknown as Array<
-    CampaignRef & { campaign_name: string; adset_name: string | null }
+  let rows = (campaigns ?? []) as unknown as Array<
+    CampaignRef & {
+      campaign_name: string
+      adset_name: string | null
+      brands: { id: string; name: string } | null
+    }
   >
+
+  // Brand-name matching is done here rather than in PostgREST: `?brand=noble`
+  // should match "Noble Carriage" without the caller knowing the exact string,
+  // and an ilike through an embedded resource doesn't filter the parent rows.
+  if (brandName) {
+    const needle = brandName.toLowerCase()
+    rows = rows.filter(c => (c.brands?.name ?? '').toLowerCase().includes(needle))
+  }
 
   // The latest stat_date we already hold per campaign decides
   // backfill-vs-trailing.
@@ -138,7 +183,7 @@ export async function GET(request: Request) {
 
     // Trailing window starts TRAILING_DAYS before the last day we hold, never
     // before launch.
-    const trailingStart = latest ? maxIso(c.launched_on, addDaysIso(latest, -TRAILING_DAYS)) : c.launched_on
+    const trailingStart = latest ? maxIso(c.launched_on, addDaysIso(latest, -trailingDays)) : c.launched_on
     const from = backfill ? c.launched_on : trailingStart
 
     work.push({
@@ -146,6 +191,7 @@ export async function GET(request: Request) {
       ad_account_id: c.meta_ad_account_id,
       campaign_id: c.meta_campaign_id,
       campaign_name: c.campaign_name,
+      brand_name: c.brands?.name ?? null,
       adset_id: c.meta_adset_id,
       adset_name: c.adset_name,
       level: c.meta_adset_id ? 'adset' : 'campaign',
@@ -156,12 +202,30 @@ export async function GET(request: Request) {
     })
   }
 
+  const filtered = !!(brandName || brandId || onlyTracked || includeEnded || full || params.get('days'))
+
   return NextResponse.json({
     ok: true,
     today_eastern: today,
     through,
     attribution_window: '7d_click',
     campaign_count: work.length,
+    // Echoed so an on-demand run is self-describing. A filter that matched
+    // nothing must look different from "nothing is tracked" — otherwise a
+    // typo'd brand name reads as a successful empty run.
+    filters: filtered
+      ? {
+          brand: brandName || null,
+          brand_id: brandId || null,
+          tracked_campaign_id: onlyTracked || null,
+          include_ended: includeEnded,
+          full,
+          trailing_days: trailingDays,
+        }
+      : null,
+    ...(filtered && work.length === 0
+      ? { note: 'No tracked campaigns matched these filters. Check the brand name spelling, or drop the filters to see everything live.' }
+      : {}),
     // Restated verbatim so the agent's standing rules travel with the work
     // list rather than living only in a prompt someone can edit.
     instructions:

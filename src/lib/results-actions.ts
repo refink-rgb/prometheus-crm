@@ -245,6 +245,47 @@ export async function overrideDailyRow(formData: FormData) {
   revalidatePath(`/results/${trackedCampaignId}`)
 }
 
+// Cost of delivery for a brand — the input that turns ROAS into contribution
+// margin. One value per brand; see 20260805_add_brand_cod.sql for why there
+// are two modes.
+//
+// Clearing the field sets it back to NULL, which makes the UI show CM as an
+// em dash. That is deliberate: an unset COD must never be read as 0, which
+// would report gross profit as if delivery were free.
+export async function setBrandCod(formData: FormData) {
+  const { supabase } = await requireEditor()
+
+  const brandId = (formData.get('brand_id') as string)?.trim()
+  if (!brandId) throw new Error('Brand is required.')
+
+  const modeRaw = (formData.get('cod_mode') as string)?.trim()
+  const mode = modeRaw === 'per_order' ? 'per_order' : 'percent'
+
+  const valueRaw = ((formData.get('cod_value') as string) ?? '').trim()
+  let value: number | null = null
+  if (valueRaw !== '') {
+    value = Number(valueRaw.replace(/[$%,\s]/g, ''))
+    if (!Number.isFinite(value) || value < 0) {
+      throw new Error('Cost of delivery must be a non-negative number, or blank to clear it.')
+    }
+    // Mirrors brands_cod_value_sane. Caught here too so the user gets a
+    // sentence rather than a Postgres constraint name.
+    if (mode === 'percent' && value > 100) {
+      throw new Error('A cost of delivery above 100% of revenue means every order loses money before ad spend — check the number.')
+    }
+  }
+
+  const { error } = await supabase
+    .from('brands')
+    .update({ cod_value: value, cod_mode: mode })
+    .eq('id', brandId)
+
+  if (error) throw new Error(`Failed to save cost of delivery: ${error.message}`)
+
+  revalidatePath('/results')
+  revalidatePath(`/brands/${brandId}`)
+}
+
 // Hands a day back to the agent: clears the manual lock so the next run
 // re-pulls it. The row keeps its numbers until that run lands, so there is no
 // window where the day is blank.

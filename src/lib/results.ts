@@ -177,6 +177,93 @@ function round4(n: number): number {
 }
 
 // ---------------------------------------------------------------------------
+// Contribution margin
+// ---------------------------------------------------------------------------
+//
+// ROAS says how much revenue a dollar of spend returned. It does NOT say
+// whether the money was made — it ignores what it costs to deliver the order.
+// A 2.0x ROAS is strong at 30% cost of delivery and a loss at 60%, and no
+// figure on the tab could distinguish those without this.
+//
+//   CM = revenue − cost of delivery − ad spend
+//
+// COD is one value per brand, in one of two modes (see
+// 20260805_add_brand_cod.sql for why both exist).
+
+export type CodMode = 'percent' | 'per_order'
+
+export interface BrandCod {
+  // NULL means NOT CONFIGURED. Every function here returns null in that case
+  // rather than treating delivery as free — reporting gross profit as
+  // contribution margin would overstate every campaign on the page.
+  cod_value: number | null
+  cod_mode: CodMode
+}
+
+// Cost of delivery in cents for a given revenue + order count.
+// Null when COD isn't configured, or when per-order mode has no purchase
+// count to multiply.
+export function codCents(
+  cod: BrandCod | null | undefined,
+  revenueCents: number,
+  purchases: number,
+): number | null {
+  if (!cod || cod.cod_value === null) return null
+  if (cod.cod_mode === 'per_order') {
+    // cod_value is DOLLARS per order → cents.
+    return Math.round(cod.cod_value * 100 * purchases)
+  }
+  // cod_value is a PERCENT of revenue (35 = 35%).
+  return Math.round(revenueCents * (cod.cod_value / 100))
+}
+
+export interface MarginResult {
+  cod_cents: number | null
+  cm_cents: number | null
+  // CM as a percent of revenue. The number a P&L conversation actually uses.
+  cm_pct: number | null
+}
+
+export const NO_MARGIN: MarginResult = { cod_cents: null, cm_cents: null, cm_pct: null }
+
+export function contributionMargin(
+  cod: BrandCod | null | undefined,
+  revenueCents: number,
+  spendCents: number,
+  purchases: number,
+): MarginResult {
+  const delivery = codCents(cod, revenueCents, purchases)
+  if (delivery === null) return NO_MARGIN
+  const cm = revenueCents - delivery - spendCents
+  return {
+    cod_cents: delivery,
+    cm_cents: cm,
+    // Margin on zero revenue is undefined, not 0% — dividing here would render
+    // a spend-only day as break-even.
+    cm_pct: revenueCents > 0 ? round4((cm / revenueCents) * 100) : null,
+  }
+}
+
+// The ROAS at which contribution margin is exactly zero — every dollar above
+// it is profit, every dollar below is a loss. Only meaningful in percent mode,
+// where it's a property of the brand rather than of a particular day.
+//
+//   CM = 0  ⇒  revenue(1 − cod) = spend  ⇒  revenue/spend = 1/(1 − cod)
+export function breakEvenRoas(cod: BrandCod | null | undefined): number | null {
+  if (!cod || cod.cod_value === null || cod.cod_mode !== 'percent') return null
+  const fraction = cod.cod_value / 100
+  if (fraction >= 1) return null
+  return round4(1 / (1 - fraction))
+}
+
+export function formatCodLabel(cod: BrandCod | null | undefined): string {
+  if (!cod || cod.cod_value === null) return NO_VALUE
+  return cod.cod_mode === 'percent'
+    ? `${cod.cod_value}% of revenue`
+    : `${formatCents(Math.round(cod.cod_value * 100))} per order`
+}
+
+// ---------------------------------------------------------------------------
 // Series
 // ---------------------------------------------------------------------------
 
@@ -316,11 +403,17 @@ export function easternTimeLabel(iso: string): string {
 
 export const NO_VALUE = '—'
 
+// The sign goes BEFORE the currency symbol: '-$60', not '$-60'. Negative
+// amounts were impossible before contribution margin (spend and revenue are
+// CHECK >= 0), so this only started mattering once a campaign could lose money
+// — which is exactly the number nobody should have to squint at.
 export function formatCents(cents: number | null | undefined): string {
   if (cents === null || cents === undefined) return NO_VALUE
   const dollars = cents / 100
-  return '$' + dollars.toLocaleString('en-US', {
-    minimumFractionDigits: dollars % 1 === 0 ? 0 : 2,
+  const sign = dollars < 0 ? '-' : ''
+  const abs = Math.abs(dollars)
+  return sign + '$' + abs.toLocaleString('en-US', {
+    minimumFractionDigits: abs % 1 === 0 ? 0 : 2,
     maximumFractionDigits: 2,
   })
 }
@@ -330,9 +423,10 @@ export function formatCentsCompact(cents: number | null | undefined): string {
   if (cents === null || cents === undefined) return NO_VALUE
   const dollars = cents / 100
   const abs = Math.abs(dollars)
-  if (abs >= 1_000_000) return '$' + (dollars / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M'
-  if (abs >= 1_000) return '$' + (dollars / 1_000).toFixed(1).replace(/\.0$/, '') + 'k'
-  return '$' + Math.round(dollars).toLocaleString('en-US')
+  const sign = dollars < 0 ? '-' : ''
+  if (abs >= 1_000_000) return sign + '$' + (abs / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M'
+  if (abs >= 1_000) return sign + '$' + (abs / 1_000).toFixed(1).replace(/\.0$/, '') + 'k'
+  return sign + '$' + Math.round(abs).toLocaleString('en-US')
 }
 
 export function formatRoas(roas: number | null | undefined): string {
