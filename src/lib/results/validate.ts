@@ -175,16 +175,33 @@ export function isIsoDate(v: unknown): v is string {
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === v
 }
 
-// Windows we allow to be pinned. The agent is instructed to send 7d_click; a
-// different one is stored (so the change is VISIBLE as a labelled step in the
-// chart) but flagged, because a silent window switch looks like performance.
+// Windows we recognize. An unrecognized one is stored (so the change is
+// VISIBLE as a labelled step in the chart) but flagged, because a silent
+// window switch looks like performance.
+//
+// Both orderings are listed on purpose. Meta's `attribution_setting` field
+// reports `1d_view_7d_click`; parts of its own tooling write the same window
+// as `7d_click_1d_view`. Recognizing only one spelling meant every row from a
+// default-configured account got flagged, which would have made the warning
+// badge meaningless on the first day it shipped.
 const KNOWN_WINDOWS = new Set([
   '1d_click', '7d_click', '28d_click',
   '1d_view', '7d_view',
-  '1d_click_1d_view', '7d_click_1d_view', '28d_click_1d_view',
+  '1d_click_1d_view', '1d_view_1d_click',
+  '7d_click_1d_view', '1d_view_7d_click',
+  '28d_click_1d_view', '1d_view_28d_click',
 ])
 
 export const DEFAULT_ATTRIBUTION_WINDOW = '7d_click'
+
+// What we consider "the window we asked for". Meta's out-of-the-box setting is
+// 1-day view + 7-day click, and that is what these accounts actually run, so
+// treating it as a deviation would cry wolf on every row. Anything outside
+// this set is still flagged — a 28-day click window really would look like
+// performance appearing out of nowhere.
+const EXPECTED_WINDOWS = new Set([
+  '7d_click', '7d_click_1d_view', '1d_view_7d_click',
+])
 
 // ---------------------------------------------------------------------------
 // Cross-checks
@@ -413,9 +430,9 @@ export function validateRows(
     const window = toTrimmedString(raw.attribution_window) ?? DEFAULT_ATTRIBUTION_WINDOW
     if (!KNOWN_WINDOWS.has(window)) {
       warnings.push(`unrecognized attribution window '${window}'`)
-    } else if (window !== DEFAULT_ATTRIBUTION_WINDOW) {
+    } else if (!EXPECTED_WINDOWS.has(window)) {
       // Stored, not rejected — but a window change must never be invisible.
-      warnings.push(`attribution window is '${window}', not '${DEFAULT_ATTRIBUTION_WINDOW}'`)
+      warnings.push(`attribution window is '${window}', not the expected 7-day click`)
     }
 
     const row: ValidatedRow = {

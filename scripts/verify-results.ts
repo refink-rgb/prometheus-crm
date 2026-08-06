@@ -459,7 +459,16 @@ checkTrue('incremental > total revenue is flagged',
 checkTrue("today's partial day is flagged",
   only([raw({ stat_date: TODAY })], TODAY).warnings.some(w => w.includes('partial day')))
 checkTrue('a non-default attribution window is flagged, not silently accepted',
-  only([raw({ attribution_window: '28d_click' })]).warnings.some(w => w.includes("not '7d_click'")))
+  only([raw({ attribution_window: '28d_click' })]).warnings.some(w => w.includes('not the expected 7-day click')))
+// Meta's own attribution_setting field reports the default window as
+// '1d_view_7d_click'. Flagging that would have put a warning badge on every
+// row from every default-configured account on day one.
+check("Meta's native '1d_view_7d_click' is NOT flagged",
+  only([raw({ attribution_window: '1d_view_7d_click' })]).warnings, [])
+check('...and is stored verbatim',
+  only([raw({ attribution_window: '1d_view_7d_click' })]).attribution_window, '1d_view_7d_click')
+check("the other spelling '7d_click_1d_view' is also clean",
+  only([raw({ attribution_window: '7d_click_1d_view' })]).warnings, [])
 check('...and the window is still STORED so the chart step is explainable',
   only([raw({ attribution_window: '28d_click' })]).attribution_window, '28d_click')
 checkTrue('an unrecognized window is flagged',
