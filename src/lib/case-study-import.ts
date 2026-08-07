@@ -37,6 +37,15 @@ export async function extractReportFromCaseStudy(text: string): Promise<ImportRe
     }
 
     const parsed = (await extractCaseStudy(EXTRACT_SYSTEM_PROMPT, clean.slice(0, 24000))) as ExtractedShape
+    // The model is only asked for this shape, never held to it. Log what the
+    // fields actually came back as: a section that imports blank is almost
+    // always a shape the normaliser could not map, and this names it.
+    console.log(
+      '[case-study-import] shapes',
+      Object.fromEntries(
+        Object.entries(parsed ?? {}).map(([k, v]) => [k, Array.isArray(v) ? `array(${v.length})` : typeof v]),
+      ),
+    )
     return { ok: true, inputs: normalizeExtracted(parsed) }
   } catch (e) {
     // Surface the real cause (missing key, quota, network) rather than letting

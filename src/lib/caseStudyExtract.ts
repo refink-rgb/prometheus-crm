@@ -95,6 +95,11 @@ Rules for slackPost:
 - Then one line on the business outcome, then a closing two or three fragment line.
 - No emoji. No headings. No markdown bold. Do NOT include a URL; it is appended later.`
 
+/**
+ * The shape we ASK for. JSON mode guarantees valid JSON, not this structure, so
+ * every field here is a hope rather than a guarantee: normalizeExtracted must
+ * treat each one as unknown and coerce it.
+ */
 export interface ExtractedShape {
   industry?: string
   hero?: { headline?: string; subhead?: string; statValue?: string; statCaption?: string }
@@ -112,6 +117,10 @@ export interface ExtractedShape {
   slackPost?: string
 }
 
+type RawStatCard = NonNullable<ExtractedShape['statCards']>[number]
+type RawTile = NonNullable<ExtractedShape['snapshotTiles']>[number]
+type RawComparison = NonNullable<ExtractedShape['comparisons']>[number]
+
 // ─── cleaning helpers ────────────────────────────────────────────────────────
 
 /** Collapse an accidental doubled word, e.g. "revenuerevenue" → "revenue". */
@@ -120,6 +129,50 @@ function undouble(v: string): string {
 }
 
 const s = (v: unknown) => (typeof v === 'string' ? undouble(v.trim()) : '')
+
+/**
+ * A list field the model got wrong is absent, not fatal. `?? []` only catches
+ * null and undefined: an object or a string passes straight through and then
+ * throws on .map/.find, which fails the whole import over one bad field.
+ */
+const asArray = <T>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : [])
+
+type RawSection = { heading?: unknown; paragraphs?: unknown }
+
+/**
+ * Narrative does not reliably arrive as an array of sections. The model also
+ * emits an object keyed by heading ({"The Challenge": "..."}). The headings are
+ * fixed and known, so a keyed object carries the same information: convert it
+ * rather than discarding the author's text.
+ */
+function toSections(v: unknown): RawSection[] {
+  if (Array.isArray(v)) return v as RawSection[]
+  if (v && typeof v === 'object') {
+    return Object.entries(v as Record<string, unknown>).map(([heading, body]) => ({
+      heading,
+      paragraphs: body,
+    }))
+  }
+  return []
+}
+
+/** "The Challenge", "challenge" and "the_challenge" are the same section. */
+const headingKey = (v: string) => v.toLowerCase().replace(/[^a-z]/g, '').replace(/^the/, '')
+
+/**
+ * A section body arrives as an array of paragraphs, a bare string, or an object
+ * still wrapping its own paragraphs. Join the parts instead of taking the first:
+ * keeping only [0] silently drops text the document actually contained.
+ */
+function paragraphText(v: unknown): string {
+  if (typeof v === 'string') return s(v)
+  if (Array.isArray(v)) return v.map((p) => paragraphText(p)).filter(Boolean).join('\n\n')
+  if (v && typeof v === 'object') {
+    const o = v as { paragraphs?: unknown; text?: unknown }
+    return paragraphText(o.paragraphs ?? o.text)
+  }
+  return ''
+}
 
 /** Parse a figure like "$354.21", "2.91%", "1.61x", "$32K" into a number. */
 export function toNumber(v: unknown): number | null {
@@ -198,7 +251,7 @@ export function normalizeExtracted(parsed: ExtractedShape): ReportInputs {
     ;[headline, subhead] = [subhead, headline]
   }
 
-  const statCards = (parsed.statCards ?? []).slice(0, 4).map((c) => {
+  const statCards = asArray<RawStatCard>(parsed.statCards).slice(0, 4).map((c) => {
     const value = s(c.value)
     const benchmarkValue = s(c.benchmarkValue)
     let multiplier = s(c.multiplier)
@@ -214,19 +267,18 @@ export function normalizeExtracted(parsed: ExtractedShape): ReportInputs {
     }
   })
 
-  const tiles = (parsed.snapshotTiles ?? [])
+  const tiles = asArray<RawTile>(parsed.snapshotTiles)
     .map((t) => ({ label: cleanLabel(s(t.label)), value: s(t.value) }))
     .filter((t) => t.label && t.value)
     .slice(0, 6)
 
+  const sections = toSections(parsed.narrative)
   const narrative = HEADINGS.map((heading) => {
-    const match = (parsed.narrative ?? []).find(
-      (x) => s(x.heading).toLowerCase().trim() === heading.toLowerCase(),
-    )
-    return { heading, paragraphs: [s(match?.paragraphs?.[0])] }
+    const match = sections.find((x) => headingKey(s(x.heading)) === headingKey(heading))
+    return { heading, paragraphs: [paragraphText(match?.paragraphs)] }
   })
 
-  const comparisons = (parsed.comparisons ?? []).slice(0, 2).map((c) => {
+  const comparisons = asArray<RawComparison>(parsed.comparisons).slice(0, 2).map((c) => {
     const cv = toNumber(c.campaign?.value) ?? toNumber(c.campaign?.display) ?? 0
     const rv = toNumber(c.rest?.value) ?? toNumber(c.rest?.display) ?? 0
     // A bar with no label is a blank chart; fall back to the parsed figure.
