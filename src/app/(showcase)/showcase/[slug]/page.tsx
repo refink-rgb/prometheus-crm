@@ -80,6 +80,17 @@ export default async function ShowcasePage({
   // from their campaign block.
   const snapshotTiles = cs.snapshotTiles ?? (cs.campaign ? tilesFromCampaign(cs.campaign) : [])
 
+  // Empty creative slots are dropped when a report is built, but reports stored
+  // before that are still out there carrying one, and they render as a
+  // placeholder card under a heading promising ad examples. Filtering here too
+  // fixes those without anyone having to regenerate them.
+  //
+  // The fixture is exempt: its creatives are image-less ON PURPOSE, as
+  // placeholder rows for reviewing the layout (`creativesAreFixture`).
+  const creatives = cs.creativesAreFixture
+    ? cs.creatives
+    : cs.creatives.filter((c) => c.media.poster.src)
+
   return (
     <div className={PE}>
       <ShowcaseStyles />
@@ -130,8 +141,8 @@ export default async function ShowcasePage({
         <Narrative sections={cs.narrative} />
         <LpShowcase landing={cs.landing} />
         <CreativeGallery
-          creatives={cs.creatives}
-          moreCount={cs.moreAdsCount ?? Math.max(0, (cs.campaign?.adsInTest ?? 0) - cs.creatives.length)}
+          creatives={creatives}
+          moreCount={cs.moreAdsCount ?? Math.max(0, (cs.campaign?.adsInTest ?? 0) - creatives.length)}
         />
         <Comparison comparisons={cs.comparisons} />
         <Incrementality data={cs.incrementality} />

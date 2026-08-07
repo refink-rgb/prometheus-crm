@@ -205,10 +205,21 @@ export function emptyInputs(focus: FocusKey = 'conversion'): ReportInputs {
 // by the server action (the report token). Nothing is invented here: empty
 // values stay empty and render as explicit blanks.
 export function buildReportCaseStudy(input: ReportInputs, slug = ''): CaseStudy {
+  // A creative with no image is an empty slot, not a creative. The form always
+  // offers one row and will not let the author delete the last one, so a moment
+  // with no ads to show still arrives here carrying a blank — which then
+  // rendered as a placeholder card under a heading promising ad examples.
+  // Dropping them here is what makes the section optional: no images, no
+  // creatives, and the gallery renders nothing at all.
+  //
+  // Filtered BEFORE the map so ids and labels stay sequential — a report whose
+  // second upload was left blank should show "Creative 01, 02", not "01, 03".
+  const filled = input.creatives.filter((x) => x.posterUrl)
+
   // Creative labels are forced neutral here so original ad names (which carry
   // the brand) can never reach the payload.
-  const maxRev = Math.max(0, ...input.creatives.map((x) => x.revenue ?? 0))
-  const creatives: Creative[] = input.creatives.map((x, i) => ({
+  const maxRev = Math.max(0, ...filled.map((x) => x.revenue ?? 0))
+  const creatives: Creative[] = filled.map((x, i) => ({
     id: `c${i + 1}`,
     label: `Creative ${String(i + 1).padStart(2, '0')}`,
     media: {
@@ -310,12 +321,17 @@ export function caseStudyToInputs(cs: CaseStudy): ReportInputs {
     slackPost: cs.slackPost ?? '',
     lpImageUrl: cs.landing.image.src,
     proofImageUrl: cs.proof?.src ?? null,
-    creatives: cs.creatives.map((c) => ({
-      posterUrl: c.media.poster.src,
-      revenue: c.metrics.revenue,
-      roas: c.metrics.roas,
-      uniqueOutboundCtr: c.metrics.uniqueOutboundCtr,
-    })),
+    // A report built with no creatives has none to map back. The form still
+    // needs a row to upload INTO, so it gets the same blank slot a new report
+    // starts with — the empty slot lives in the form, never in the report.
+    creatives: cs.creatives.length
+      ? cs.creatives.map((c) => ({
+          posterUrl: c.media.poster.src,
+          revenue: c.metrics.revenue,
+          roas: c.metrics.roas,
+          uniqueOutboundCtr: c.metrics.uniqueOutboundCtr,
+        }))
+      : [{ posterUrl: null, revenue: null, roas: null, uniqueOutboundCtr: null }],
     moreAdsCount: cs.moreAdsCount ?? null,
     closingHref: cs.closing.href,
   }
