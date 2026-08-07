@@ -1,6 +1,6 @@
 import sharp from 'sharp'
-import { detectBrandMarks } from './gemini'
-import { isMark } from './mark-geometry'
+import { detectBrandMarks, type DetectedMark } from './gemini'
+import { classify, rebaseIntoTile, type Box } from './mark-geometry'
 import type { BlurRegion, CaseStudy } from '@/data/case-studies/types'
 
 // Automatic redaction pass over a report's uploaded assets.
@@ -52,7 +52,28 @@ const BLUR_MAX_CQW = 4
 // The size filter itself lives in `./mark-geometry` — pure, and asserted by
 // scripts/verify-blur-filter.ts.
 
-type Tile = { buffer: Buffer; topPct: number; heightPct: number }
+/**
+ * Second look at an oversized box. Cropping it out and asking again is what
+ * turns "the header bar" into "the logo in the header bar".
+ *
+ * The crop is upscaled before it is sent: a 1400x120 strip cut from a tile is
+ * mostly empty space around a small wordmark, and the model reads it far better
+ * filled to a workable width. Coordinates come back as 0-1000 of whatever was
+ * sent, so scaling costs nothing in the mapping.
+ */
+const REFINE_MIN_WIDTH = 900
+/** Ceiling on second looks per tile, so a page the model over-boxes cannot fan
+ *  out into dozens of extra vision calls inside one serverless invocation. */
+const MAX_REFINES_PER_TILE = 4
+
+type Tile = {
+  buffer: Buffer
+  topPct: number
+  heightPct: number
+  /** Pixel size of the tile, needed to cut a crop out of it. */
+  width: number
+  height: number
+}
 
 /**
  * Slice an image into overlapping tiles for the model.
@@ -98,6 +119,8 @@ async function toTiles(input: Buffer): Promise<{ tiles: Tile[]; aspect: number }
         .toBuffer(),
       topPct: (top / height) * 100,
       heightPct: (tileHeight / height) * 100,
+      width,
+      height: tileHeight,
     })
   }
   return { tiles, aspect }
@@ -161,6 +184,41 @@ function merge(regions: BlurRegion[]): BlurRegion[] {
   return out
 }
 
+/**
+ * Cut `box` out of `tile` and ask again, so a box drawn round the whole header
+ * bar comes back as a box round the logo in it. Returns tile-space boxes.
+ *
+ * Anything that fails here — a crop too small to cut, a model that returns
+ * nothing or returns the whole crop back — returns empty, and the caller falls
+ * back to blurring the band. A second look never loses a redaction; it only
+ * ever replaces a coarse one with a tighter one.
+ */
+async function refine(tile: Tile, box: Box, brandName: string): Promise<Box[]> {
+  const left = Math.round((box.x0 / 1000) * tile.width)
+  const top = Math.round((box.y0 / 1000) * tile.height)
+  const width = Math.round(((box.x1 - box.x0) / 1000) * tile.width)
+  const height = Math.round(((box.y1 - box.y0) / 1000) * tile.height)
+  if (width < 8 || height < 8) return []
+
+  const crop = await sharp(tile.buffer)
+    .extract({ left, top, width, height })
+    .resize({ width: Math.max(width, REFINE_MIN_WIDTH), withoutEnlargement: false })
+    .jpeg({ quality: 90 })
+    .toBuffer()
+
+  const found = await detectBrandMarks(crop.toString('base64'), 'image/jpeg', brandName)
+
+  return found
+    .map((m) => rebaseIntoTile(box, m))
+    .filter((r) => {
+      // Judged against the TILE, exactly as a first-pass box would be: a
+      // refined box that is still section-sized is the model repeating itself,
+      // and taking it would defeat the point of having looked again.
+      const v = classify((r.x1 - r.x0) / 1000, (r.y1 - r.y0) / 1000)
+      return v === 'mark'
+    })
+}
+
 async function mapWithLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const results: R[] = new Array(items.length)
   let next = 0
@@ -174,8 +232,24 @@ async function mapWithLimit<T, R>(items: T[], limit: number, fn: (item: T) => Pr
   return results
 }
 
-/** What one image's scan found, so a miss can be told apart from a clean page. */
-export type ScanCounts = { detected: number; dropped: number }
+/**
+ * What one image's scan found. Reported, not just logged: an author looking at
+ * an unblurred logo cannot otherwise tell a detection miss from a filtered one,
+ * and those have opposite fixes.
+ *
+ * `tooSmall` and `tooLarge` are counted apart because the first version of this
+ * reported them together as "too large", which pointed at the wrong end of the
+ * filter on the first real page it ran against.
+ */
+export type ScanCounts = {
+  detected: number
+  /** Oversized boxes a second look successfully tightened. */
+  refined: number
+  /** Oversized boxes blurred whole, as a band, because the second look failed. */
+  bands: number
+  tooSmall: number
+  tooLarge: number
+}
 
 /** Find every region of one image that shows the brand. Throws on a hard failure. */
 export async function scanImageForBrandMarks(
@@ -187,38 +261,80 @@ export async function scanImageForBrandMarks(
   const input = Buffer.from(await res.arrayBuffer())
 
   const { tiles, aspect } = await toTiles(input)
-  let detected = 0
-  let dropped = 0
+  const counts: ScanCounts = { detected: 0, refined: 0, bands: 0, tooSmall: 0, tooLarge: 0 }
+
   const perTile = await mapWithLimit(tiles, MAX_CONCURRENCY, async (tile) => {
     const marks = await detectBrandMarks(tile.buffer.toString('base64'), 'image/jpeg', brandName)
-    detected += marks.length
-    return marks
-      .filter(({ x0, y0, x1, y1 }) => {
-        const keep = isMark((x1 - x0) / 1000, (y1 - y0) / 1000)
-        if (!keep) dropped++
-        return keep
-      })
-      .map(({ x0, y0, x1, y1, what }) =>
-        pad(
-          {
-            xPct: clamp((x0 / 1000) * 100),
-            // Vertical values are relative to the TILE — rebase onto the full
-            // image. Horizontal values already span the full width.
-            yPct: clamp(tile.topPct + (y0 / 1000) * tile.heightPct),
-            wPct: clamp(((x1 - x0) / 1000) * 100),
-            hPct: clamp(((y1 - y0) / 1000) * tile.heightPct),
-            note: what,
-          },
-          aspect,
-        ),
-      )
+    counts.detected += marks.length
+
+    // Resolve each detection to the boxes we will actually blur. A mark is
+    // itself; a section-sized box is looked at again and becomes the marks
+    // inside it, or the band it is, or nothing.
+    const resolved: DetectedMark[] = []
+    let refines = 0
+    for (const m of marks) {
+      const w = (m.x1 - m.x0) / 1000
+      const h = (m.y1 - m.y0) / 1000
+      const verdict = classify(w, h)
+
+      if (verdict === 'mark') {
+        resolved.push(m)
+        continue
+      }
+      if (verdict === 'too-small') {
+        counts.tooSmall++
+        continue
+      }
+
+      // 'band' and 'too-large' both get a closer look before anything is
+      // decided — the logo inside the bar is the box we actually want.
+      let tightened: Box[] = []
+      if (refines < MAX_REFINES_PER_TILE) {
+        refines++
+        try {
+          tightened = await refine(tile, m, brandName)
+        } catch {
+          // A failed crop or a model error must not lose the detection: fall
+          // through to the band rule, which is what we had before looking.
+          tightened = []
+        }
+      }
+
+      if (tightened.length > 0) {
+        counts.refined++
+        tightened.forEach((t) => resolved.push({ ...t, what: m.what }))
+      } else if (verdict === 'band') {
+        counts.bands++
+        resolved.push(m)
+      } else {
+        counts.tooLarge++
+      }
+    }
+
+    return resolved.map(({ x0, y0, x1, y1, what }) =>
+      pad(
+        {
+          xPct: clamp((x0 / 1000) * 100),
+          // Vertical values are relative to the TILE — rebase onto the full
+          // image. Horizontal values already span the full width.
+          yPct: clamp(tile.topPct + (y0 / 1000) * tile.heightPct),
+          wPct: clamp(((x1 - x0) / 1000) * 100),
+          hPct: clamp(((y1 - y0) / 1000) * tile.heightPct),
+          note: what,
+        },
+        aspect,
+      ),
+    )
   })
 
   const kept = perTile.flat()
-  // "Found nothing" has two very different causes — the model saw nothing, or
-  // the size filter threw it all away. Log both so they can be told apart.
+  // "Found nothing" has several very different causes — the model saw nothing,
+  // the boxes were too small, or they were sections it would not tighten. Log
+  // the breakdown so they can be told apart from the outside.
   console.log(
-    `[brand-mark-scan] ${tiles.length} tiles, ${detected} detected, ${kept.length} kept after size filter`,
+    `[brand-mark-scan] ${tiles.length} tiles, ${counts.detected} detected, ` +
+      `${counts.refined} refined, ${counts.bands} bands, ` +
+      `${counts.tooSmall} too small, ${counts.tooLarge} too large, ${kept.length} kept`,
   )
 
   const regions = merge(kept.filter((r) => r.wPct > 0 && r.hPct > 0)).map((r) => ({
@@ -227,7 +343,7 @@ export async function scanImageForBrandMarks(
     // `hPct` is a share of image HEIGHT; cqw is a share of container WIDTH.
     blurCqw: +Math.min(BLUR_MAX_CQW, Math.max(BLUR_MIN_CQW, r.hPct * aspect * BLUR_RATIO)).toFixed(2),
   }))
-  return { regions, counts: { detected, dropped } }
+  return { regions, counts }
 }
 
 // ─── Addressing one image inside a stored report ─────────────────────────────

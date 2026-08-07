@@ -20,7 +20,13 @@
 //   1. A BAND IS A MARK — a wide, short strip survives the area cap.
 //   2. A BLOCK IS NOT — anything chunky is still rejected, however it is sized.
 
-import { isMark } from '../src/lib/ai/mark-geometry.ts'
+import {
+  isMark,
+  classify,
+  rebaseIntoTile,
+  MIN_REGION_HEIGHT,
+  type Box,
+} from '../src/lib/ai/mark-geometry.ts'
 
 // Boxes are shares of one square tile: [width, height].
 const CASES: { name: string; w: number; h: number; keep: boolean }[] = [
@@ -44,11 +50,13 @@ const CASES: { name: string; w: number; h: number; keep: boolean }[] = [
   { name: 'tall sidebar', w: 0.25, h: 0.6, keep: false },
   { name: 'square block over the cap', w: 0.4, h: 0.4, keep: false },
 
-  // ── Floor: unchanged ─────────────────────────────────────────────────────
-  // Below this a page speckles with blurs over nothing; the brand name in fine
-  // print is deliberately left alone.
-  { name: 'hairline artefact under the height floor', w: 0.3, h: 0.01, keep: false },
-  { name: 'band under the height floor', w: 1.0, h: 0.015, keep: false },
+  // ── Small marks: now kept ────────────────────────────────────────────────
+  // The floor used to sit above a line of body copy, which is also where a
+  // small wordmark sits. "Blur the big ones and the small ones" is the whole
+  // requirement, so the floor now only excludes what cannot be read at all.
+  { name: 'small wordmark in a footer', w: 0.06, h: 0.012, keep: true },
+  { name: 'brand name in body copy', w: 0.05, h: 0.011, keep: true },
+  { name: 'hairline artefact below the floor', w: 0.3, h: 0.004, keep: false },
 ]
 
 let failed = 0
@@ -75,6 +83,80 @@ for (const w of [0.7, 0.85, 1.0]) {
     console.log(`FAIL  a ${w}-wide block 0.5 deep must not blur`)
     failed++
   }
+}
+
+// ── The verdicts drive different handling, so they are asserted by name ─────
+// 'band' and 'too-large' both go for a second look; only 'band' survives it
+// failing. Collapsing the two would either blur hero photos or, as shipped,
+// silently drop footers.
+const VERDICTS: { name: string; w: number; h: number; want: string }[] = [
+  { name: 'tight logo', w: 0.1, h: 0.03, want: 'mark' },
+  { name: 'deep footer band', w: 1.0, h: 0.3, want: 'band' },
+  { name: 'hero photo', w: 1.0, h: 0.5, want: 'too-large' },
+  { name: 'sub-pixel noise', w: 0.2, h: 0.002, want: 'too-small' },
+]
+for (const { name, w, h, want } of VERDICTS) {
+  const got = classify(w, h)
+  if (got !== want) {
+    console.log(`FAIL  ${name}: classify(${w}, ${h}) = ${got}, expected ${want}`)
+    failed++
+  } else {
+    console.log(`ok    ${name} → ${got}`)
+  }
+}
+
+// ── Crop → tile mapping ────────────────────────────────────────────────────
+// A refined box is only useful if it lands where the logo actually is. An error
+// here does not look like a bug: the page renders with a confident blur over
+// the wrong pixels and the mark still readable beside it.
+const REBASE: { name: string; crop: Box; found: Box; want: Box }[] = [
+  {
+    name: 'logo centred in a full-width header bar',
+    crop: { x0: 0, y0: 0, x1: 1000, y1: 100 },
+    found: { x0: 450, y0: 200, x1: 550, y1: 800 },
+    want: { x0: 450, y0: 20, x1: 550, y1: 80 },
+  },
+  {
+    name: 'mark in a crop offset down the tile',
+    crop: { x0: 200, y0: 600, x1: 700, y1: 800 },
+    found: { x0: 0, y0: 0, x1: 1000, y1: 1000 },
+    want: { x0: 200, y0: 600, x1: 700, y1: 800 },
+  },
+  {
+    name: 'quarter box inside an offset crop',
+    crop: { x0: 100, y0: 100, x1: 500, y1: 500 },
+    found: { x0: 500, y0: 500, x1: 1000, y1: 1000 },
+    want: { x0: 300, y0: 300, x1: 500, y1: 500 },
+  },
+]
+for (const { name, crop, found, want } of REBASE) {
+  const got = rebaseIntoTile(crop, found)
+  const same = (['x0', 'y0', 'x1', 'y1'] as const).every((k) => Math.abs(got[k] - want[k]) < 0.001)
+  if (!same) {
+    console.log(`FAIL  rebase ${name}: got ${JSON.stringify(got)}, expected ${JSON.stringify(want)}`)
+    failed++
+  } else {
+    console.log(`ok    rebase ${name}`)
+  }
+}
+
+// A refined box must never escape the crop it was found in — that would blur
+// a region the model never looked at.
+{
+  const crop = { x0: 300, y0: 400, x1: 600, y1: 500 }
+  const got = rebaseIntoTile(crop, { x0: 0, y0: 0, x1: 1000, y1: 1000 })
+  if (got.x0 < crop.x0 || got.y0 < crop.y0 || got.x1 > crop.x1 || got.y1 > crop.y1) {
+    console.log('FAIL  a rebased box escaped its crop')
+    failed++
+  } else {
+    console.log('ok    a rebased box stays inside its crop')
+  }
+}
+
+// The floor is a documented number, not an accident: assert what it admits.
+if (!isMark(0.05, MIN_REGION_HEIGHT)) {
+  console.log('FAIL  a box exactly at the floor must blur')
+  failed++
 }
 
 console.log(failed ? `\n${failed} failure(s)` : `\nAll ${CASES.length} cases + boundary properties pass.`)

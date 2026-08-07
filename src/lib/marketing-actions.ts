@@ -10,6 +10,7 @@ import {
   listScanTargets,
   scanImageForBrandMarks,
   setScanRegions,
+  type ScanCounts,
   type ScanTarget,
 } from '@/lib/ai/brand-mark-scan'
 
@@ -158,13 +159,11 @@ export type ScanTargetsResult =
   | { ok: true; targets: { key: string; label: string }[] }
   | { ok: false; message: string }
 
-// `dropped` is reported rather than only logged: a mark the size filter threw
+// The counts are reported rather than only logged: a mark the size filter threw
 // away is invisible on the page AND invisible in the result, so an author who
 // spots an unblurred logo has no way to tell a detection miss from a filtered
-// one. The count is the difference between the two.
-export type ScanImageResult =
-  | { ok: true; regions: number; detected: number; dropped: number }
-  | { ok: false; message: string }
+// one. They are the difference between the two.
+export type ScanImageResult = ({ ok: true; regions: number } & ScanCounts) | { ok: false; message: string }
 
 /** Load a project's stored report, or fail with a message the author can act on. */
 async function loadReport(

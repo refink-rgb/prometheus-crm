@@ -42,8 +42,9 @@ export default function GenerateReportPanel({
     done: number
     total: number
     regions: number
-    /** Boxes the model returned that the size filter rejected. See below. */
-    dropped: number
+    /** Boxes the model returned that never became a blur, by reason. */
+    tooSmall: number
+    tooLarge: number
     current: string | null
     errors: string[]
   } | null>(null)
@@ -115,24 +116,27 @@ export default function GenerateReportPanel({
   // Sequential on purpose: one image per request keeps each call well inside
   // the serverless limit, and a failure names the image rather than the batch.
   async function runScan() {
-    setScan({ running: true, done: 0, total: 0, regions: 0, dropped: 0, current: null, errors: [] })
+    const empty = { done: 0, total: 0, regions: 0, tooSmall: 0, tooLarge: 0, current: null, errors: [] }
+    setScan({ running: true, ...empty })
 
     const list = await listReportScanTargets(projectId)
     if (!list.ok) {
-      setScan({ running: false, done: 0, total: 0, regions: 0, dropped: 0, current: null, errors: [list.message] })
+      setScan({ running: false, ...empty, errors: [list.message] })
       return
     }
 
     let regions = 0
-    let dropped = 0
+    let tooSmall = 0
+    let tooLarge = 0
     const errors: string[] = []
     for (let i = 0; i < list.targets.length; i++) {
       const t = list.targets[i]
-      setScan({ running: true, done: i, total: list.targets.length, regions, dropped, current: t.label, errors: [...errors] })
+      setScan({ running: true, done: i, total: list.targets.length, regions, tooSmall, tooLarge, current: t.label, errors: [...errors] })
       const res = await scanReportImage(projectId, t.key)
       if (res.ok) {
         regions += res.regions
-        dropped += res.dropped
+        tooSmall += res.tooSmall
+        tooLarge += res.tooLarge
       } else errors.push(`${t.label}: ${res.message}`)
     }
 
@@ -141,7 +145,8 @@ export default function GenerateReportPanel({
       done: list.targets.length,
       total: list.targets.length,
       regions,
-      dropped,
+      tooSmall,
+      tooLarge,
       current: null,
       errors,
     })
@@ -276,13 +281,19 @@ export default function GenerateReportPanel({
                     : `Scanned ${scan.total} image${scan.total === 1 ? '' : 's'} — no brand marks found.`}{' '}
                   Open the page and confirm before sharing the link.
                   {/* Names the one failure the page cannot show you: a mark the
-                      model DID find, discarded for being too big to be a mark.
-                      Without this a leak looks identical to a clean scan. */}
-                  {scan.dropped > 0 && (
+                      model DID find that never became a blur. Without this a
+                      leak looks identical to a clean scan. The two reasons are
+                      named apart because they have opposite fixes. */}
+                  {(scan.tooLarge > 0 || scan.tooSmall > 0) && (
                     <div style={{ marginTop: 6 }}>
-                      {scan.dropped} detected region{scan.dropped === 1 ? ' was' : 's were'} too large to
-                      blur and {scan.dropped === 1 ? 'was' : 'were'} skipped. If a logo is still readable,
-                      that is where it went.
+                      Skipped:{' '}
+                      {[
+                        scan.tooLarge > 0 && `${scan.tooLarge} too large to be a mark`,
+                        scan.tooSmall > 0 && `${scan.tooSmall} below the size floor`,
+                      ]
+                        .filter(Boolean)
+                        .join(', ')}
+                      . If a logo is still readable, that is where it went.
                     </div>
                   )}
                 </>
