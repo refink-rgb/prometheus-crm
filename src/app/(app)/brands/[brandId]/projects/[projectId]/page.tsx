@@ -15,6 +15,7 @@ import { calcDaysUntil, isProjectLive, isProjectOverdue, overallProgress, parseD
 import ProjectEditForm from '@/components/ProjectEditForm'
 import OpenEditFormButton from '@/components/OpenEditFormButton'
 import CopyDeckPanel from '@/components/CopyDeckPanel'
+import { hypercareFor } from '@/lib/hypercare'
 import EditorPicker from '@/components/EditorPicker'
 import Avatar from '@/components/Avatar'
 import { getCachedProfiles } from '@/lib/profiles'
@@ -94,6 +95,10 @@ export default async function ProjectPage({
   const isAuthorized = canEdit(user?.email)
   const userDisplayName = user?.email?.split('@')[0] ?? 'Team'
 
+  // Hypercare brands (Noble today): copy is owned by a named person and the
+  // generator is closed. Applies to every project on the brand.
+  const hypercare = hypercareFor(b?.name)
+
   const lpEditor = profiles.find(x => x.id === p.lp_editor_id) ?? null
   const creativeEditor = profiles.find(x => x.id === p.creative_editor_id) ?? null
 
@@ -137,6 +142,27 @@ export default async function ProjectPage({
           <span style={{ color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
         </div>
 
+        {/* Hypercare banner — brand-wide, shows on every project for the brand. */}
+        {hypercare && (
+          <div style={{
+            display: 'flex', alignItems: 'flex-start', gap: 'var(--space-3)',
+            padding: 'var(--space-4)', marginBottom: 'var(--space-5)',
+            background: 'rgba(239,68,68,0.08)',
+            border: '1px solid rgba(239,68,68,0.3)',
+            borderRadius: 10,
+          }}>
+            <span style={{ fontSize: 16, lineHeight: 1.2, flexShrink: 0 }}>⚠</span>
+            <div>
+              <div style={{ fontSize: 'var(--text-base)', fontWeight: 700, color: '#EF4444', marginBottom: 2 }}>
+                Hypercare — reach out to {hypercare.contact} for ad copy
+              </div>
+              <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+                {hypercare.reason} Copy generation is disabled on every {b?.name} project.
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ── HERO: Project Status ── */}
         <div style={{
           background: 'var(--surface-1)',
@@ -152,6 +178,14 @@ export default async function ProjectPage({
                 <h1 style={{ fontSize: 'var(--text-xl)', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
                   {p.name}
                 </h1>
+                {hypercare && (
+                  <span
+                    title={`${hypercare.reason} Reach out to ${hypercare.contact} for ad copy.`}
+                    style={{ fontSize: 'var(--text-xs)', fontWeight: 700, color: '#EF4444', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)', padding: '2px 8px', borderRadius: 20, letterSpacing: '0.03em' }}
+                  >
+                    ⚠ HYPERCARE
+                  </span>
+                )}
                 {p.needs_revisions && (
                   <span style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--warning)', background: 'rgba(234,179,8,0.12)', border: '1px solid rgba(234,179,8,0.3)', padding: '2px 8px', borderRadius: 20 }}>
                     ↩ Revisions
@@ -592,6 +626,7 @@ export default async function ProjectPage({
               initialHeadlines={p.ad_headlines ?? []}
               initialEyebrows={p.ad_eyebrows ?? []}
               initialSubcopies={p.ad_subcopies ?? []}
+              hypercareContact={hypercare?.contact ?? null}
             />
 
             {/* Creative Brief — direction + Meta ad copy */}

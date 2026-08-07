@@ -10,6 +10,8 @@ interface Props {
   initialHeadlines: string[]
   initialEyebrows: string[]
   initialSubcopies: string[]
+  /** Set for hypercare brands — generation is closed and copy comes from this person. */
+  hypercareContact?: string | null
 }
 
 function ChipList({
@@ -79,6 +81,7 @@ export default function CopyDeckPanel({
   initialHeadlines,
   initialEyebrows,
   initialSubcopies,
+  hypercareContact = null,
 }: Props) {
   const router = useRouter()
   const [headlines, setHeadlines] = useState<string[]>(initialHeadlines)
@@ -93,6 +96,12 @@ export default function CopyDeckPanel({
   const hasCopy = headlines.length > 0 || eyebrows.length > 0 || subcopies.length > 0
 
   async function handleGenerate() {
+    // Hypercare: surface the warning without a round-trip. The server action
+    // refuses too, so this is UX rather than the control.
+    if (hypercareContact) {
+      setError(`Reach out to ${hypercareContact} for ad copy`)
+      return
+    }
     setGenerating(true)
     setError('')
     setSaved(false)
@@ -137,12 +146,14 @@ export default function CopyDeckPanel({
         <button
           onClick={handleGenerate}
           disabled={generating}
+          title={hypercareContact ? `Hypercare brand — reach out to ${hypercareContact} for ad copy` : undefined}
           style={{
             display: 'inline-flex', alignItems: 'center', gap: 6,
             padding: '7px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600,
-            background: generating ? 'var(--surface-raised)' : 'var(--accent)',
-            color: generating ? 'var(--text-muted)' : 'white',
-            border: 'none', cursor: generating ? 'not-allowed' : 'pointer',
+            background: (generating || hypercareContact) ? 'var(--surface-raised)' : 'var(--accent)',
+            color: (generating || hypercareContact) ? 'var(--text-muted)' : 'white',
+            border: hypercareContact ? '1px solid var(--border)' : 'none',
+            cursor: generating ? 'not-allowed' : 'pointer',
             transition: 'all 0.15s',
           }}
         >
@@ -157,14 +168,30 @@ export default function CopyDeckPanel({
         </button>
       </div>
 
+      {hypercareContact && (
+        <div style={{ marginBottom: 16, padding: '10px 14px', background: 'rgba(234,179,8,0.1)', border: '1px solid rgba(234,179,8,0.3)', borderRadius: 8, color: 'var(--warning)', fontSize: 13, fontWeight: 600 }}>
+          ⚠ Hypercare — reach out to {hypercareContact} for ad copy.{' '}
+          <span style={{ fontWeight: 400, color: 'var(--text-secondary)' }}>
+            Copy generation is disabled for this brand.
+          </span>
+        </div>
+      )}
+
       {error && (
         <div style={{ marginBottom: 16, padding: '10px 14px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 8, color: 'var(--danger)', fontSize: 13 }}>
           {error}
         </div>
       )}
 
-      {hasCopy ? (
+      {/* Hypercare brands always get the editors, even when empty: pasting copy
+          in by hand is the only route now that generation is closed. */}
+      {(hasCopy || hypercareContact) ? (
         <>
+          {!hasCopy && hypercareContact && (
+            <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 16px' }}>
+              No copy yet. Paste the lines {hypercareContact} sends you into the fields below, then save.
+            </p>
+          )}
           <ChipList label="Headlines" values={headlines} onChange={setHeadlines} />
           <ChipList label="Eyebrows" values={eyebrows} onChange={setEyebrows} />
           <ChipList label="Subheadlines" values={subcopies} onChange={setSubcopies} />

@@ -2006,13 +2006,20 @@ export async function generateProjectCopy(
 
     if (!project) return { ok: false, error: 'Project not found.' }
 
-    const offerText = [project.offer, project.offer_description].filter(Boolean).join('\n')
-    if (!offerText.trim()) return { ok: false, error: 'Please fill in the offer fields before generating copy.' }
-
     const [{ data: brand }, { data: dna }] = await Promise.all([
       supabase.from('brands').select('name').eq('id', project.brand_id).single(),
       supabase.from('brand_dna').select('prompt_modifier').eq('brand_id', project.brand_id).eq('is_active', true).maybeSingle(),
     ])
+
+    // Hypercare brands never generate. Checked here (not just in the UI) so the
+    // model is never called and no copy can reach the client to be rendered,
+    // regardless of how the action is invoked.
+    const { hypercareFor, hypercareCopyMessage } = await import('@/lib/hypercare')
+    const rule = hypercareFor(brand?.name)
+    if (rule) return { ok: false, error: hypercareCopyMessage(rule) }
+
+    const offerText = [project.offer, project.offer_description].filter(Boolean).join('\n')
+    if (!offerText.trim()) return { ok: false, error: 'Please fill in the offer fields before generating copy.' }
 
     const { generateAdCopy } = await import('@/lib/ai/gemini')
     const deck = await generateAdCopy(
