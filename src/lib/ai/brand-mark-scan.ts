@@ -1,5 +1,6 @@
 import sharp from 'sharp'
 import { detectBrandMarks } from './gemini'
+import { isMark } from './mark-geometry'
 import type { BlurRegion, CaseStudy } from '@/data/case-studies/types'
 
 // Automatic redaction pass over a report's uploaded assets.
@@ -48,20 +49,8 @@ const PAD_MIN_PCT = 0.12
 const BLUR_RATIO = 0.5
 const BLUR_MIN_CQW = 0.4
 const BLUR_MAX_CQW = 4
-/** Largest share of a tile one mark may claim before it is treated as a miss. */
-const MAX_REGION_AREA = 0.12
-/**
- * Smallest mark worth blurring, as a share of the tile's height. Only the big
- * logos on the page are redacted — the brand name in body copy is left alone,
- * because a page speckled with little blurs draws far more attention than the
- * word does.
- *
- * Measured against the real page rather than guessed: on a 2940px-wide
- * screenshot cut into 1400px tiles, a header logo is ~3.1% of tile height and
- * a line of body copy ~1.1%, so the floor sits between them. An earlier 4.5%
- * was above the logo itself and silently suppressed everything.
- */
-const MIN_REGION_HEIGHT = 0.02
+// The size filter itself lives in `./mark-geometry` — pure, and asserted by
+// scripts/verify-blur-filter.ts.
 
 type Tile = { buffer: Buffer; topPct: number; heightPct: number }
 
@@ -185,25 +174,29 @@ async function mapWithLimit<T, R>(items: T[], limit: number, fn: (item: T) => Pr
   return results
 }
 
+/** What one image's scan found, so a miss can be told apart from a clean page. */
+export type ScanCounts = { detected: number; dropped: number }
+
 /** Find every region of one image that shows the brand. Throws on a hard failure. */
-export async function scanImageForBrandMarks(url: string, brandName: string): Promise<BlurRegion[]> {
+export async function scanImageForBrandMarks(
+  url: string,
+  brandName: string,
+): Promise<{ regions: BlurRegion[]; counts: ScanCounts }> {
   const res = await fetch(url)
   if (!res.ok) throw new Error(`Could not fetch asset (${res.status}).`)
   const input = Buffer.from(await res.arrayBuffer())
 
   const { tiles, aspect } = await toTiles(input)
   let detected = 0
+  let dropped = 0
   const perTile = await mapWithLimit(tiles, MAX_CONCURRENCY, async (tile) => {
     const marks = await detectBrandMarks(tile.buffer.toString('base64'), 'image/jpeg', brandName)
     detected += marks.length
     return marks
       .filter(({ x0, y0, x1, y1 }) => {
-        const height = (y1 - y0) / 1000
-        // A brand mark is never a third of the frame. Anything that big is the
-        // model boxing the card, photo or paragraph the mark sits in, and
-        // blurring it would swallow the very thing the page is showing off.
-        const area = ((x1 - x0) / 1000) * height
-        return area <= MAX_REGION_AREA && height >= MIN_REGION_HEIGHT
+        const keep = isMark((x1 - x0) / 1000, (y1 - y0) / 1000)
+        if (!keep) dropped++
+        return keep
       })
       .map(({ x0, y0, x1, y1, what }) =>
         pad(
@@ -228,12 +221,13 @@ export async function scanImageForBrandMarks(url: string, brandName: string): Pr
     `[brand-mark-scan] ${tiles.length} tiles, ${detected} detected, ${kept.length} kept after size filter`,
   )
 
-  return merge(kept.filter((r) => r.wPct > 0 && r.hPct > 0)).map((r) => ({
+  const regions = merge(kept.filter((r) => r.wPct > 0 && r.hPct > 0)).map((r) => ({
     ...r,
     // Sized after merging, so a fused box gets the radius its final size needs.
     // `hPct` is a share of image HEIGHT; cqw is a share of container WIDTH.
     blurCqw: +Math.min(BLUR_MAX_CQW, Math.max(BLUR_MIN_CQW, r.hPct * aspect * BLUR_RATIO)).toFixed(2),
   }))
+  return { regions, counts: { detected, dropped } }
 }
 
 // ─── Addressing one image inside a stored report ─────────────────────────────

@@ -158,7 +158,13 @@ export type ScanTargetsResult =
   | { ok: true; targets: { key: string; label: string }[] }
   | { ok: false; message: string }
 
-export type ScanImageResult = { ok: true; regions: number } | { ok: false; message: string }
+// `dropped` is reported rather than only logged: a mark the size filter threw
+// away is invisible on the page AND invisible in the result, so an author who
+// spots an unblurred logo has no way to tell a detection miss from a filtered
+// one. The count is the difference between the two.
+export type ScanImageResult =
+  | { ok: true; regions: number; detected: number; dropped: number }
+  | { ok: false; message: string }
 
 /** Load a project's stored report, or fail with a message the author can act on. */
 async function loadReport(
@@ -204,7 +210,7 @@ export async function scanReportImage(projectId: string, key: string): Promise<S
     const target = listScanTargets(data).find((t) => t.key === key)
     if (!target) throw new ReportError('That image is no longer part of the report.')
 
-    const regions = await scanImageForBrandMarks(target.src, brandName)
+    const { regions, counts } = await scanImageForBrandMarks(target.src, brandName)
     if (!setScanRegions(data, key, regions)) {
       throw new ReportError('That image is no longer part of the report.')
     }
@@ -218,7 +224,7 @@ export async function scanReportImage(projectId: string, key: string): Promise<S
     if (error) throw new ReportError(`Could not save the blur regions: ${error.message}`)
 
     revalidatePath('/marketing')
-    return { ok: true, regions: regions.length }
+    return { ok: true, regions: regions.length, ...counts }
   } catch (e) {
     return { ok: false, message: toMessage(e, 'Could not scan that image.') }
   }
