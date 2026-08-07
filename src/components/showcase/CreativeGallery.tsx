@@ -8,6 +8,11 @@ import RedactedImage, { BlurRegions } from './RedactedImage'
 // illustrative — no per-ad metrics and no sort/filter control. Click a card to
 // open a larger preview. `moreCount` (if > 0) adds a trailing "+ N more" card so
 // readers know these are a sample of a larger test.
+//
+// With no creatives there is no section: a heading over an empty state promises
+// the reader something the report does not deliver, and reads as unfinished on
+// a page a prospect sees. Not every moment has shareable ads, so the report has
+// to close cleanly without them.
 export default function CreativeGallery({
   creatives,
   moreCount = 0,
@@ -17,6 +22,8 @@ export default function CreativeGallery({
 }) {
   const [openId, setOpenId] = useState<string | null>(null)
   const openCreative = creatives.find((c) => c.id === openId) ?? null
+
+  if (creatives.length === 0) return null
 
   return (
     <section aria-label="Creative gallery" style={{ padding: '24px 0 72px' }}>
@@ -37,35 +44,27 @@ export default function CreativeGallery({
         </h2>
       </div>
 
-      {creatives.length === 0 ? (
-        <div className="pe-container">
-          <div className="pe-card" style={{ padding: 40, textAlign: 'center', color: 'var(--pe-muted)' }}>
-            Creative examples coming soon.
-          </div>
-        </div>
-      ) : (
-        // Horizontal scroller. Edge padding matches the container so the first
-        // card lines up with the rest of the page but cards can scroll past the
-        // viewport edges like a Netflix row.
-        <div
-          role="list"
-          aria-label="Ad examples"
-          className="pe-carousel"
-          style={{
-            display: 'flex',
-            gap: 18,
-            overflowX: 'auto',
-            scrollSnapType: 'x mandatory',
-            padding: '4px max(24px, calc((100% - 1180px) / 2 + 24px)) 16px',
-            WebkitOverflowScrolling: 'touch',
-          }}
-        >
-          {creatives.map((c) => (
-            <CreativeCard key={c.id} creative={c} onOpen={() => setOpenId(c.id)} />
-          ))}
-          {moreCount > 0 && <MoreCard count={moreCount} />}
-        </div>
-      )}
+      {/* Horizontal scroller. Edge padding matches the container so the first
+          card lines up with the rest of the page but cards can scroll past the
+          viewport edges like a Netflix row. */}
+      <div
+        role="list"
+        aria-label="Ad examples"
+        className="pe-carousel"
+        style={{
+          display: 'flex',
+          gap: 18,
+          overflowX: 'auto',
+          scrollSnapType: 'x mandatory',
+          padding: '4px max(24px, calc((100% - 1180px) / 2 + 24px)) 16px',
+          WebkitOverflowScrolling: 'touch',
+        }}
+      >
+        {creatives.map((c) => (
+          <CreativeCard key={c.id} creative={c} onOpen={() => setOpenId(c.id)} />
+        ))}
+        {moreCount > 0 && <MoreCard count={moreCount} />}
+      </div>
 
       {openCreative && <CreativeLightbox creative={openCreative} onClose={() => setOpenId(null)} />}
 
