@@ -17,7 +17,7 @@ export default async function InsightsPage() {
   if (!user) redirect('/login')
   // Insights are an operational/management view — gate to editors, same bar as
   // the rest of the authed app.
-  if (!canEdit(user.email)) redirect('/')
+  if (!(await canEdit(user.email))) redirect('/')
 
   const profiles = await getCachedProfiles()
   const data = await computeInsights(supabase, profiles)

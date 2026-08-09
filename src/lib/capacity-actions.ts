@@ -23,7 +23,7 @@ async function requireProfile() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
   const profiles = await getCachedProfiles()
   const profile = profiles.find(p => p.email === user.email?.toLowerCase()) ?? null

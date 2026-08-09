@@ -29,7 +29,7 @@ export async function extractReportFromCaseStudy(text: string): Promise<ImportRe
       data: { user },
     } = await supabase.auth.getUser()
     if (!user) return { ok: false, message: 'Not authenticated.' }
-    if (!canEdit(user.email)) return { ok: false, message: 'Not authorized.' }
+    if (!(await canEdit(user.email))) return { ok: false, message: 'Not authorized.' }
 
     const clean = text.trim()
     if (clean.length < 200) {

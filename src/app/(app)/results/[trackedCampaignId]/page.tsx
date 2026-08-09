@@ -46,7 +46,8 @@ export default async function CampaignResultsPage({
   const supabase = await createClient()
   const user = await getCachedUser()
   if (!user) redirect('/login')
-  if (!canEdit(user.email)) redirect('/')
+  const isEditor = await canEdit(user.email)
+  if (!isEditor) redirect('/')
 
   const today = easternToday()
 
@@ -240,7 +241,7 @@ export default async function CampaignResultsPage({
                 brandId={campaign.brands.id}
                 brandName={campaign.brands.name}
                 cod={cod}
-                canEdit={canEdit(user.email)}
+                canEdit={isEditor}
               />
             </div>
           )}
@@ -248,7 +249,7 @@ export default async function CampaignResultsPage({
           <DailyResultsTable
             rows={rows}
             trackedCampaignId={campaign.id}
-            canEdit={canEdit(user.email)}
+            canEdit={isEditor}
           />
         </>
       )}

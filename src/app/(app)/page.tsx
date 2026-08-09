@@ -41,7 +41,7 @@ export default async function DashboardPage() {
 
   const allBrands = (brands ?? []) as DashboardBrand[]
   const pipeline = (pipelineRaw ?? []) as unknown as PipelineProject[]
-  const isAuthorized = canEdit(user?.email)
+  const isAuthorized = await canEdit(user?.email)
   const myProfile = profiles.find(p => p.email === user?.email?.toLowerCase()) ?? null
   const myProfileId = myProfile?.id ?? null
   const editorOnly = isJobEditor(myProfile)

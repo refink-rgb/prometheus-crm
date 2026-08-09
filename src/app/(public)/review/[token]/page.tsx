@@ -30,7 +30,7 @@ export default async function ReviewPage({
   // Only authenticated editors (agency staff) can delete comments — anonymous
   // clients viewing this link cannot. The flag is passed down to the panels.
   const { data: { user } } = await supabase.auth.getUser()
-  const canDeleteComments = canEdit(user?.email)
+  const canDeleteComments = await canEdit(user?.email)
 
   const [
     { data: brandRaw },

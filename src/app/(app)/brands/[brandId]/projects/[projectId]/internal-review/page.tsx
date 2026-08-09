@@ -19,7 +19,7 @@ export default async function InternalReviewPage({
   const supabase = await createClient()
   const user = await getCachedUser()
   if (!user) redirect('/login')
-  if (!canEdit(user.email)) redirect(`/brands/${brandId}/projects/${projectId}`)
+  if (!(await canEdit(user.email))) redirect(`/brands/${brandId}/projects/${projectId}`)
 
   const { data: projectRaw } = await supabase
     .from('projects')

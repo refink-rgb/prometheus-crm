@@ -24,7 +24,7 @@ async function requireEditor() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
   return { supabase, user }
 }
 

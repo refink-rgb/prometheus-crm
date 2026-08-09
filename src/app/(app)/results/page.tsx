@@ -42,7 +42,7 @@ export default async function ResultsPage() {
   const user = await getCachedUser()
   if (!user) redirect('/login')
   // Operational view over client performance — same bar as /insights.
-  if (!canEdit(user.email)) redirect('/')
+  if (!(await canEdit(user.email))) redirect('/')
 
   const today = easternToday()
 

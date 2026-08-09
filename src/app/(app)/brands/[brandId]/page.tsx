@@ -22,7 +22,7 @@ export default async function BrandPage({ params }: { params: Promise<{ brandId:
   const { brandId } = await params
   const supabase = await createClient()
   const user = await getCachedUser()
-  const isAuthorized = canEdit(user?.email)
+  const isAuthorized = await canEdit(user?.email)
 
   const { data: brand } = await supabase
     .from('brands')

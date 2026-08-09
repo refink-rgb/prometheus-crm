@@ -42,7 +42,7 @@ async function requireEditor() {
     data: { user },
   } = await supabase.auth.getUser()
   if (!user) throw new ReportError('Not authenticated.')
-  if (!canEdit(user.email)) throw new ReportError('Not authorized.')
+  if (!(await canEdit(user.email))) throw new ReportError('Not authorized.')
   return supabase
 }
 

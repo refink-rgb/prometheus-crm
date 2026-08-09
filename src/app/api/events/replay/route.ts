@@ -18,7 +18,7 @@ export const runtime = 'nodejs'
 export async function GET(request: Request) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user || !canEdit(user.email)) {
+  if (!user || !(await canEdit(user.email))) {
     return NextResponse.json({ error: 'Not authorized.' }, { status: 401 })
   }
 

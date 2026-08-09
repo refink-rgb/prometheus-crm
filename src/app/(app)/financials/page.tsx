@@ -41,7 +41,7 @@ export default async function FinancialsPage({
 }) {
   const supabase = await createClient()
   const user = await getCachedUser()
-  if (!canEdit(user?.email)) {
+  if (!(await canEdit(user?.email))) {
     redirect('/')
   }
 

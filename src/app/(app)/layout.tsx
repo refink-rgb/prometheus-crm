@@ -13,7 +13,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const user = await getCachedUser()
   if (!user) redirect('/login')
 
-  const isEditor = canEdit(user.email)
+  const isEditor = await canEdit(user.email)
 
   // RLS grants any authenticated user full read/write — canEdit() is the only
   // access boundary in the app. Without this check, anyone who signs in (even

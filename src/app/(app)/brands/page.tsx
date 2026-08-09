@@ -9,7 +9,7 @@ type BrandWithProjects = Brand & { projects: Project[] }
 export default async function BrandsPage() {
   const supabase = await createClient()
   const user = await getCachedUser()
-  const isEditor = canEdit(user?.email)
+  const isEditor = await canEdit(user?.email)
 
   // Grid reads brand.name/website/profit_engineer/id, the Active/Trial/Inactive
   // pill (is_trial, is_active, monthly_retainer), and per-project

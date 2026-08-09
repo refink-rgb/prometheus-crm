@@ -25,7 +25,7 @@ type AssignedProject = {
 export default async function CapacityPage() {
   const supabase = await createClient()
   const user = await getCachedUser()
-  if (!canEdit(user?.email)) redirect('/')
+  if (!(await canEdit(user?.email))) redirect('/')
 
   // No isJobEditor() guard, unlike /financials — LP and creative editors are
   // the producers this report exists to hear from.

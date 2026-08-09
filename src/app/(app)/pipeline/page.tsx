@@ -11,7 +11,7 @@ export default async function PipelinePage() {
   const supabase = await createClient()
   const user = await getCachedUser()
   if (!user) redirect('/login')
-  const isEditor = canEdit(user.email)
+  const isEditor = await canEdit(user.email)
 
   // Kanban cards read exactly these fields. `select('*')` was dragging the
   // JSONB copy banks + brief fields for every active project (~110 KB vs ~7 KB

@@ -92,7 +92,7 @@ export default async function ProjectPage({
   const brandJourneys = (brandJourneysRaw ?? []) as Journey[]
   const trackedCampaigns = (trackedCampaignsRaw ?? []) as unknown as TrackedCampaign[]
   const todayIso = easternToday()
-  const isAuthorized = canEdit(user?.email)
+  const isAuthorized = await canEdit(user?.email)
   const userDisplayName = user?.email?.split('@')[0] ?? 'Team'
 
   // Hypercare brands (Noble today): copy is owned by a named person and the

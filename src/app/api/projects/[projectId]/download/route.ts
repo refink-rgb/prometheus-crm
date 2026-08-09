@@ -24,7 +24,7 @@ export async function GET(
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Not authenticated.' }, { status: 401 })
-  if (!canEdit(user.email)) return NextResponse.json({ error: 'Not authorized.' }, { status: 403 })
+  if (!(await canEdit(user.email))) return NextResponse.json({ error: 'Not authorized.' }, { status: 403 })
 
   const [{ data: project }, { data: assets }] = await Promise.all([
     supabase.from('projects').select('name').eq('id', projectId).single(),

@@ -11,7 +11,7 @@ export default async function OffersPage() {
   const supabase = await createClient()
   const user = await getCachedUser()
   if (!user) redirect('/login')
-  const isEditor = canEdit(user.email)
+  const isEditor = await canEdit(user.email)
 
   const [{ data: cardsRaw, error: cardsError }, { data: brandsRaw }, profiles] = await Promise.all([
     supabase

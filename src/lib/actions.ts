@@ -33,7 +33,7 @@ export async function createBrand(formData: FormData) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
   const name = formData.get('name') as string
   const raw = (formData.get('website') as string).trim()
@@ -80,7 +80,7 @@ export async function createProject(formData: FormData): Promise<{ redirect: str
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
   const brandId = formData.get('brand_id') as string
   const imageUrls = JSON.parse(formData.get('image_urls') as string) as Array<{ path: string; url: string }>
@@ -182,7 +182,7 @@ export async function updateProjectStage(
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
   // Event log needs the from-stage, so read before writing. Skipped entirely
   // when instrumentation is killed via PROMETHEUS_EVENTS_DISABLED.
@@ -275,7 +275,7 @@ export async function updateProjectStagesBoth(
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
   const prev = eventsEnabled()
     ? (await supabase.from('projects').select('lp_stage, creatives_stage, marketing_moment').eq('id', projectId).single()).data
@@ -316,7 +316,7 @@ export async function updateProjectStageDueDate(
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
   const column = STAGE_DUE_COLUMN[stage]
   if (!column) throw new Error(`Stage "${stage}" has no target date.`)
@@ -336,7 +336,7 @@ export async function updateProjectDeliverable(formData: FormData) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
   const projectId = formData.get('project_id') as string
   const brandId = formData.get('brand_id') as string
@@ -358,7 +358,7 @@ export async function toggleProjectRevisions(projectId: string, brandId: string,
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
   const { error } = await supabase
     .from('projects')
@@ -385,7 +385,7 @@ export async function markProjectComplete(projectId: string, brandId: string) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
   const prev = eventsEnabled()
     ? (await supabase.from('projects').select('lp_stage, creatives_stage, marketing_moment').eq('id', projectId).single()).data
@@ -415,7 +415,7 @@ export async function updateBrandDetails(formData: FormData) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
   const brandId = formData.get('brand_id') as string
   const retainerRaw = (formData.get('monthly_retainer') as string)?.trim()
@@ -456,7 +456,7 @@ export async function updateBrandPipelineStatus(
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
   await supabase
     .from('brands')
@@ -473,7 +473,7 @@ export async function generateShareToken(projectId: string): Promise<string> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('Not authenticated.')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
   const { randomBytes } = await import('crypto')
   const token = randomBytes(20).toString('hex')
@@ -646,13 +646,13 @@ export async function addProjectComment(
 }
 
 // Authed-only: delete a comment from the client review page. Gated by the same
-// ALLOWED_EDITORS allowlist used everywhere else — anonymous client viewers
-// can't trigger this even if they discover the action.
+// canEdit() check used everywhere else — anonymous client viewers can't
+// trigger this even if they discover the action.
 export async function deleteProjectComment(commentId: string, token: string) {
   const auth = await createClient()
   const { data: { user } } = await auth.auth.getUser()
   if (!user) throw new Error('Not authorized.')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
   // project_comments RLS has no UPDATE/DELETE policy for the authenticated role,
   // so a delete through the user-session client is silently dropped (0 rows, no
@@ -696,7 +696,7 @@ export async function deleteInternalNote(commentId: string, projectId: string, b
   const auth = await createClient()
   const { data: { user } } = await auth.auth.getUser()
   if (!user) throw new Error('Not authorized.')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
   // Same project_comments RLS gap as deleteProjectComment — the DELETE is
   // silently dropped through the user-session client, so the note returns on
@@ -734,7 +734,7 @@ export async function toggleCommentResolved(
   const auth = await createClient()
   const { data: { user } } = await auth.auth.getUser()
   if (!user) throw new Error('Not authorized.')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
   // See deleteProjectComment: project_comments has no UPDATE policy for the
   // authenticated role, so this resolve toggle is silently dropped through the
@@ -764,7 +764,7 @@ export async function syncDriveImages(projectId: string, brandId: string, folder
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
   // Auth is now handled inside listDriveFolder (prefers SA, falls back to API key).
   const folderId = extractDriveFolderId(folderUrl)
@@ -879,7 +879,7 @@ export async function applyAiEdits(
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
   const openaiKey = process.env.OPENAI_API_KEY
   if (!openaiKey) throw new Error('OPENAI_API_KEY is not set — add it in Vercel → Settings → Environment Variables.')
@@ -976,7 +976,7 @@ export async function approveAndPublishRevision(assetId: string, projectId: stri
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
   const { data: asset } = await supabase
     .from('creative_assets')
@@ -1019,7 +1019,7 @@ export async function publishAssets(
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
   let query = supabase
     .from('creative_assets')
@@ -1177,7 +1177,7 @@ export async function archiveAssetToDeleteFolder(
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
   await _archiveAssetCore(supabase, assetId, projectId)
 
@@ -1206,7 +1206,7 @@ export async function purgeStaleAssets(
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
   let query = supabase
     .from('creative_assets')
@@ -1338,7 +1338,7 @@ export async function updateAssetStatusInternal(
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
   // INTERNAL QC writes its OWN column — never the client-facing `status`. This
   // keeps an internal approve/reject from showing up on the client review link.
@@ -1392,7 +1392,7 @@ export async function addInternalAssetComment(input: {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
   const name = input.displayName.trim() || user.email?.split('@')[0] || 'Team'
 
@@ -1419,7 +1419,7 @@ export async function uploadInternalReference(formData: FormData): Promise<{ sto
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
   const file = formData.get('file') as File | null
   const assetId = (formData.get('asset_id') as string) || 'unknown'
@@ -1459,7 +1459,7 @@ export async function applyDirectPrompt(input: {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
   const openaiKey = process.env.OPENAI_API_KEY
   if (!openaiKey) throw new Error('OPENAI_API_KEY is not set — add it in Vercel → Settings → Environment Variables.')
@@ -1560,7 +1560,7 @@ export async function toggleAssetVisibility(assetId: string, isHidden: boolean, 
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
   await supabase
     .from('creative_assets')
@@ -1629,7 +1629,7 @@ export async function deleteProject(projectId: string, brandId: string) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
   const { error: imgErr } = await supabase.from('project_images').delete().eq('project_id', projectId)
   if (imgErr) throw new Error(`Failed to delete project images: ${imgErr.message}`)
@@ -1644,7 +1644,7 @@ export async function deleteBrand(brandId: string) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
   const { data: projects } = await supabase
     .from('projects')
@@ -1670,7 +1670,7 @@ export async function addProfitEngineer(name: string) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
   const { error } = await supabase.from('profit_engineers').insert({ name: name.trim() })
   if (error) throw new Error(`Failed to add profit engineer: ${error.message}`)
@@ -1689,7 +1689,7 @@ export async function addInternalNote(
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
   const name = displayName.trim() || user.email?.split('@')[0] || 'Team'
   const cleanedAttachments = (attachmentUrls ?? []).filter(u => typeof u === 'string' && u.length > 0)
@@ -1735,7 +1735,7 @@ export async function lockProjectOffer(projectId: string, brandId: string) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
   const { error } = await supabase.from('projects').update({
     offer_locked: true,
@@ -1751,7 +1751,7 @@ export async function unlockProjectOffer(projectId: string, brandId: string) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
   const { error } = await supabase.from('projects').update({
     offer_locked: false,
@@ -1790,7 +1790,7 @@ export async function generateClientToken(brandId: string): Promise<string> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('Not authenticated.')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
   const { randomBytes } = await import('crypto')
   const token = randomBytes(20).toString('hex')
@@ -1805,7 +1805,7 @@ export async function renameJourney(journeyId: string, brandId: string, newName:
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
   const { error } = await supabase
     .from('journeys')
@@ -1820,7 +1820,7 @@ export async function deleteJourney(journeyId: string, brandId: string) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
   const { count } = await supabase
     .from('projects')
@@ -1879,7 +1879,7 @@ export async function updateProjectDetails(
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
   const { error } = await supabase
     .from('projects')
@@ -1907,7 +1907,7 @@ export async function assignProjectEditor(
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
   const { column, capability } = EDITOR_TRACK_META[track]
 
@@ -2055,7 +2055,7 @@ export async function buildBrandDna(
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-  if (!canEdit(user.email)) return { ok: false, error: 'Not authorized.' }
+  if (!(await canEdit(user.email))) return { ok: false, error: 'Not authorized.' }
 
   try {
     const { data: brand } = await supabase
@@ -2125,7 +2125,7 @@ export async function updateBrandDna(
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-  if (!canEdit(user.email)) throw new Error('Not authorized.')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
   const brandId = formData.get('brand_id') as string
   if (!brandId) return { ok: false, error: 'Missing brand id.' }
@@ -2169,7 +2169,7 @@ export async function uploadBrandLogo(
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-  if (!canEdit(user.email)) return { ok: false, error: 'Not authorized.' }
+  if (!(await canEdit(user.email))) return { ok: false, error: 'Not authorized.' }
 
   try {
     const brandId = formData.get('brand_id') as string | null
