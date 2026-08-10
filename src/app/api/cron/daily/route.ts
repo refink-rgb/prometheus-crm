@@ -83,7 +83,7 @@ async function runSlipScan(supabase: SupabaseService, today: string) {
       { track: 'creative', stage: p.creatives_stage },
     ]
     for (const { track, stage } of tracks) {
-      if (!(stage in STAGE_DUE_COLUMN)) continue // revisions/live can't slip
+      if (!(stage in STAGE_DUE_COLUMN)) continue // revisions/ready/live can't slip
       const expected = p[STAGE_DUE_COLUMN[stage as SlippableStage]]
       if (!expected || expected >= today) continue
       if (alreadyLogged.has(`${p.id}:${track}`)) continue

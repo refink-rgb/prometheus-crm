@@ -361,6 +361,7 @@ const STAGE_LABELS: Record<string, string> = {
   internal_review: 'Internal Review',
   client_review: 'Client Review',
   revisions: 'Revisions',
+  ready: 'Ready',
   live: 'Live',
   // 'done' is retired as a stage, but pipeline_events is append-only and still
   // holds historical to_stage='done' rows. Keep the label so past cycles read

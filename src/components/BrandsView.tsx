@@ -200,6 +200,7 @@ function MiniProjectRow({ project }: { project: Project }) {
 function MiniDot({ label, stage }: { label: string; stage: string }) {
   const color =
     stage === 'live'            ? 'var(--success)'  :
+    stage === 'ready'           ? '#06b6d4'          :
     stage === 'revisions'       ? '#f43f5e'          :
     stage === 'client_review'   ? 'var(--warning)'  :
     stage === 'internal_review' ? '#a855f7'          :

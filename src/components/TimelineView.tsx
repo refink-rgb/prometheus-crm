@@ -19,10 +19,10 @@ import {
 type TrackFilter = 'both' | 'lp' | 'creative'
 
 // Stages a row can be plotted in. Shipped projects are filtered out
-// server-side; 'revisions' is included so a revisions row can't be silently
-// dropped by the stage filter.
+// server-side; 'revisions' and 'ready' are included so those rows can't be
+// silently dropped by the stage filter.
 const FILTERABLE_STAGES: Stage[] = [
-  'brief', 'in_progress', 'internal_review', 'client_review', 'revisions', 'live',
+  'brief', 'in_progress', 'internal_review', 'client_review', 'revisions', 'ready', 'live',
 ]
 
 // Narrowed project row — only what the timeline reads. Mirrors the SELECT in

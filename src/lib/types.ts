@@ -6,7 +6,10 @@ import type { CaseStudy } from '@/data/case-studies/types'
 // cards that had shipped but hadn't been archived yet, so it duplicated 'live'.
 // Historical `pipeline_events` rows still carry to_stage='done'; those are read
 // through normalizeStage()/the insights label map, never through this type.
-export type Stage = 'brief' | 'in_progress' | 'internal_review' | 'client_review' | 'revisions' | 'live'
+// 'ready' (added 2026-08-10) is the staging step before launch: the work is
+// finished and approved, but hasn't shipped yet. Nothing auto-advances into it
+// — it's reached by the normal advance/drag, same as every other stage.
+export type Stage = 'brief' | 'in_progress' | 'internal_review' | 'client_review' | 'revisions' | 'ready' | 'live'
 
 export type PipelineStatus = 'intro_contact' | 'discovery_call' | 'offer_prep' | 'active'
 
@@ -431,10 +434,11 @@ export const STAGE_LABELS: Record<Stage, string> = {
   internal_review: 'Internal Review',
   client_review:   'Client Review',
   revisions:       'Revisions',
+  ready:           'Ready',
   live:            'Live',
 }
 
-export const STAGE_ORDER: Stage[] = ['brief', 'in_progress', 'internal_review', 'client_review', 'revisions', 'live']
+export const STAGE_ORDER: Stage[] = ['brief', 'in_progress', 'internal_review', 'client_review', 'revisions', 'ready', 'live']
 
 // Read guard for stage values coming out of the database. Rows written before
 // the Done stage was retired still hold 'done' until the 20260802 migration is

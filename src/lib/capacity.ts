@@ -3,7 +3,8 @@ import { profileName } from '@/lib/types'
 
 // A track counts toward someone's capacity while the work is actually on their
 // plate: brief, in progress, internal review — and revisions, since the client
-// has sent it back to them. Client review, live, and done are off their desk.
+// has sent it back to them. Client review, ready, and live are off their desk —
+// a 'ready' track is built and signed off, it's just waiting to be launched.
 export const WORKING_STAGES: readonly Stage[] = ['brief', 'in_progress', 'internal_review', 'revisions']
 
 export type CapacityProject = {

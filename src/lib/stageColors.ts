@@ -11,10 +11,11 @@ import { STAGE_ORDER, normalizeStage } from './types'
 // evenly to the end instead of topping out at 85%.
 export const STAGE_PCT: Record<Stage, number> = {
   brief:           0,
-  in_progress:     25,
-  internal_review: 50,
-  client_review:   70,
-  revisions:       85,
+  in_progress:     20,
+  internal_review: 45,
+  client_review:   65,
+  revisions:       80,
+  ready:           92,
   live:            100,
 }
 
@@ -24,6 +25,10 @@ export const STAGE_COLORS = {
   internal_review: { border: '#6366F1', bg: 'rgba(99,102,241,0.14)',  text: '#818CF8' },
   client_review:   { border: '#F59E0B', bg: 'rgba(245,158,11,0.14)',  text: '#FCD34D' },
   revisions:       { border: '#F43F5E', bg: 'rgba(244,63,94,0.14)',   text: '#FB7185' },
+  // Cyan for Ready — deliberately cool and distinct from both Live's lime and
+  // the archived/approved emerald below, so "queued to launch", "launched" and
+  // "archived" never read as the same state.
+  ready:           { border: '#06B6D4', bg: 'rgba(6,182,212,0.14)',   text: '#22D3EE' },
   live:            { border: '#65A30D', bg: 'rgba(101,163,13,0.16)',  text: '#A3E635' },
 } satisfies Record<Stage, { border: string; bg: string; text: string }>
 
@@ -107,8 +112,8 @@ export function parseAndDaysUntil(dueDateStr: string | null | undefined): { due:
 }
 
 // Which project column holds the target date for each stage. Only the four
-// "in-flight" stages have a per-phase due date — revisions/live can't slip, so
-// they map to null and callers fall back to the go-live date. Mirrors
+// "in-flight" stages have a per-phase due date — revisions/ready/live can't
+// slip, so they map to null and callers fall back to the go-live date. Mirrors
 // STAGE_DUE_COLUMN in the daily cron so the board and the slip scan agree on
 // which date governs which stage.
 export const STAGE_DUE_FIELD = {
@@ -117,6 +122,7 @@ export const STAGE_DUE_FIELD = {
   internal_review: 'stage_internal_review_due_date',
   client_review:   'stage_client_review_due_date',
   revisions:       null,
+  ready:           null,
   live:            null,
 } as const satisfies Record<Stage, string | null>
 
@@ -163,7 +169,7 @@ export interface StageExit {
   track: EditorTrack
   stage: Stage
   // The date this stage is meant to exit by: its phase-due column, or the
-  // go-live date for stages with no phase target (revisions/live).
+  // go-live date for stages with no phase target (revisions/ready/live).
   exitDate: Date | null
   daysUntil: number | null
   tone: PhaseDueTone | null

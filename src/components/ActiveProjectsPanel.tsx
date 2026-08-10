@@ -12,6 +12,7 @@ type GroupKey =
   | 'overdue'
   | 'due_this_week'
   | 'revisions'
+  | 'ready'
   | 'client_waiting_on_us'
   | 'in_client_review'
   | 'internal_review'
@@ -22,6 +23,7 @@ const GROUP_META: Record<GroupKey, { label: string; dot: string; color: string }
   overdue:              { label: 'Overdue',                  dot: '🔴', color: 'var(--urgent-overdue)' },
   due_this_week:        { label: 'Due this week',            dot: '🟠', color: 'var(--urgent-soon)' },
   revisions:            { label: 'Revisions requested',      dot: '🔁', color: '#F43F5E' },
+  ready:                { label: 'Ready to launch',          dot: '🚀', color: '#22D3EE' },
   client_waiting_on_us: { label: 'Client waiting on us',     dot: '🟡', color: '#F59E0B' },
   in_client_review:     { label: 'In client review',         dot: '🟡', color: '#F59E0B' },
   internal_review:      { label: 'Internal review',          dot: '🟣', color: '#818CF8' },
@@ -33,6 +35,7 @@ const GROUP_ORDER: GroupKey[] = [
   'overdue',
   'due_this_week',
   'revisions',
+  'ready',
   'client_waiting_on_us',
   'in_client_review',
   'internal_review',
@@ -46,6 +49,9 @@ function classify(p: ProjectWithBrand): GroupKey | null {
   if (days !== null && days >= 0 && days <= 7 && !p.is_complete) return 'due_this_week'
   // Client left feedback and a track moved to Revisions — the team owes an edit.
   if (p.lp_stage === 'revisions' || p.creatives_stage === 'revisions') return 'revisions'
+  // Built and signed off, waiting to be launched. Checked before the approval
+  // rule below, which would otherwise swallow these into the vaguer bucket.
+  if (p.lp_stage === 'ready' || p.creatives_stage === 'ready') return 'ready'
   // Client approved a track but it hasn't shipped yet — the ball is with us.
   if ((p.lp_approved && p.lp_stage !== 'live') || (p.creatives_approved && p.creatives_stage !== 'live')) {
     return 'client_waiting_on_us'
