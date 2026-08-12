@@ -2116,6 +2116,95 @@ export async function buildBrandDna(
   }
 }
 
+// Brand DNA, second route in: build it from the brand's own guideline document
+// (PDF/DOCX/PPTX) instead of researching the public web. A first-party brand
+// book states what the research pass can only infer, so this path skips the
+// search + site-palette work entirely and reads the document.
+//
+// The file arrives as a Storage path, not as bytes: server actions cap request
+// bodies at 1MB by default and real brand books run 5-50MB, so the browser
+// uploads to Storage first (same pattern as ImageUploader) and we download it
+// here. Keeping the file also gives the sources list something to point at.
+export async function buildBrandDnaFromGuideline(
+  brandId: string,
+  storagePath: string,
+  filename: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!(await canEdit(user.email))) return { ok: false, error: 'Not authorized.' }
+
+  try {
+    const { data: brand } = await supabase
+      .from('brands')
+      .select('name')
+      .eq('id', brandId)
+      .single()
+    if (!brand) return { ok: false, error: 'Brand not found.' }
+
+    // Path is scoped to this brand's guideline folder so a crafted value can't
+    // pull an unrelated object out of the bucket.
+    if (!storagePath.startsWith(`brand-guidelines/${brandId}-`)) {
+      return { ok: false, error: 'Unexpected upload path.' }
+    }
+
+    const { data: blob, error: dlErr } = await supabase.storage
+      .from('project-images')
+      .download(storagePath)
+    if (dlErr || !blob) {
+      return { ok: false, error: `Could not read the uploaded guideline: ${dlErr?.message ?? 'not found'}` }
+    }
+
+    const { parseGuideline } = await import('@/lib/ai/brand-guideline')
+    const { readBrandGuideline, synthesizeBrandDna } = await import('@/lib/ai/gemini')
+    const { TEXT_FIELDS } = await import('@/lib/ai/brand-dna-schema')
+
+    const doc = await parseGuideline(filename, await blob.arrayBuffer())
+    const { dossier } = await readBrandGuideline(brand.name, doc)
+
+    const { data: { publicUrl } } = supabase.storage.from('project-images').getPublicUrl(storagePath)
+
+    // No site palette here: the guideline's own swatches are the ground truth,
+    // and a scraped CSS palette would only add competing hex codes.
+    const dna = await synthesizeBrandDna(dossier, [publicUrl], null,
+      `This dossier came from the brand's own guideline document ("${filename}"), not from public research. Treat every stated value as specification rather than inference. For the sources array, use the document URL supplied below as the url for each field you confirmed, and put the page or slide number in the note (e.g. "p.14, colour palette"). Do not invent a hex code, typeface or figure the dossier does not state — the guideline being silent on something is itself a finding.`)
+
+    const normalized: Record<string, unknown> = { ...dna }
+    for (const field of TEXT_FIELDS) {
+      if (normalized[field] === '') normalized[field] = null
+    }
+
+    const { data: prevActive } = await supabase
+      .from('brand_dna')
+      .select('id, version, logo_url')
+      .eq('brand_id', brandId)
+      .eq('is_active', true)
+      .maybeSingle()
+
+    if (prevActive) {
+      const { error: flipErr } = await supabase.from('brand_dna').update({ is_active: false }).eq('id', prevActive.id)
+      if (flipErr) return { ok: false, error: `Failed to deactivate prior Brand DNA: ${flipErr.message}` }
+    }
+
+    const { error } = await supabase.from('brand_dna').insert({
+      ...normalized,
+      brand_id: brandId,
+      version: (prevActive?.version ?? 0) + 1,
+      is_active: true,
+      logo_url: prevActive?.logo_url ?? null,
+    })
+    if (error) return { ok: false, error: `Failed to save Brand DNA: ${error.message}` }
+
+    revalidatePath(`/brands/${brandId}`)
+    return { ok: true }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.error('[buildBrandDnaFromGuideline]', brandId, msg, e)
+    return { ok: false, error: msg }
+  }
+}
+
 // Manual corrections to the active Brand DNA record — edits apply in place
 // (no version bump; ✦ Rebuild still creates new versions). Only fields present
 // in the form are touched, so partial edit UIs stay safe.

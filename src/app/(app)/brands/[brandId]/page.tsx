@@ -15,8 +15,10 @@ import BrandDnaPanel from '@/components/BrandDnaPanel'
 
 // Two-step Gemini research + synthesis for Brand DNA can run 30-90s. Vercel's
 // default function timeout would cut it off — mirror the pattern used on the
-// project pages for the AI image-edit flows.
-export const maxDuration = 120
+// project pages for the AI image-edit flows. Building from an uploaded brand
+// guideline is heavier still: a 40-page PDF is read page by page, so this sits
+// at 300 rather than 120.
+export const maxDuration = 300
 
 export default async function BrandPage({ params }: { params: Promise<{ brandId: string }> }) {
   const { brandId } = await params

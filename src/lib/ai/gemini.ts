@@ -1,5 +1,6 @@
 import { GoogleGenAI } from '@google/genai'
 import { brandDnaResponseSchema, type BrandDnaJson } from './brand-dna-schema'
+import { NOTE_TEXT_ONLY, type GuidelinePayload } from './brand-guideline'
 import { formatPaletteForPrompt, type SitePalette } from './palette'
 
 const MODEL = 'gemini-2.5-flash'
@@ -67,6 +68,63 @@ export async function researchBrandDna(brandName: string, websiteUrl: string): P
   return { dossier, urls: Array.from(urls) }
 }
 
+function guidelinePrompt(brandName: string, textOnlyNote: string): string {
+  return `You are a senior brand strategist reading ${brandName}'s own brand guideline document, ahead of building their Brand DNA reference. This turn is extraction only — a separate pass will structure your findings into a schema, so write a dossier a design/creative team could act on directly.
+
+This document is first-party: what it states is the specification, not an inference. Your job is to report it accurately, not to improve on it.
+${textOnlyNote}
+Work through the WHOLE document, not the opening pages — palettes, photography direction and tone-of-voice usually sit in the back half. Read the artwork on each page as carefully as the body copy: colour chips, type specimens, logo lockups, grid diagrams and photography boards carry most of the system and often have no text at all.
+
+Pull out, citing the page or slide number for each claim:
+1. Overview — positioning, tagline, stated values or personality attributes, any named design agency, any competitor set the document itself names.
+2. Visual system — every colour swatch with its exact hex (plus CMYK/RGB/Pantone where printed) and its stated role (primary, secondary, accent, neutral, background); typefaces with foundry and licensed weights; the type scale, casing and letter-spacing rules; CTA/button styling.
+3. Logo — lockup variants, minimum size, clear-space rule, and the misuse list.
+4. Photography — lighting, grading, composition, subject matter, stated treatments, and anything explicitly ruled out.
+5. Packaging — materials, finishes, label anatomy, placement rules.
+6. Ad creative and voice — formats, overlay style, offer presentation, "say this not that" tables, banned words, naming and punctuation rules.
+7. Sales DNA — pain points, proof points with their exact figures, offers, price anchors, objections, hooks. Only what the document states.
+
+Where a swatch is shown without a hex printed next to it, say so and describe the colour rather than guessing a value — a wrong hex propagates into every ad we build. If the document is a partial extract, an old version, or covers only one sub-brand, say that up front. Never fill a gap from category norms or from what you know about this brand from elsewhere; write "not stated in the guideline" instead.
+
+Write your findings as a markdown dossier with these exact section headers: Brand Overview, Visual System, Photography, Packaging, Ad Creative Style, Sales DNA. Aim for 700-900 words — dense with specifics, not padded.`
+}
+
+/**
+ * Build the research dossier from the brand's own guideline document instead of
+ * from public sources. Returns the same shape as `researchBrandDna` so the
+ * synthesis pass is shared: only the provenance of the dossier differs.
+ *
+ * `urls` comes back empty — a first-party document has no source URLs, and the
+ * synthesis prompt already tolerates an empty list.
+ */
+export async function readBrandGuideline(
+  brandName: string,
+  doc: GuidelinePayload,
+): Promise<ResearchResult> {
+  const ai = client()
+
+  const prompt = guidelinePrompt(
+    brandName,
+    doc.kind === 'text' ? `\n${NOTE_TEXT_ONLY}\n` : '',
+  )
+
+  const parts =
+    doc.kind === 'pdf'
+      ? [{ inlineData: { mimeType: doc.mimeType, data: doc.base64 } }, { text: prompt }]
+      : [{ text: `${prompt}\n\n---\n\nGuideline document contents:\n\n${doc.text.slice(0, 200_000)}` }]
+
+  const res = await ai.models.generateContent({
+    model: MODEL,
+    contents: [{ role: 'user', parts }],
+    config: { temperature: 0 },
+  })
+
+  const dossier = res.text ?? ''
+  if (!dossier.trim()) throw new Error('Gemini returned nothing for that guideline document.')
+
+  return { dossier, urls: [] }
+}
+
 export type CopyDeck = {
   headlines: string[]
   eyebrows: string[]
@@ -116,6 +174,7 @@ export async function synthesizeBrandDna(
   dossier: string,
   urls: string[],
   palette: SitePalette | null = null,
+  provenance: string | null = null,
 ): Promise<BrandDnaJson> {
   const ai = client()
   const urlBlock = urls.length
@@ -124,10 +183,11 @@ export async function synthesizeBrandDna(
   const paletteBlock = palette && palette.colors.length
     ? `\n\n---\n\n${formatPaletteForPrompt(palette)}`
     : ''
+  const provenanceBlock = provenance ? `\n\n${provenance}` : ''
 
   const res = await ai.models.generateContent({
     model: MODEL,
-    contents: `${SYNTHESIS_PROMPT}\n\n---\n\nDossier:\n\n${dossier}${urlBlock}${paletteBlock}`,
+    contents: `${SYNTHESIS_PROMPT}${provenanceBlock}\n\n---\n\nDossier:\n\n${dossier}${urlBlock}${paletteBlock}`,
     config: {
       responseMimeType: 'application/json',
       responseSchema: brandDnaResponseSchema,

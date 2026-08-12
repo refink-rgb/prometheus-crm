@@ -2,7 +2,9 @@
 
 import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { buildBrandDna, uploadBrandLogo, updateBrandDna } from '@/lib/actions'
+import { buildBrandDna, buildBrandDnaFromGuideline, uploadBrandLogo, updateBrandDna } from '@/lib/actions'
+import { createClient } from '@/lib/supabase/client'
+import { GUIDELINE_ACCEPT, MAX_GUIDELINE_BYTES } from '@/lib/ai/brand-guideline'
 import type { BrandDna } from '@/lib/types'
 
 // Edit-mode form config — mirrors the read-only sections below. 'list' fields
@@ -200,6 +202,9 @@ export default function BrandDnaPanel({ brandId, dna }: { brandId: string; dna: 
   const [uploading, setUploading] = useState(false)
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
+  const guidelineRef = useRef<HTMLInputElement | null>(null)
+  const [guideline, setGuideline] = useState<File | null>(null)
+  const [guidelineStep, setGuidelineStep] = useState('')
 
   async function handleSave(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -238,6 +243,50 @@ export default function BrandDnaPanel({ brandId, dna }: { brandId: string; dna: 
       setError(err instanceof Error ? err.message : 'Build failed')
     } finally {
       setBuilding(false)
+    }
+  }
+
+  // Guideline route: upload to Storage from the browser first, then hand the
+  // server action a path. Server actions cap request bodies at 1MB and brand
+  // books are far bigger, so the file cannot travel through the action itself.
+  async function handleBuildFromGuideline() {
+    if (!guideline) return
+    if (guideline.size > MAX_GUIDELINE_BYTES) {
+      setError(`That file is ${(guideline.size / 1024 / 1024).toFixed(1)}MB — the limit is ${MAX_GUIDELINE_BYTES / 1024 / 1024}MB.`)
+      return
+    }
+    const label = dna ? 'Rebuild Brand DNA from this guideline?' : 'Build Brand DNA from this guideline?'
+    if (!confirm(`${label}\n\n${guideline.name}\n\nThis replaces the current version (a new version is created, the old one is kept).`)) return
+
+    setBuilding(true)
+    setError('')
+    try {
+      setGuidelineStep('Uploading document…')
+      const supabase = createClient()
+      const ext = (guideline.name.split('.').pop() || 'pdf').toLowerCase().replace(/[^a-z0-9]/g, '')
+      const path = `brand-guidelines/${brandId}-${Date.now()}.${ext}`
+      const { error: upErr } = await supabase.storage
+        .from('project-images')
+        .upload(path, guideline, { contentType: guideline.type || undefined })
+      if (upErr) {
+        setError(`Upload failed: ${upErr.message}`)
+        return
+      }
+
+      setGuidelineStep('Reading the guideline…')
+      const result = await buildBrandDnaFromGuideline(brandId, path, guideline.name)
+      if (!result.ok) {
+        setError(result.error)
+      } else {
+        setGuideline(null)
+        if (guidelineRef.current) guidelineRef.current.value = ''
+        router.refresh()
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Build from guideline failed')
+    } finally {
+      setBuilding(false)
+      setGuidelineStep('')
     }
   }
 
@@ -359,9 +408,47 @@ export default function BrandDnaPanel({ brandId, dna }: { brandId: string; dna: 
         </div>
       </div>
 
+      {/* Second route in — the brand's own guideline. Hidden while editing so
+          the edit form stays the only thing on screen. */}
+      {!editing && (
+        <div style={{ marginBottom: 24, padding: 16, background: 'var(--surface-raised)', borderRadius: 8, border: '1px solid var(--border)' }}>
+          <div style={SECTION_LABEL}>Or build from a brand guideline</div>
+          <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, margin: '0 0 12px' }}>
+            Upload the brand book as <strong>PDF, DOCX or PPTX</strong> and the DNA is read from the client&apos;s stated
+            specification instead of researched from their website. PDF is the best input — its pages are read
+            visually, so colour swatches and type specimens come through. DOCX and PPTX are read as text only.
+          </p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <input
+              ref={guidelineRef}
+              type="file"
+              accept={GUIDELINE_ACCEPT}
+              disabled={building}
+              onChange={e => { setGuideline(e.target.files?.[0] ?? null); setError('') }}
+              style={{ fontSize: 12 }}
+            />
+            <button
+              onClick={handleBuildFromGuideline}
+              disabled={!guideline || building}
+              className="btn-primary"
+              style={{ fontSize: 12 }}
+            >
+              {building && guidelineStep
+                ? guidelineStep
+                : dna ? '✦ Rebuild from guideline' : '✦ Build from guideline'}
+            </button>
+          </div>
+          {guideline && !building && (
+            <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '8px 0 0' }}>
+              {guideline.name} · {(guideline.size / 1024 / 1024).toFixed(1)}MB
+            </p>
+          )}
+        </div>
+      )}
+
       {!dna && !building && (
         <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-          No Brand DNA yet. Click <strong>Build Brand DNA</strong> to run a two-step Gemini research + synthesis pass — the result will populate the fonts, colors, photography direction, packaging, ad style, and sales angles used to keep future creative on-brand.
+          No Brand DNA yet. Click <strong>Build Brand DNA</strong> to run a two-step Gemini research + synthesis pass from the brand&apos;s website, or upload their brand guideline above to build it from the client&apos;s own document. Either way the result populates the fonts, colors, photography direction, packaging, ad style, and sales angles used to keep future creative on-brand.
         </p>
       )}
 
