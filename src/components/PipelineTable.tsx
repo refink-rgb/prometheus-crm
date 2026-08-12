@@ -5,6 +5,8 @@ import Link from 'next/link'
 import type { Project, Stage } from '@/lib/types'
 import { STAGE_ORDER, STAGE_LABELS } from '@/lib/types'
 import { isProjectOverdue, parseAndDaysUntil, STAGE_COLORS } from '@/lib/stageColors'
+import CopyMarkdownButton from '@/components/CopyMarkdownButton'
+import { pipelineMarkdown } from '@/lib/markdown-export'
 
 type PipelineProject = Project & { brands: { id: string; name: string } }
 
@@ -38,6 +40,17 @@ export default function PipelineTable({ pipeline }: { pipeline: PipelineProject[
       return true
     })
   }, [pipeline, deferredSearch, status, filterWaiting])
+
+  // Describes the active filters in the exported header, so a pasted table is
+  // not mistaken for the whole pipeline.
+  function filterNote(): string | undefined {
+    const parts: string[] = []
+    if (deferredSearch.trim()) parts.push(`search "${deferredSearch.trim()}"`)
+    if (status === 'overdue') parts.push('overdue only')
+    if (status === 'in_review') parts.push('in client review')
+    if (filterWaiting) parts.push('waiting on client')
+    return parts.length ? `filtered: ${parts.join(', ')}` : undefined
+  }
 
   const pillBase = {
     padding: 'var(--space-2) var(--space-3)', borderRadius: 20, fontSize: 'var(--text-sm)',
@@ -106,10 +119,18 @@ export default function PipelineTable({ pipeline }: { pipeline: PipelineProject[
         </button>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', marginBottom: 'var(--space-4)' }}>
         <h2 style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
           Active Pipeline — {displayed.length}{displayed.length !== pipeline.length ? ` of ${pipeline.length}` : ''} project{displayed.length !== 1 ? 's' : ''}
         </h2>
+        {displayed.length > 0 && (
+          <CopyMarkdownButton
+            markdown={() => pipelineMarkdown(displayed, filterNote())}
+            label="Copy pipeline"
+            title="Copy the rows currently shown as a markdown table"
+            style={{ marginLeft: 'auto' }}
+          />
+        )}
       </div>
 
       {displayed.length === 0 ? (

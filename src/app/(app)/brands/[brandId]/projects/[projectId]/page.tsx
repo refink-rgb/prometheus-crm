@@ -15,6 +15,8 @@ import { calcDaysUntil, isProjectLive, isProjectOverdue, overallProgress, parseD
 import ProjectEditForm from '@/components/ProjectEditForm'
 import OpenEditFormButton from '@/components/OpenEditFormButton'
 import CopyDeckPanel from '@/components/CopyDeckPanel'
+import CopyMarkdownButton from '@/components/CopyMarkdownButton'
+import { projectBriefMarkdown } from '@/lib/markdown-export'
 import { hypercareFor } from '@/lib/hypercare'
 import EditorPicker from '@/components/EditorPicker'
 import Avatar from '@/components/Avatar'
@@ -220,6 +222,16 @@ export default async function ProjectPage({
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexShrink: 0 }}>
+              <CopyMarkdownButton
+                markdown={projectBriefMarkdown(p as Project, {
+                  brandName: b?.name ?? null,
+                  journeyName: journey?.name ?? null,
+                  lpEditor: lpEditor ? profileName(lpEditor) : null,
+                  creativeEditor: creativeEditor ? profileName(creativeEditor) : null,
+                })}
+                label="Copy brief"
+                title="Copy every filled-in brief field as markdown"
+              />
               <div style={{ textAlign: 'right' }}>
                 <div style={{ fontSize: 'var(--text-2xs)', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 2 }}>Due</div>
                 <div style={{

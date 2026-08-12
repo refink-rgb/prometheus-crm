@@ -18,6 +18,8 @@ import {
 import { OFFER_APPROVAL_DAY, OFFER_STAGE_COLORS, offerDueLabel, offerDueTone } from '@/lib/stageColors'
 import { createOfferCard, updateOfferStage, assignOfferCard } from '@/lib/offer-actions'
 import Avatar from '@/components/Avatar'
+import CopyMarkdownButton from '@/components/CopyMarkdownButton'
+import { offersBoardMarkdown } from '@/lib/markdown-export'
 
 type BoardOfferCard = OfferCard & { brands: { id: string; name: string } }
 
@@ -99,6 +101,21 @@ export default function OffersBoard({
       return true
     })
   }, [localCards, search, owner, mineOnly, lateOnly, currentProfileId])
+
+  // Names the active filters in the exported header, so a pasted table is not
+  // mistaken for the whole board.
+  function offersFilterNote(): string | undefined {
+    const parts: string[] = []
+    if (search.trim()) parts.push(`search "${search.trim()}"`)
+    if (mineOnly) parts.push('my cards')
+    if (lateOnly) parts.push('late only')
+    if (owner === 'unassigned') parts.push('unassigned')
+    else if (owner !== 'all') {
+      const p = assignees.find(a => a.id === owner)
+      parts.push(`owner ${p ? profileName(p) : owner}`)
+    }
+    return parts.length ? `filtered: ${parts.join(', ')}` : undefined
+  }
 
   // Late first, then closest to the deadline — the top of a column is the part
   // people actually scan, so the cards that need chasing belong there.
@@ -254,11 +271,24 @@ export default function OffersBoard({
           </button>
         )}
 
+        <CopyMarkdownButton
+          markdown={() => offersBoardMarkdown(
+            displayed,
+            c => {
+              const p = assignees.find(a => a.id === c.assigned_to)
+              return p ? profileName(p) : null
+            },
+            offersFilterNote(),
+          )}
+          label="Copy offers"
+          title="Copy the offer cards currently shown as a markdown table"
+          style={{ marginLeft: 'auto' }}
+        />
+
         <button
           onClick={() => setShowNew(v => !v)}
           className="focus-ring-pill"
           style={{
-            marginLeft: 'auto',
             padding: 'var(--space-2) var(--space-3)', borderRadius: 20, fontSize: 'var(--text-sm)',
             cursor: 'pointer', border: '1px solid var(--accent)', fontWeight: 600,
             background: showNew ? 'var(--accent-muted)' : 'transparent', color: 'var(--accent)',

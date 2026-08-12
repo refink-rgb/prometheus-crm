@@ -23,6 +23,8 @@ import { OFFER_STAGE_COLORS } from '@/lib/stageColors'
 import { assignOfferCard, deleteOfferCard, updateOfferDetails, updateOfferStage } from '@/lib/offer-actions'
 import Avatar from '@/components/Avatar'
 import ClientApprovalMessage from '@/components/ClientApprovalMessage'
+import CopyMarkdownButton from '@/components/CopyMarkdownButton'
+import { offerCardMarkdown } from '@/lib/markdown-export'
 
 // Stages where the approval message is part of the job. Before Internal Review
 // the offer isn't settled enough to write to a client about.
@@ -210,6 +212,15 @@ export default function OfferCardDetail({
           {assignees.map(p => <option key={p.id} value={p.id}>{profileName(p)}</option>)}
           {owner && !ownerProfile && <option value={owner}>Assigned (off roster)</option>}
         </select>
+
+        {/* Exports the saved card, so unsaved edits in the form below are not
+            included — copy after saving. */}
+        <CopyMarkdownButton
+          markdown={() => offerCardMarkdown(card, ownerProfile ? profileName(ownerProfile) : null)}
+          label="Copy offer"
+          title="Copy every filled-in offer field as markdown (saved values)"
+          style={{ marginLeft: 'auto' }}
+        />
       </div>
 
       {/* Trigger B outcome: approval auto-creates the production card. */}

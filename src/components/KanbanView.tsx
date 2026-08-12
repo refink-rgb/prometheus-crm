@@ -13,6 +13,8 @@ import { STAGE_ORDER, STAGE_LABELS, profileName, type Stage, type Project, type 
 import { updateProjectStage, updateProjectStagesBoth } from '@/lib/actions'
 import { isProjectOverdue, phaseDueTone, STAGE_COLORS, STAGE_DUE_FIELD } from '@/lib/stageColors'
 import KanbanCard from './KanbanCard'
+import CopyMarkdownButton from '@/components/CopyMarkdownButton'
+import { pipelineMarkdown } from '@/lib/markdown-export'
 
 type PipelineProject = Project & { brands: { id: string; name: string } }
 type StatusFilter = 'all' | 'overdue' | 'in_review'
@@ -104,6 +106,24 @@ export default function KanbanView({
       return true
     })
   }, [localProjects, deferredSearch, status, filterWaiting, editor, mineOnly, currentProfileId])
+
+  // Names the active filters in the exported header, so a pasted table is not
+  // mistaken for the whole pipeline.
+  function filterNote(): string | undefined {
+    const parts: string[] = []
+    if (deferredSearch.trim()) parts.push(`search "${deferredSearch.trim()}"`)
+    if (status === 'overdue') parts.push('overdue only')
+    if (status === 'in_review') parts.push('in client review')
+    if (filterWaiting) parts.push('waiting on client')
+    if (mineOnly) parts.push('my projects')
+    if (editor === 'unassigned') parts.push('unassigned')
+    else if (editor !== 'all') {
+      const e = editors.find(p => p.id === editor)
+      parts.push(`editor ${e ? profileName(e) : editor}`)
+    }
+    if (trackView !== 'combined') parts.push(`${trackView === 'lp' ? 'landing page' : 'creatives'} track`)
+    return parts.length ? `filtered: ${parts.join(', ')}` : undefined
+  }
 
   const columns = useMemo(
     () => STAGE_ORDER.map(stage => ({
@@ -310,10 +330,18 @@ export default function KanbanView({
         </button>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 'var(--space-4)', flexShrink: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', marginBottom: 'var(--space-4)', flexShrink: 0 }}>
         <h2 style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
           Active Pipeline — {displayed.length}{displayed.length !== localProjects.length ? ` of ${localProjects.length}` : ''} project{displayed.length !== 1 ? 's' : ''}
         </h2>
+        {displayed.length > 0 && (
+          <CopyMarkdownButton
+            markdown={() => pipelineMarkdown(displayed, filterNote())}
+            label="Copy pipeline"
+            title="Copy the cards currently shown as a markdown table"
+            style={{ marginLeft: 'auto' }}
+          />
+        )}
       </div>
 
       <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
