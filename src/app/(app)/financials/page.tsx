@@ -17,8 +17,20 @@ import {
   monthStart,
   shiftMonthKey,
 } from '@/lib/billing'
+import {
+  buildDeliveryRows,
+  buildLiveDateMap,
+  type CycleRow,
+  type MomentRow,
+} from '@/lib/delivery'
+import { easternDateOf } from '@/lib/eastern'
 import BillingMonthTable, { type BillingRow } from '@/components/financials/BillingMonthTable'
+import DeliveryTracker from '@/components/financials/DeliveryTracker'
 import ScheduleManager, { type ScheduleRow } from '@/components/financials/ScheduleManager'
+
+// How many months of delivery history the tracker grid shows, ending at the
+// month the page is pointed at.
+const DELIVERY_WINDOW_MONTHS = 6
 
 const BD_COLORS: Record<PipelineStatus, string> = {
   intro_contact:  'var(--bd-intro)',
@@ -56,7 +68,7 @@ export default async function FinancialsPage({
   const { month } = await searchParams
   const activeMonth = /^\d{4}-\d{2}$/.test(month ?? '') ? month! : monthKeyOf(today)
 
-  const [{ data: brandRows }, subsResult, periodsResult] = await Promise.all([
+  const [{ data: brandRows }, subsResult, periodsResult, momentsResult, liveEventsResult] = await Promise.all([
     supabase
       .from('brands')
       .select('id, name, is_active, is_trial, monthly_retainer, start_date, pipeline_status'),
@@ -67,8 +79,22 @@ export default async function FinancialsPage({
     // memory; revisit with a SQL rollup if this ever passes a few thousand.
     supabase
       .from('billing_periods')
-      .select('id, subscription_id, brand_id, due_date, amount_cents, status, paid_at, paid_amount_cents, reference')
+      .select('id, subscription_id, brand_id, period_start, period_end, due_date, amount_cents, status, paid_at, paid_amount_cents, reference')
       .order('due_date'),
+    // Delivery tracker inputs. Completed projects are included on purpose —
+    // shipped work is exactly what the tracker counts.
+    supabase
+      .from('projects')
+      .select('id, brand_id, name, due_date, marketing_moment, is_complete, lp_stage, creatives_stage'),
+    // When each moment actually went live. 'done' is the retired stage name
+    // (removed 2026-08-02); historic rows still carry it.
+    supabase
+      .from('pipeline_events')
+      .select('card_id, created_at')
+      .eq('event_type', 'stage_changed')
+      .eq('card_kind', 'production')
+      .in('to_stage', ['live', 'done'])
+      .limit(5000),
   ])
 
   const migrationMissing =
@@ -79,8 +105,8 @@ export default async function FinancialsPage({
 
   const subscriptions = (subsResult.data ?? []) as unknown as BillingSubscription[]
   const periods = (periodsResult.data ?? []) as unknown as Array<
-    Pick<BillingPeriod, 'id' | 'subscription_id' | 'brand_id' | 'due_date' | 'amount_cents'
-      | 'status' | 'paid_at' | 'paid_amount_cents' | 'reference'>
+    Pick<BillingPeriod, 'id' | 'subscription_id' | 'brand_id' | 'period_start' | 'period_end'
+      | 'due_date' | 'amount_cents' | 'status' | 'paid_at' | 'paid_amount_cents' | 'reference'>
   >
 
   // --- KPIs ----------------------------------------------------------------
@@ -132,6 +158,33 @@ export default async function FinancialsPage({
       reference: p.reference,
     }))
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.brandName.localeCompare(b.brandName))
+
+  // --- Moment delivery -----------------------------------------------------
+
+  // Rolling window ending at the month the page is pointed at, so the month
+  // arrows above scroll the tracker and the payments table together.
+  const deliveryMonths = Array.from(
+    { length: DELIVERY_WINDOW_MONTHS },
+    (_, i) => shiftMonthKey(activeMonth, i - (DELIVERY_WINDOW_MONTHS - 1)),
+  )
+
+  const deliverySummary = buildDeliveryRows({
+    brandNames: brandName,
+    cycles: periods.map<CycleRow>(p => ({
+      brand_id: p.brand_id,
+      period_start: p.period_start,
+      period_end: p.period_end,
+      due_date: p.due_date,
+      status: p.status,
+    })),
+    moments: (momentsResult.data ?? []) as unknown as MomentRow[],
+    liveDates: buildLiveDateMap(
+      (liveEventsResult.data ?? []) as unknown as Array<{ card_id: string; created_at: string }>,
+      easternDateOf,
+    ),
+    monthKeys: deliveryMonths,
+    today,
+  })
 
   // --- Schedules -----------------------------------------------------------
 
@@ -256,6 +309,11 @@ export default async function FinancialsPage({
           </div>
         </div>
         <BillingMonthTable rows={monthRows} monthLabel={monthLabel(activeMonth)} />
+      </section>
+
+      {/* Moment delivery against the retainer */}
+      <section style={{ marginBottom: 36 }}>
+        <DeliveryTracker summary={deliverySummary} today={today} />
       </section>
 
       {/* Schedule control */}
