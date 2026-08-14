@@ -137,6 +137,16 @@ export default function DeliveryTracker({ summary, today }: { summary: DeliveryS
         <LegendKey color="var(--text-muted)" label="in flight" />
         <span>Balance counts closed cycles only. Hover a cell for the moments in it.</span>
       </div>
+
+      {summary.estimatedInWindow > 0 && (
+        <p style={{
+          marginTop: 'var(--space-2)', fontSize: 'var(--text-xs)', color: 'var(--text-muted)',
+          lineHeight: 1.6, maxWidth: 760,
+        }}>
+          <strong style={{ color: 'var(--text-secondary)' }}>Dashed cells</strong>
+          {` hold ${summary.estimatedInWindow} shipped ${summary.estimatedInWindow === 1 ? 'moment' : 'moments'} with no logged ship date — completed before the pipeline event log started, or archived without a stage change. They're placed on their target date, so the cycle they count toward is inferred, and they are never reported as on-time or late.`}
+        </p>
+      )}
     </div>
   )
 }
@@ -160,10 +170,17 @@ function MonthCell({ cell }: { cell: DeliveryCell }) {
     ...cell.moments.map(m => {
       const slot = m.slot ? `M${m.slot} · ` : ''
       if (!m.delivered) return `  ○ ${slot}${m.name} — in flight`
-      return `  ● ${slot}${m.name} — live ${m.deliveredOn ? shortDateLabel(m.deliveredOn) : '?'}${m.late ? ' (late)' : ''}`
+      const when = m.deliveredOn ? shortDateLabel(m.deliveredOn) : '?'
+      // A target-dated moment has no observed ship date, so it gets neither an
+      // on-time nor a late claim — just the fact that the date is inferred.
+      if (m.dateSource !== 'event') return `  ◐ ${slot}${m.name} — shipped, no date logged (placed on its ${when} target)`
+      return `  ● ${slot}${m.name} — live ${when}${m.late ? ' (late)' : ''}`
     }),
   ]
   if (cell.moments.length === 0) lines.push('  (no moments in this cycle)')
+  if (cell.estimated > 0) {
+    lines.push(`${cell.estimated} of these ${cell.estimated === 1 ? 'was' : 'were'} placed by target date, not a logged ship date.`)
+  }
 
   return (
     <div
@@ -172,7 +189,9 @@ function MonthCell({ cell }: { cell: DeliveryCell }) {
         justifySelf: 'center', minWidth: 60, textAlign: 'center',
         padding: '4px 6px', borderRadius: 8,
         background: tone.fill ? `color-mix(in srgb, ${tone.color} ${tone.fill}%, transparent)` : 'transparent',
-        border: `1px solid ${tone.fill
+        // Dashed = at least one moment in here was placed by its target date
+        // rather than a logged ship date, so the cycle it landed in is inferred.
+        border: `1px ${cell.estimated > 0 ? 'dashed' : 'solid'} ${tone.fill
           ? `color-mix(in srgb, ${tone.color} 30%, transparent)`
           : 'var(--border)'}`,
         cursor: 'default',

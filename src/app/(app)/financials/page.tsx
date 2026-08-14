@@ -87,13 +87,16 @@ export default async function FinancialsPage({
       .from('projects')
       .select('id, brand_id, name, due_date, marketing_moment, is_complete, lp_stage, creatives_stage'),
     // When each moment actually went live. 'done' is the retired stage name
-    // (removed 2026-08-02); historic rows still carry it.
+    // (removed 2026-08-02); historic rows still carry it. Newest first so that
+    // if the cap is ever reached it drops the oldest events, which are the
+    // ones least likely to fall in the visible window.
     supabase
       .from('pipeline_events')
       .select('card_id, created_at')
       .eq('event_type', 'stage_changed')
       .eq('card_kind', 'production')
       .in('to_stage', ['live', 'done'])
+      .order('created_at', { ascending: false })
       .limit(5000),
   ])
 

@@ -52,6 +52,24 @@ const moments: MomentRow[] = [
   { ...wip('m7'),  name: 'Aug · M1', due_date: '2026-08-28', marketing_moment: 1 },
 ]
 
+// A second client whose history predates the event log entirely — the case
+// this fixture exists to pin down. Both moments are shipped, neither has a
+// logged ship date, so both are placed on their target and neither may be
+// reported as on-time or late.
+const LEGACY = 'brand-legacy'
+const legacyCycles: CycleRow[] = [
+  { brand_id: LEGACY, period_start: '2026-06-05', period_end: '2026-07-04', due_date: '2026-06-05', status: 'paid' },
+]
+const legacyMoments: MomentRow[] = [
+  // Archived through markProjectComplete, which pins both stages to 'live'.
+  { id: 'g1', brand_id: LEGACY, name: 'Jun · M1 (archived)', due_date: '2026-06-20',
+    marketing_moment: 1, is_complete: true, lp_stage: 'live', creatives_stage: 'live' },
+  // Legacy row still carrying the retired 'done' stage and never archived —
+  // normalizeStage must still read it as delivered.
+  { id: 'g2', brand_id: LEGACY, name: 'Jun · M2 (legacy done)', due_date: '2026-07-01',
+    marketing_moment: 2, is_complete: false, lp_stage: 'done', creatives_stage: 'done' },
+]
+
 const liveDates = buildLiveDateMap(
   [
     { card_id: 'm1', created_at: '2026-05-20T18:00:00Z' },
@@ -67,9 +85,9 @@ const liveDates = buildLiveDateMap(
 )
 
 const summary = buildDeliveryRows({
-  brandNames: new Map([[BRAND, 'American Clothing']]),
-  cycles,
-  moments,
+  brandNames: new Map([[BRAND, 'American Clothing'], [LEGACY, 'Legacy Client']]),
+  cycles: [...cycles, ...legacyCycles],
+  moments: [...moments, ...legacyMoments],
   liveDates,
   monthKeys: ['2026-04', '2026-05', '2026-06', '2026-07', '2026-08'],
   today: TODAY,
@@ -85,7 +103,7 @@ function check(label: string, actual: unknown, expected: unknown) {
   )
 }
 
-const row = summary.rows[0]
+const row = summary.rows.find(r => r.brandId === BRAND)!
 const byMonth = new Map(row.cells.map(c => [c.monthKey, c]))
 const cell = (k: string) => byMonth.get(k)!
 
@@ -98,6 +116,8 @@ check('slipped moment counts in Jul, not Jun', cell('2026-07').moments.map(m => 
 check('Jul cycle met by catch-up', [cell('2026-07').delivered, cell('2026-07').state], [2, 'met'])
 check('slipped moment flagged late', cell('2026-07').moments.find(m => m.id === 'm5')!.late, true)
 check('early moment not flagged late', cell('2026-07').moments.find(m => m.id === 'm6')!.late, false)
+check('logged ship dates are sourced from the event log', cell('2026-07').moments.map(m => m.dateSource), ['event', 'event'])
+check('no inferred placements for an instrumented client', cell('2026-07').estimated, 0)
 check('relaunch keeps the LATER ship date', liveDates.get('m6'), '2026-08-02')
 check('Aug cycle open and under-briefed', [cell('2026-08').delivered, cell('2026-08').inFlight, cell('2026-08').state], [0, 1, 'at_risk'])
 check('open cycle not counted as closed', cell('2026-08').closed, false)
@@ -107,6 +127,23 @@ check('balance is one moment in debt', row.balance, -1)
 check('moments owed', summary.momentsOwed, 1)
 check('clients behind', summary.clientsBehind, 1)
 check('current-month progress', [summary.deliveredThisMonth, summary.owedThisMonth], [0, 2])
+
+// --- Shipped work with no logged ship date ---------------------------------
+// The regression this section guards: dating these by due_date and then
+// measuring them against due_date reports "on time" for every one of them by
+// construction. That is a fabricated result, so `late` must stay unknown.
+
+const legacy = summary.rows.find(r => r.brandId === LEGACY)!
+const legacyCell = legacy.cells.find(c => c.monthKey === '2026-06')!
+
+check('archived project counts as delivered', legacyCell.moments.find(m => m.id === 'g1')!.delivered, true)
+check("legacy 'done' stage counts as delivered", legacyCell.moments.find(m => m.id === 'g2')!.delivered, true)
+check('both placed by target, not by event', legacyCell.moments.map(m => m.dateSource), ['target', 'target'])
+check('neither claims on-time or late', legacyCell.moments.map(m => m.late), [null, null])
+check('cell reports how many were inferred', legacyCell.estimated, 2)
+check('they still satisfy the quota', [legacyCell.delivered, legacyCell.state], [2, 'met'])
+check('legacy client is square', legacy.balance, 0)
+check('inferred placements surface in the summary', summary.estimatedInWindow, 2)
 
 // Waived/void cycles were never really sold, so they buy no moments — a client
 // whose every cycle is waived drops out of the tracker entirely.

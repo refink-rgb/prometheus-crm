@@ -73,15 +73,29 @@ export type CellState =
   // the quota — the gap is structural, not just unfinished work.
   | 'at_risk'
 
+// Where a delivered moment's date came from. 'event' is an observed ship date
+// from the pipeline log; 'target' is the moment's own due_date, standing in
+// for a ship date nobody recorded. The distinction has to survive into the UI:
+// a target-dated moment can never be measured against its own target.
+export type DateSource = 'event' | 'target'
+
+export interface DeliveredAt {
+  date: string
+  source: DateSource
+}
+
 export interface CellMoment {
   id: string
   name: string
   slot: number | null
   delivered: boolean
-  // Eastern date it shipped (null while in flight), and whether that landed
-  // after its own planned due date.
+  // Eastern date it shipped (null while in flight).
   deliveredOn: string | null
-  late: boolean
+  dateSource: DateSource | null
+  // Whether it landed after its own planned due date. NULL means unknowable —
+  // the only date we have IS the due date, so comparing them would manufacture
+  // an on-time result rather than measure one.
+  late: boolean | null
 }
 
 export interface DeliveryCell {
@@ -96,6 +110,10 @@ export interface DeliveryCell {
   delivered: number
   // Moments sitting in this cycle that haven't shipped yet.
   inFlight: number
+  // Delivered moments placed by their TARGET date because no ship date was
+  // ever logged. They still count, but which cycle they landed in is inferred,
+  // not observed — surfaced so the number can be read with that in mind.
+  estimated: number
   moments: CellMoment[]
 }
 
@@ -117,6 +135,9 @@ export interface DeliverySummary {
   momentsOwed: number
   deliveredThisMonth: number
   owedThisMonth: number
+  // Delivered moments in the visible grid that had no logged ship date, so
+  // their cycle was inferred from their target. Footnoted rather than hidden.
+  estimatedInWindow: number
 }
 
 // --- Delivery detection -----------------------------------------------------
@@ -129,19 +150,26 @@ export function isMomentDelivered(m: MomentRow): boolean {
   return normalizeStage(m.lp_stage) === 'live' && normalizeStage(m.creatives_stage) === 'live'
 }
 
-// When it shipped. The event log is the only real record — `due_date` is a
-// target, not an outcome — so events win, and the target is the fallback for
-// moments that shipped before the log existed (Phase 1, 2026-07-17) or through
-// a path that didn't emit.
-export function deliveredDateOf(m: MomentRow, liveDates: LiveDateMap): string | null {
+// When it shipped, and how confidently we know. The event log is the only real
+// record — `due_date` is a target, not an outcome — so events win.
+//
+// The fallback matters more than it looks. Moments completed before the event
+// log existed (Phase 1, 2026-07-17), or archived through a path that emitted
+// nothing, have no ship date at all. Dating those by `due_date` is the only
+// option, but it must be LABELLED: measuring such a moment against its own due
+// date would report "on time" for every one of them by construction, which is
+// a fabricated result, not a measurement.
+export function deliveredDateOf(m: MomentRow, liveDates: LiveDateMap): DeliveredAt | null {
   if (!isMomentDelivered(m)) return null
-  return liveDates.get(m.id) ?? m.due_date
+  const logged = liveDates.get(m.id)
+  if (logged) return { date: logged, source: 'event' }
+  return m.due_date ? { date: m.due_date, source: 'target' } : null
 }
 
 // The cycle a moment belongs to: where it landed if it shipped, where it was
 // aimed if it hasn't.
 export function effectiveDateOf(m: MomentRow, liveDates: LiveDateMap): string | null {
-  return deliveredDateOf(m, liveDates) ?? m.due_date
+  return deliveredDateOf(m, liveDates)?.date ?? m.due_date
 }
 
 // Build the card_id → live-date index from stage_changed events. Takes the
@@ -219,11 +247,11 @@ export function buildDeliveryRows(
     // is a filter rather than a re-derivation.
     const placed = mine
       .map(m => {
-        const deliveredOn = deliveredDateOf(m, liveDates)
-        const at = deliveredOn ?? m.due_date
-        return { m, deliveredOn, at }
+        const deliveredAt = deliveredDateOf(m, liveDates)
+        const at = deliveredAt?.date ?? m.due_date
+        return { m, deliveredAt, at }
       })
-      .filter((p): p is { m: MomentRow; deliveredOn: string | null; at: string } => p.at !== null)
+      .filter((p): p is Placed => p.at !== null)
 
     const cells: DeliveryCell[] = monthKeys.map(monthKey => {
       const cycle = byMonth.get(monthKey)
@@ -238,6 +266,7 @@ export function buildDeliveryRows(
           owed: 0,
           delivered: 0,
           inFlight: 0,
+          estimated: 0,
           moments: [],
         }
       }
@@ -259,7 +288,7 @@ export function buildDeliveryRows(
     // hasn't been measured against yet.
     const deliveredToDate = closedThrough === null || openedAt === null
       ? 0
-      : placed.filter(p => p.deliveredOn !== null && p.at >= openedAt && p.at <= closedThrough).length
+      : placed.filter(p => p.deliveredAt !== null && p.at >= openedAt && p.at <= closedThrough).length
 
     const currentCell = cells.find(c => c.monthKey === currentMonth)
     if (currentCell && currentCell.state !== 'no_cycle') {
@@ -287,29 +316,47 @@ export function buildDeliveryRows(
     momentsOwed: rows.reduce((sum, r) => sum + Math.max(0, -r.balance), 0),
     deliveredThisMonth,
     owedThisMonth,
+    estimatedInWindow: rows.reduce(
+      (sum, r) => sum + r.cells.reduce((n, c) => n + c.estimated, 0),
+      0,
+    ),
   }
+}
+
+// A moment pinned to the date that decides which cycle it falls in.
+interface Placed {
+  m: MomentRow
+  deliveredAt: DeliveredAt | null
+  at: string
 }
 
 function buildCell(
   monthKey: string,
   cycle: CycleRow,
-  placed: Array<{ m: MomentRow; deliveredOn: string | null; at: string }>,
+  placed: Placed[],
   today: string,
 ): DeliveryCell {
   const inCycle = placed.filter(p => p.at >= cycle.period_start && p.at <= cycle.period_end)
 
   const cellMoments: CellMoment[] = inCycle
-    .map(({ m, deliveredOn }) => ({
+    .map(({ m, deliveredAt }) => ({
       id: m.id,
       name: m.name,
       slot: m.marketing_moment,
-      delivered: deliveredOn !== null,
-      deliveredOn,
-      late: deliveredOn !== null && m.due_date !== null && deliveredOn > m.due_date,
+      delivered: deliveredAt !== null,
+      deliveredOn: deliveredAt?.date ?? null,
+      dateSource: deliveredAt?.source ?? null,
+      // Only an observed ship date can be late. A target-dated moment is being
+      // compared against the very date it was placed by, so the answer would
+      // always be "on time" — that's not an observation, so it stays unknown.
+      late: deliveredAt === null || deliveredAt.source !== 'event'
+        ? null
+        : m.due_date !== null && deliveredAt.date > m.due_date,
     }))
     .sort((a, b) => (a.slot ?? 99) - (b.slot ?? 99) || a.name.localeCompare(b.name))
 
   const delivered = cellMoments.filter(m => m.delivered).length
+  const estimated = cellMoments.filter(m => m.dateSource === 'target').length
   const inFlight = cellMoments.length - delivered
   const closed = cycle.period_end < today
   const owed = MOMENTS_PER_CYCLE
@@ -330,6 +377,7 @@ function buildCell(
     owed,
     delivered,
     inFlight,
+    estimated,
     moments: cellMoments,
   }
 }
