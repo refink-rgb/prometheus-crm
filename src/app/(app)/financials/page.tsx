@@ -17,20 +17,10 @@ import {
   monthStart,
   shiftMonthKey,
 } from '@/lib/billing'
-import {
-  buildDeliveryRows,
-  buildLiveDateMap,
-  type CycleRow,
-  type MomentRow,
-} from '@/lib/delivery'
-import { easternDateOf } from '@/lib/eastern'
+import { buildDeliveryRows, type InvoiceRow, type MomentRow } from '@/lib/delivery'
 import BillingMonthTable, { type BillingRow } from '@/components/financials/BillingMonthTable'
 import DeliveryTracker from '@/components/financials/DeliveryTracker'
 import ScheduleManager, { type ScheduleRow } from '@/components/financials/ScheduleManager'
-
-// How many months of delivery history the tracker grid shows, ending at the
-// month the page is pointed at.
-const DELIVERY_WINDOW_MONTHS = 6
 
 const BD_COLORS: Record<PipelineStatus, string> = {
   intro_contact:  'var(--bd-intro)',
@@ -68,7 +58,7 @@ export default async function FinancialsPage({
   const { month } = await searchParams
   const activeMonth = /^\d{4}-\d{2}$/.test(month ?? '') ? month! : monthKeyOf(today)
 
-  const [{ data: brandRows }, subsResult, periodsResult, momentsResult, liveEventsResult] = await Promise.all([
+  const [{ data: brandRows }, subsResult, periodsResult, momentsResult] = await Promise.all([
     supabase
       .from('brands')
       .select('id, name, is_active, is_trial, monthly_retainer, start_date, pipeline_status'),
@@ -81,23 +71,11 @@ export default async function FinancialsPage({
       .from('billing_periods')
       .select('id, subscription_id, brand_id, period_start, period_end, due_date, amount_cents, status, paid_at, paid_amount_cents, reference')
       .order('due_date'),
-    // Delivery tracker inputs. Completed projects are included on purpose —
+    // Delivery tracker input. Completed projects are included on purpose —
     // shipped work is exactly what the tracker counts.
     supabase
       .from('projects')
       .select('id, brand_id, name, due_date, marketing_moment, is_complete, lp_stage, creatives_stage'),
-    // When each moment actually went live. 'done' is the retired stage name
-    // (removed 2026-08-02); historic rows still carry it. Newest first so that
-    // if the cap is ever reached it drops the oldest events, which are the
-    // ones least likely to fall in the visible window.
-    supabase
-      .from('pipeline_events')
-      .select('card_id, created_at')
-      .eq('event_type', 'stage_changed')
-      .eq('card_kind', 'production')
-      .in('to_stage', ['live', 'done'])
-      .order('created_at', { ascending: false })
-      .limit(5000),
   ])
 
   const migrationMissing =
@@ -164,28 +142,16 @@ export default async function FinancialsPage({
 
   // --- Moment delivery -----------------------------------------------------
 
-  // Rolling window ending at the month the page is pointed at, so the month
-  // arrows above scroll the tracker and the payments table together.
-  const deliveryMonths = Array.from(
-    { length: DELIVERY_WINDOW_MONTHS },
-    (_, i) => shiftMonthKey(activeMonth, i - (DELIVERY_WINDOW_MONTHS - 1)),
-  )
-
+  // Lifetime, not windowed: the quota comes from every invoice ever paid, so
+  // the month cursor above deliberately doesn't move this section.
   const deliverySummary = buildDeliveryRows({
     brandNames: brandName,
-    cycles: periods.map<CycleRow>(p => ({
+    invoices: periods.map<InvoiceRow>(p => ({
       brand_id: p.brand_id,
-      period_start: p.period_start,
-      period_end: p.period_end,
       due_date: p.due_date,
       status: p.status,
     })),
     moments: (momentsResult.data ?? []) as unknown as MomentRow[],
-    liveDates: buildLiveDateMap(
-      (liveEventsResult.data ?? []) as unknown as Array<{ card_id: string; created_at: string }>,
-      easternDateOf,
-    ),
-    monthKeys: deliveryMonths,
     today,
   })
 
@@ -316,7 +282,7 @@ export default async function FinancialsPage({
 
       {/* Moment delivery against the retainer */}
       <section style={{ marginBottom: 36 }}>
-        <DeliveryTracker summary={deliverySummary} today={today} />
+        <DeliveryTracker summary={deliverySummary} />
       </section>
 
       {/* Schedule control */}

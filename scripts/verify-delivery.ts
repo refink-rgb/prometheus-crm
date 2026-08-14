@@ -7,89 +7,70 @@
 // delivery.ts imports normalizeStage from ./types, and node's bare stripper
 // can't resolve an extensionless TS specifier. jiti ships with Next.)
 //
-// Exits non-zero on any failure. The fixture mirrors the shape of Giovane's
-// tracking sheet — a client that started 5/13, hit 2/2 in its first cycle,
-// closed the second short, and caught up in the third — because the cases
-// worth protecting are the ones that sheet made visible:
+// Exits non-zero on any failure.
 //
-//   * A moment counts in the cycle it SHIPPED in, not the one it was aimed at,
-//     so a closed month can never heal itself retroactively.
-//   * An unshipped moment stays in its planned cycle, so the gap is visible
-//     before it becomes a miss.
-//   * Waived/void cycles buy no moments at all.
+// The rule under test is one line — paid invoices × 2 = moments owed, minus
+// moments delivered = the balance — so what's worth pinning down is which
+// invoices and which projects are allowed to count:
+//
+//   * only invoices actually PAID buy moments (not scheduled, waived, or void)
+//   * a project is delivered if it's archived complete OR live on both tracks,
+//     including legacy rows still holding the retired 'done' stage
+//   * no date is involved anywhere, so a moment that slipped months still pays
+//     down the same debt
 
-import { buildDeliveryRows, buildLiveDateMap, MOMENTS_PER_CYCLE } from '../src/lib/delivery'
-import type { CycleRow, MomentRow } from '../src/lib/delivery'
+import { buildDeliveryRows, isMomentDelivered, MOMENTS_PER_INVOICE } from '../src/lib/delivery'
+import type { InvoiceRow, MomentRow } from '../src/lib/delivery'
 
-const BRAND = 'brand-a'
 const TODAY = '2026-08-20'
 
-const cycles: CycleRow[] = [
-  { brand_id: BRAND, period_start: '2026-05-13', period_end: '2026-06-12', due_date: '2026-05-13', status: 'paid' },
-  { brand_id: BRAND, period_start: '2026-06-13', period_end: '2026-07-12', due_date: '2026-06-13', status: 'paid' },
-  { brand_id: BRAND, period_start: '2026-07-13', period_end: '2026-08-12', due_date: '2026-07-13', status: 'paid' },
-  { brand_id: BRAND, period_start: '2026-08-13', period_end: '2026-09-12', due_date: '2026-08-13', status: 'scheduled' },
-]
+const inv = (brand: string, due: string, status: InvoiceRow['status']): InvoiceRow =>
+  ({ brand_id: brand, due_date: due, status })
 
-const live = (id: string) => ({ id, brand_id: BRAND, is_complete: false, lp_stage: 'live', creatives_stage: 'live' })
-const wip  = (id: string) => ({ id, brand_id: BRAND, is_complete: false, lp_stage: 'in_progress', creatives_stage: 'brief' })
+const project = (
+  id: string, brand: string, name: string,
+  stages: Partial<Pick<MomentRow, 'is_complete' | 'lp_stage' | 'creatives_stage'>>,
+): MomentRow => ({
+  id, brand_id: brand, name, due_date: '2026-06-01', marketing_moment: 1,
+  is_complete: false, lp_stage: 'brief', creatives_stage: 'brief', ...stages,
+})
+
+const invoices: InvoiceRow[] = [
+  // Client A: 3 paid, 1 due and unpaid. Buys 6 moments.
+  inv('a', '2026-05-13', 'paid'), inv('a', '2026-06-13', 'paid'), inv('a', '2026-07-13', 'paid'),
+  inv('a', '2026-08-13', 'scheduled'),
+  // Client B: 2 paid, plus a waived and a void one that must buy nothing, plus
+  // a future invoice that isn't due yet. Buys 4 moments.
+  inv('b', '2026-05-18', 'paid'), inv('b', '2026-06-18', 'paid'),
+  inv('b', '2026-07-18', 'waived'), inv('b', '2026-08-18', 'void'),
+  inv('b', '2026-09-18', 'scheduled'),
+  // Client C has never paid — must not appear at all.
+  inv('c', '2026-08-01', 'scheduled'),
+]
 
 const moments: MomentRow[] = [
-  // Cycle 1 (May 13 – Jun 12): both shipped on time.
-  { ...live('m1'), name: 'May · M1', due_date: '2026-05-20', marketing_moment: 1 },
-  { ...live('m2'), name: 'May · M2', due_date: '2026-06-05', marketing_moment: 2 },
-  // Cycle 2 (Jun 13 – Jul 12): one shipped, one still in flight past the
-  // cycle end, and one that slipped OUT of the cycle entirely (m5 below).
-  { ...live('m3'), name: 'Jun · M1', due_date: '2026-06-25', marketing_moment: 1 },
-  { ...wip('m4'),  name: 'Jun · M2', due_date: '2026-07-05', marketing_moment: 2 },
-  // Aimed at cycle 2 (due Jul 10) but shipped Jul 25 — must land in cycle 3
-  // and be flagged late, leaving cycle 2 short.
-  { ...live('m5'), name: 'Jun · M3 (slipped)', due_date: '2026-07-10', marketing_moment: 2 },
-  // Cycle 3: shipped Aug 2, ahead of its Aug 5 target.
-  { ...live('m6'), name: 'Jul · M1', due_date: '2026-08-05', marketing_moment: 1 },
-  // Cycle 4 (Aug 13 – Sep 12, still open): only one briefed against a quota
-  // of two — structurally short, not merely unfinished.
-  { ...wip('m7'),  name: 'Aug · M1', due_date: '2026-08-28', marketing_moment: 1 },
+  // Client A: 4 delivered by various routes, 1 still in flight. Owes 6 → -2.
+  project('a1', 'a', 'live both tracks',   { lp_stage: 'live', creatives_stage: 'live' }),
+  project('a2', 'a', 'archived complete',  { is_complete: true, lp_stage: 'live', creatives_stage: 'live' }),
+  project('a3', 'a', "legacy 'done'",      { lp_stage: 'done', creatives_stage: 'done' }),
+  project('a4', 'a', 'archived, odd stage',{ is_complete: true, lp_stage: 'revisions', creatives_stage: 'live' }),
+  project('a5', 'a', 'still in progress',  { lp_stage: 'in_progress', creatives_stage: 'ready' }),
+  // Half-shipped is NOT shipped.
+  project('a6', 'a', 'lp live only',       { lp_stage: 'live', creatives_stage: 'client_review' }),
+  // Client B: 5 delivered against 4 owed → one ahead.
+  project('b1', 'b', 'live', { lp_stage: 'live', creatives_stage: 'live' }),
+  project('b2', 'b', 'live', { lp_stage: 'live', creatives_stage: 'live' }),
+  project('b3', 'b', 'live', { lp_stage: 'live', creatives_stage: 'live' }),
+  project('b4', 'b', 'live', { lp_stage: 'live', creatives_stage: 'live' }),
+  project('b5', 'b', 'live', { lp_stage: 'live', creatives_stage: 'live' }),
+  // Client C has work but has paid nothing.
+  project('c1', 'c', 'live', { lp_stage: 'live', creatives_stage: 'live' }),
 ]
-
-// A second client whose history predates the event log entirely — the case
-// this fixture exists to pin down. Both moments are shipped, neither has a
-// logged ship date, so both are placed on their target and neither may be
-// reported as on-time or late.
-const LEGACY = 'brand-legacy'
-const legacyCycles: CycleRow[] = [
-  { brand_id: LEGACY, period_start: '2026-06-05', period_end: '2026-07-04', due_date: '2026-06-05', status: 'paid' },
-]
-const legacyMoments: MomentRow[] = [
-  // Archived through markProjectComplete, which pins both stages to 'live'.
-  { id: 'g1', brand_id: LEGACY, name: 'Jun · M1 (archived)', due_date: '2026-06-20',
-    marketing_moment: 1, is_complete: true, lp_stage: 'live', creatives_stage: 'live' },
-  // Legacy row still carrying the retired 'done' stage and never archived —
-  // normalizeStage must still read it as delivered.
-  { id: 'g2', brand_id: LEGACY, name: 'Jun · M2 (legacy done)', due_date: '2026-07-01',
-    marketing_moment: 2, is_complete: false, lp_stage: 'done', creatives_stage: 'done' },
-]
-
-const liveDates = buildLiveDateMap(
-  [
-    { card_id: 'm1', created_at: '2026-05-20T18:00:00Z' },
-    { card_id: 'm2', created_at: '2026-06-05T18:00:00Z' },
-    { card_id: 'm3', created_at: '2026-06-25T18:00:00Z' },
-    { card_id: 'm5', created_at: '2026-07-25T18:00:00Z' },
-    // Bounced back to revisions and relaunched — the LATER date is the real
-    // ship date, so the map must keep the max, not the first seen.
-    { card_id: 'm6', created_at: '2026-08-02T18:00:00Z' },
-    { card_id: 'm6', created_at: '2026-07-30T18:00:00Z' },
-  ],
-  iso => iso.slice(0, 10),
-)
 
 const summary = buildDeliveryRows({
-  brandNames: new Map([[BRAND, 'American Clothing'], [LEGACY, 'Legacy Client']]),
-  cycles: [...cycles, ...legacyCycles],
-  moments: [...moments, ...legacyMoments],
-  liveDates,
-  monthKeys: ['2026-04', '2026-05', '2026-06', '2026-07', '2026-08'],
+  brandNames: new Map([['a', 'American Clothing'], ['b', 'Tea with Tae'], ['c', 'Never Paid Co']]),
+  invoices,
+  moments,
   today: TODAY,
 })
 
@@ -103,56 +84,52 @@ function check(label: string, actual: unknown, expected: unknown) {
   )
 }
 
-const row = summary.rows.find(r => r.brandId === BRAND)!
-const byMonth = new Map(row.cells.map(c => [c.monthKey, c]))
-const cell = (k: string) => byMonth.get(k)!
+const byBrand = new Map(summary.rows.map(r => [r.brandId, r]))
+const a = byBrand.get('a')!
+const b = byBrand.get('b')!
 
-check('quota per cycle', MOMENTS_PER_CYCLE, 2)
-check('Apr (pre-start) has no cycle', cell('2026-04').state, 'no_cycle')
-check('May cycle met', [cell('2026-05').delivered, cell('2026-05').owed, cell('2026-05').state], [2, 2, 'met'])
-check('Jun cycle closed short', [cell('2026-06').delivered, cell('2026-06').owed, cell('2026-06').state], [1, 2, 'behind'])
-check('Jun keeps the never-shipped moment', cell('2026-06').moments.map(m => m.id), ['m3', 'm4'])
-check('slipped moment counts in Jul, not Jun', cell('2026-07').moments.map(m => m.id), ['m6', 'm5'])
-check('Jul cycle met by catch-up', [cell('2026-07').delivered, cell('2026-07').state], [2, 'met'])
-check('slipped moment flagged late', cell('2026-07').moments.find(m => m.id === 'm5')!.late, true)
-check('early moment not flagged late', cell('2026-07').moments.find(m => m.id === 'm6')!.late, false)
-check('logged ship dates are sourced from the event log', cell('2026-07').moments.map(m => m.dateSource), ['event', 'event'])
-check('no inferred placements for an instrumented client', cell('2026-07').estimated, 0)
-check('relaunch keeps the LATER ship date', liveDates.get('m6'), '2026-08-02')
-check('Aug cycle open and under-briefed', [cell('2026-08').delivered, cell('2026-08').inFlight, cell('2026-08').state], [0, 1, 'at_risk'])
-check('open cycle not counted as closed', cell('2026-08').closed, false)
-check('owed across closed cycles', row.owedToDate, 6)
-check('delivered across closed cycles', row.deliveredToDate, 5)
-check('balance is one moment in debt', row.balance, -1)
-check('moments owed', summary.momentsOwed, 1)
+check('moments per invoice', MOMENTS_PER_INVOICE, 2)
+
+// --- What counts as delivered ----------------------------------------------
+check('both tracks live is delivered', isMomentDelivered(moments[0]), true)
+check('archived complete is delivered', isMomentDelivered(moments[1]), true)
+check("legacy 'done' is delivered", isMomentDelivered(moments[2]), true)
+check('archived wins over a stale stage', isMomentDelivered(moments[3]), true)
+check('mid-pipeline is not delivered', isMomentDelivered(moments[4]), false)
+check('one track live is not delivered', isMomentDelivered(moments[5]), false)
+
+// --- Which invoices buy moments --------------------------------------------
+check('A: paid invoices', a.invoicesPaid, 3)
+check('A: owed is paid × 2', a.momentsOwed, 6)
+check('A: due-but-unpaid counted separately', a.invoicesUnpaid, 1)
+check('B: waived and void buy nothing', b.invoicesPaid, 2)
+check('B: owed', b.momentsOwed, 4)
+check('B: a future invoice is not yet unpaid', b.invoicesUnpaid, 0)
+check('a client who never paid is not listed', byBrand.has('c'), false)
+
+// --- The balance ------------------------------------------------------------
+check('A: delivered', a.momentsDelivered, 4)
+check('A: in flight', a.momentsInFlight, 2)
+check('A: still owes 2', a.balance, 2)
+check('B: delivered ahead of what was paid for', [b.momentsDelivered, b.balance], [5, -1])
+check('biggest debt sorts first', summary.rows.map(r => r.brandId), ['a', 'b'])
+
+// --- Roll-up ----------------------------------------------------------------
+check('total paid invoices', summary.invoicesPaid, 5)
+check('total owed', summary.momentsOwed, 10)
+check('total delivered', summary.momentsDelivered, 9)
+check("a client's surplus does not cancel another's debt", summary.momentsStillOwed, 2)
 check('clients behind', summary.clientsBehind, 1)
-check('current-month progress', [summary.deliveredThisMonth, summary.owedThisMonth], [0, 2])
 
-// --- Shipped work with no logged ship date ---------------------------------
-// The regression this section guards: dating these by due_date and then
-// measuring them against due_date reports "on time" for every one of them by
-// construction. That is a fabricated result, so `late` must stay unknown.
-
-const legacy = summary.rows.find(r => r.brandId === LEGACY)!
-const legacyCell = legacy.cells.find(c => c.monthKey === '2026-06')!
-
-check('archived project counts as delivered', legacyCell.moments.find(m => m.id === 'g1')!.delivered, true)
-check("legacy 'done' stage counts as delivered", legacyCell.moments.find(m => m.id === 'g2')!.delivered, true)
-check('both placed by target, not by event', legacyCell.moments.map(m => m.dateSource), ['target', 'target'])
-check('neither claims on-time or late', legacyCell.moments.map(m => m.late), [null, null])
-check('cell reports how many were inferred', legacyCell.estimated, 2)
-check('they still satisfy the quota', [legacyCell.delivered, legacyCell.state], [2, 'met'])
-check('legacy client is square', legacy.balance, 0)
-check('inferred placements surface in the summary', summary.estimatedInWindow, 2)
-
-// Waived/void cycles were never really sold, so they buy no moments — a client
-// whose every cycle is waived drops out of the tracker entirely.
-const waived = buildDeliveryRows({
-  brandNames: new Map([[BRAND, 'American Clothing']]),
-  cycles: cycles.map(c => ({ ...c, status: 'waived' as const })),
-  moments, liveDates, monthKeys: ['2026-06'], today: TODAY,
+// Nothing paid anywhere → nothing owed, and no rows to show.
+const unpaid = buildDeliveryRows({
+  brandNames: new Map([['a', 'American Clothing']]),
+  invoices: invoices.map(i => ({ ...i, status: 'scheduled' as const })),
+  moments,
+  today: TODAY,
 })
-check('all-waived client drops out', waived.rows.length, 0)
+check('no paid invoices means no rows', unpaid.rows.length, 0)
+check('no paid invoices means nothing owed', unpaid.momentsStillOwed, 0)
 
 console.log(failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) FAILED.`)
 process.exit(failures === 0 ? 0 : 1)
