@@ -30,7 +30,7 @@ export default function DeliveryTracker({ summary }: { summary: DeliverySummary 
           Moment Delivery
         </h2>
         <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-          every paid invoice buys {MOMENTS_PER_INVOICE} moments
+          every paid invoice buys {MOMENTS_PER_INVOICE} moments · in-flight work counts toward them
         </span>
       </div>
 
@@ -39,17 +39,17 @@ export default function DeliveryTracker({ summary }: { summary: DeliverySummary 
         gap: 'var(--space-3)', marginBottom: 'var(--space-4)',
       }}>
         <TrackerStat
-          label="Moments Still Owed"
+          label="Moments Still to Brief"
           value={String(summary.momentsStillOwed)}
           sub={summary.momentsStillOwed > 0
             ? `across ${summary.clientsBehind} client${summary.clientsBehind !== 1 ? 's' : ''}`
-            : 'every paid invoice delivered'}
+            : 'everything paid for is delivered or in flight'}
           tone={summary.momentsStillOwed > 0 ? 'danger' : 'success'}
         />
         <TrackerStat
-          label="Owed vs Delivered"
-          value={`${summary.momentsDelivered} / ${summary.momentsOwed}`}
-          sub={`${summary.invoicesPaid} paid invoice${summary.invoicesPaid !== 1 ? 's' : ''} × ${MOMENTS_PER_INVOICE}`}
+          label="Covered vs Owed"
+          value={`${summary.momentsDelivered + summary.momentsInFlight} / ${summary.momentsOwed}`}
+          sub={`${summary.momentsDelivered} delivered + ${summary.momentsInFlight} in flight, against ${summary.invoicesPaid} paid invoice${summary.invoicesPaid !== 1 ? 's' : ''} × ${MOMENTS_PER_INVOICE}`}
         />
         <TrackerStat
           label="Clients Behind"
@@ -77,8 +77,12 @@ export default function DeliveryTracker({ summary }: { summary: DeliverySummary 
             <HeaderCell align="right" title="Moments live on both tracks, or archived as complete">
               Delivered
             </HeaderCell>
-            <HeaderCell align="right" title="Briefed but not shipped yet">In flight</HeaderCell>
-            <HeaderCell align="right">Still owed</HeaderCell>
+            <HeaderCell align="right" title="Briefed but not shipped yet — counts against what's owed">
+              In flight
+            </HeaderCell>
+            <HeaderCell align="right" title="Owed − delivered − in flight. What still has to be briefed.">
+              Still owed
+            </HeaderCell>
           </div>
 
           {rows.length === 0 && (
@@ -100,17 +104,16 @@ export default function DeliveryTracker({ summary }: { summary: DeliverySummary 
         marginTop: 'var(--space-3)', fontSize: 'var(--text-xs)', color: 'var(--text-muted)',
         lineHeight: 1.6, maxWidth: 780,
       }}>
-        {`Counted over the whole relationship, not per month — a moment that slipped from one month into the next still pays down the same debt. Only invoices marked paid count toward what's owed; scheduled, waived, and void ones buy nothing.`}
+        {`Still owed = owed − delivered − in flight, so a moment already briefed counts as spoken for and what's left is the work that still has to be created. Counted over the whole relationship, not per month — a moment that slipped from one month into the next pays down the same debt. Only invoices marked paid count toward what's owed; scheduled, waived, and void ones buy nothing.`}
       </p>
     </div>
   )
 }
 
 function ClientRow({ row, last }: { row: DeliveryRow; last: boolean }) {
+  // Briefed work is already netted off inside `balance`, so anything left is a
+  // real gap with nothing behind it — no "covered" middle state to draw.
   const behind = row.balance > 0
-  // Enough briefed work to close the gap if it all ships — a different problem
-  // from a gap with nothing behind it.
-  const covered = behind && row.momentsInFlight >= row.balance
 
   return (
     <div className="pipeline-row" style={{
@@ -118,15 +121,22 @@ function ClientRow({ row, last }: { row: DeliveryRow; last: boolean }) {
       padding: 'var(--space-3) var(--space-5)', alignItems: 'center',
       borderBottom: last ? 'none' : '1px solid var(--border)',
     }}>
-      <span style={{
-        fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text-primary)',
-        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: 8,
-      }}>
-        {row.brandName}
+      {/* The name truncates; the unpaid badge must not — it's the part that
+          would be missed, and it sits at the ragged end of the longest names. */}
+      <span style={{ display: 'flex', alignItems: 'baseline', gap: 6, minWidth: 0, paddingRight: 8 }}>
+        <span style={{
+          fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text-primary)',
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        }}>
+          {row.brandName}
+        </span>
         {row.invoicesUnpaid > 0 && (
           <span
-            title={`${row.invoicesUnpaid} invoice${row.invoicesUnpaid !== 1 ? 's' : ''} due but not paid — not counted as owed until collected`}
-            style={{ marginLeft: 6, fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--warning)' }}
+            title={`${row.invoicesUnpaid} invoice${row.invoicesUnpaid !== 1 ? 's' : ''} due but not paid — buys no moments until collected`}
+            style={{
+              flexShrink: 0, fontSize: 'var(--text-xs)', fontWeight: 600,
+              color: 'var(--warning)', whiteSpace: 'nowrap',
+            }}
           >
             +{row.invoicesUnpaid} unpaid
           </span>
@@ -139,17 +149,16 @@ function ClientRow({ row, last }: { row: DeliveryRow; last: boolean }) {
       <Num value={row.momentsInFlight} muted={row.momentsInFlight === 0} />
 
       <span
-        title={covered
-          ? `${row.balance} still owed, and ${row.momentsInFlight} already briefed — enough to close the gap once they ship`
-          : behind
-            ? `${row.balance} moment${row.balance !== 1 ? 's' : ''} owed with only ${row.momentsInFlight} briefed`
+        title={`${row.momentsOwed} owed − ${row.momentsDelivered} delivered − ${row.momentsInFlight} in flight = ${row.balance}` + (
+          behind
+            ? `\n${row.balance} moment${row.balance !== 1 ? 's' : ''} still to brief.`
             : row.balance < 0
-              ? `${-row.balance} delivered beyond what has been paid for`
-              : 'square'}
+              ? `\n${-row.balance} more delivered or under way than the paid invoices bought.`
+              : '\nEverything paid for is delivered or in flight.'
+        )}
         style={{
           textAlign: 'right', fontSize: 'var(--text-sm)', fontWeight: 700, cursor: 'default',
-          color: behind ? (covered ? 'var(--warning)' : 'var(--danger)')
-            : row.balance < 0 ? 'var(--success)' : 'var(--text-muted)',
+          color: behind ? 'var(--danger)' : row.balance < 0 ? 'var(--success)' : 'var(--text-muted)',
         }}
       >
         {row.balance > 0 ? row.balance : row.balance < 0 ? `+${-row.balance}` : '—'}

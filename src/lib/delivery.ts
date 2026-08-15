@@ -4,8 +4,13 @@
 //
 //     every invoice the client PAID buys 2 moments.
 //
-// So the debt is `invoices_paid × 2 − moments_delivered`. Nothing else feeds
-// it. Deliberately NOT part of the calculation:
+// So the debt is `invoices_paid × 2 − delivered − in flight`. Work already
+// briefed counts against the obligation, per Giovane: a moment sitting in the
+// pipeline is spoken for, so what's left over is the work that hasn't even
+// been started. That's the number you can act on — it says how many moments
+// still need briefing, not how many are unfinished.
+//
+// Deliberately NOT part of the calculation:
 //
 //   * WHEN a moment shipped. Delivery is a lifetime count against a lifetime
 //     quota, so a moment that slipped from July into August still pays down
@@ -62,11 +67,12 @@ export interface DeliveryRow {
   // until the money lands, but they say what the quota is about to become.
   invoicesUnpaid: number
   momentsDelivered: number
-  // Briefed but not shipped. Not delivery, but it says whether the gap is
-  // already being worked or hasn't been started.
+  // Briefed but not shipped. Counts against the obligation — the work is
+  // spoken for even though it hasn't landed.
   momentsInFlight: number
-  // Positive = moments still to deliver. Negative = delivered ahead of what
-  // has been paid for.
+  // owed − delivered − in flight. Positive = moments not yet briefed, i.e.
+  // work that still has to be created. Negative = more moments delivered or
+  // under way than the paid invoices have bought.
   balance: number
 }
 
@@ -75,7 +81,10 @@ export interface DeliverySummary {
   invoicesPaid: number
   momentsOwed: number
   momentsDelivered: number
-  // Total moments still to deliver, across every client with a gap.
+  momentsInFlight: number
+  // Moments not yet briefed, summed over clients with a gap. A client who is
+  // ahead does NOT offset another client's shortfall — you can't pay Naboso's
+  // surplus to Conscious Beauty — so this sums the positive balances only.
   momentsStillOwed: number
   clientsBehind: number
 }
@@ -129,6 +138,7 @@ export function buildDeliveryRows(input: {
   const rows: DeliveryRow[] = [...paidByBrand.entries()].map(([brandId, invoicesPaid]) => {
     const momentsOwed = invoicesPaid * MOMENTS_PER_INVOICE
     const momentsDelivered = deliveredByBrand.get(brandId) ?? 0
+    const momentsInFlight = inFlightByBrand.get(brandId) ?? 0
     return {
       brandId,
       brandName: brandNames.get(brandId) ?? 'Unknown client',
@@ -136,8 +146,10 @@ export function buildDeliveryRows(input: {
       momentsOwed,
       invoicesUnpaid: unpaidByBrand.get(brandId) ?? 0,
       momentsDelivered,
-      momentsInFlight: inFlightByBrand.get(brandId) ?? 0,
-      balance: momentsOwed - momentsDelivered,
+      momentsInFlight,
+      // Briefed work counts against the debt, so what's left is what still
+      // needs creating.
+      balance: momentsOwed - momentsDelivered - momentsInFlight,
     }
   })
 
@@ -149,6 +161,7 @@ export function buildDeliveryRows(input: {
     invoicesPaid: rows.reduce((sum, r) => sum + r.invoicesPaid, 0),
     momentsOwed: rows.reduce((sum, r) => sum + r.momentsOwed, 0),
     momentsDelivered: rows.reduce((sum, r) => sum + r.momentsDelivered, 0),
+    momentsInFlight: rows.reduce((sum, r) => sum + r.momentsInFlight, 0),
     momentsStillOwed: rows.reduce((sum, r) => sum + Math.max(0, r.balance), 0),
     clientsBehind: rows.filter(r => r.balance > 0).length,
   }

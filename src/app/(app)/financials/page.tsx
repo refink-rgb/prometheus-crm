@@ -298,18 +298,13 @@ export default async function FinancialsPage({
         <BillingMonthTable rows={monthRows} monthLabel={monthLabel(activeMonth)} />
       </section>
 
-      {/* Moment delivery against the retainer */}
-      <section style={{ marginBottom: 36 }}>
-        <DeliveryTracker summary={deliverySummary} />
-      </section>
-
       {/* Schedule control */}
       <section style={{ marginBottom: 36 }}>
         <ScheduleManager rows={scheduleRows} today={today} addableBrands={addableBrands} />
       </section>
 
       {/* BD Pipeline Value */}
-      <section>
+      <section style={{ marginBottom: 36 }}>
         <h2 style={{ fontSize: 'var(--text-sm)', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 'var(--space-4)' }}>
           BD Pipeline Value
         </h2>
@@ -343,6 +338,13 @@ export default async function FinancialsPage({
             )
           })}
         </div>
+      </section>
+
+      {/* Moment delivery against the retainer. Last on the page: it's the one
+          section that isn't about money, and it reads as the consequence of
+          everything above it — what the collected invoices actually bought. */}
+      <section>
+        <DeliveryTracker summary={deliverySummary} />
       </section>
     </div>
   )

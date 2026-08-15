@@ -46,6 +46,8 @@ const invoices: InvoiceRow[] = [
   inv('b', '2026-09-18', 'scheduled'),
   // Client C has never paid — must not appear at all.
   inv('c', '2026-08-01', 'scheduled'),
+  // Client D: 2 paid, nothing in flight — a real gap with nothing behind it.
+  inv('d', '2026-06-10', 'paid'), inv('d', '2026-07-10', 'paid'),
 ]
 
 const moments: MomentRow[] = [
@@ -65,10 +67,15 @@ const moments: MomentRow[] = [
   project('b5', 'b', 'live', { lp_stage: 'live', creatives_stage: 'live' }),
   // Client C has work but has paid nothing.
   project('c1', 'c', 'live', { lp_stage: 'live', creatives_stage: 'live' }),
+  // Client D: 4 owed, 1 delivered, nothing briefed → 3 still to create.
+  project('d1', 'd', 'live', { lp_stage: 'live', creatives_stage: 'live' }),
 ]
 
 const summary = buildDeliveryRows({
-  brandNames: new Map([['a', 'American Clothing'], ['b', 'Tea with Tae'], ['c', 'Never Paid Co']]),
+  brandNames: new Map([
+    ['a', 'American Clothing'], ['b', 'Tea with Tae'],
+    ['c', 'Never Paid Co'], ['d', 'Nothing Briefed Co'],
+  ]),
   invoices,
   moments,
   today: TODAY,
@@ -108,17 +115,23 @@ check('B: a future invoice is not yet unpaid', b.invoicesUnpaid, 0)
 check('a client who never paid is not listed', byBrand.has('c'), false)
 
 // --- The balance ------------------------------------------------------------
+// balance = owed − delivered − in flight. Briefed work is spoken for, so what
+// is left is the work that still has to be created.
+const d = byBrand.get('d')!
+
 check('A: delivered', a.momentsDelivered, 4)
 check('A: in flight', a.momentsInFlight, 2)
-check('A: still owes 2', a.balance, 2)
-check('B: delivered ahead of what was paid for', [b.momentsDelivered, b.balance], [5, -1])
-check('biggest debt sorts first', summary.rows.map(r => r.brandId), ['a', 'b'])
+check('A: in-flight work closes the gap', a.balance, 0)
+check('D: a gap with nothing briefed stays a gap', [d.momentsOwed, d.momentsDelivered, d.momentsInFlight, d.balance], [4, 1, 0, 3])
+check('B: more delivered than paid for', [b.momentsDelivered, b.momentsInFlight, b.balance], [5, 0, -1])
+check('biggest gap sorts first', summary.rows.map(r => r.brandId), ['d', 'a', 'b'])
 
 // --- Roll-up ----------------------------------------------------------------
-check('total paid invoices', summary.invoicesPaid, 5)
-check('total owed', summary.momentsOwed, 10)
-check('total delivered', summary.momentsDelivered, 9)
-check("a client's surplus does not cancel another's debt", summary.momentsStillOwed, 2)
+check('total paid invoices', summary.invoicesPaid, 7)
+check('total owed', summary.momentsOwed, 14)
+check('total delivered', summary.momentsDelivered, 10)
+check('total in flight', summary.momentsInFlight, 2)
+check("a client's surplus does not cancel another's gap", summary.momentsStillOwed, 3)
 check('clients behind', summary.clientsBehind, 1)
 
 // Nothing paid anywhere → nothing owed, and no rows to show.
