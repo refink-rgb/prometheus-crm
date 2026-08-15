@@ -20,7 +20,10 @@ import {
 import { buildDeliveryRows, type InvoiceRow, type MomentRow } from '@/lib/delivery'
 import BillingMonthTable, { type BillingRow } from '@/components/financials/BillingMonthTable'
 import DeliveryTracker from '@/components/financials/DeliveryTracker'
-import ScheduleManager, { type ScheduleRow } from '@/components/financials/ScheduleManager'
+import ScheduleManager, {
+  type AddableBrand,
+  type ScheduleRow,
+} from '@/components/financials/ScheduleManager'
 
 const BD_COLORS: Record<PipelineStatus, string> = {
   intro_contact:  'var(--bd-intro)',
@@ -192,6 +195,21 @@ export default async function FinancialsPage({
       b.amountCents - a.amountCents ||
       a.brandName.localeCompare(b.brandName))
 
+  // Active clients with no billing schedule. Nothing creates one automatically,
+  // so a client onboarded after the contract-sheet seed has no subscription and
+  // is therefore invisible to every ledger section on this page. Surfacing them
+  // in the Add-client picker is what stops that from happening silently.
+  const scheduledBrandIds = new Set(subscriptions.map(s => s.brand_id))
+  const addableBrands: AddableBrand[] = allBrands
+    .filter(b => b.is_active && !scheduledBrandIds.has(b.id))
+    .map(b => ({
+      id: b.id,
+      name: b.name,
+      monthlyRetainer: b.monthly_retainer,
+      startDate: b.start_date,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+
   // BD pipeline value grouped by stage (unchanged — still derived from brands).
   const bdStages = PIPELINE_STATUS_ORDER.map(status => {
     const brandsInStage = allBrands.filter(b => b.pipeline_status === status)
@@ -287,7 +305,7 @@ export default async function FinancialsPage({
 
       {/* Schedule control */}
       <section style={{ marginBottom: 36 }}>
-        <ScheduleManager rows={scheduleRows} today={today} />
+        <ScheduleManager rows={scheduleRows} today={today} addableBrands={addableBrands} />
       </section>
 
       {/* BD Pipeline Value */}

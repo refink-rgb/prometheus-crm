@@ -25,6 +25,7 @@ import {
   type SubscriptionStatus,
 } from '@/lib/billing'
 import {
+  createSubscription,
   deleteSubscription,
   endSubscription,
   pauseSubscription,
@@ -48,18 +49,41 @@ export type ScheduleRow = {
   unpaidCount: number
 }
 
+// An active client with no billing schedule yet. Until one exists the brand is
+// invisible to every ledger section on this page — KPIs, Payments, and Moment
+// Delivery all read through billing_subscriptions — so this is the gap that
+// lets a client onboarded after the contract-sheet seed fall silently out of
+// financials.
+export type AddableBrand = {
+  id: string
+  name: string
+  // Already on the brand row; used to prefill the form so the schedule and the
+  // brand can't disagree about the retainer on day one.
+  monthlyRetainer: number | null
+  startDate: string | null
+}
+
 const GRID = '1fr 90px 100px 110px 110px 90px 150px'
 
 // Which inline editor, if any, a row currently has open.
 type RowMode = null | 'amount' | 'pause'
 
-export default function ScheduleManager({ rows, today }: { rows: ScheduleRow[]; today: string }) {
+export default function ScheduleManager({
+  rows,
+  today,
+  addableBrands,
+}: {
+  rows: ScheduleRow[]
+  today: string
+  addableBrands: AddableBrand[]
+}) {
   const router = useRouter()
   const toast = useToast()
   const confirm = useConfirm()
   const [isPending, startTransition] = useTransition()
   const [busyId, setBusyId] = useState<string | null>(null)
   const [openRow, setOpenRow] = useState<{ id: string; mode: RowMode }>({ id: '', mode: null })
+  const [adding, setAdding] = useState(false)
 
   const closeEditor = useCallback(() => setOpenRow({ id: '', mode: null }), [])
 
@@ -115,6 +139,18 @@ export default function ScheduleManager({ rows, today }: { rows: ScheduleRow[]; 
     run(row.id, `${row.brandName} billing schedule deleted.`, () => deleteSubscription(row.id))
   }, [confirm, run])
 
+  const onCreate = useCallback((brandId: string, startDate: string, amount: string) => {
+    const name = addableBrands.find(b => b.id === brandId)?.name ?? 'Client'
+    run('__create__', `${name} added to billing.`, async () => {
+      const form = new FormData()
+      form.set('brand_id', brandId)
+      form.set('start_date', startDate)
+      form.set('amount', amount)
+      await createSubscription(form)
+      setAdding(false)
+    })
+  }, [run, addableBrands])
+
   const onSync = useCallback(() => {
     run('__sync__', 'Billing schedule synced.', async () => {
       const result = await syncAllBillingPeriods()
@@ -134,22 +170,46 @@ export default function ScheduleManager({ rows, today }: { rows: ScheduleRow[]; 
         }}>
           Billing Schedules
         </h2>
-        <button
-          type="button"
-          className="btn-secondary btn-sm"
-          onClick={onSync}
-          disabled={busyId === '__sync__'}
-          title="Materialize any missing invoices through the end of next month. The nightly cron does this automatically."
-        >
-          {busyId === '__sync__' ? 'Syncing…' : 'Sync invoices'}
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button
+            type="button"
+            className="btn-accent-outline btn-sm"
+            onClick={() => setAdding(v => !v)}
+            disabled={busyId === '__create__' || addableBrands.length === 0}
+            title={addableBrands.length === 0
+              ? 'Every active client already has a billing schedule.'
+              : `${addableBrands.length} active client${addableBrands.length !== 1 ? 's have' : ' has'} no billing schedule yet`}
+          >
+            {adding ? 'Cancel' : `Add client${addableBrands.length > 0 ? ` (${addableBrands.length})` : ''}`}
+          </button>
+          <button
+            type="button"
+            className="btn-secondary btn-sm"
+            onClick={onSync}
+            disabled={busyId === '__sync__'}
+            title="Materialize any missing invoices through the end of next month. The nightly cron does this automatically."
+          >
+            {busyId === '__sync__' ? 'Syncing…' : 'Sync invoices'}
+          </button>
+        </div>
       </div>
 
-      {rows.length === 0 ? (
+      {adding && (
+        <AddScheduleForm
+          brands={addableBrands}
+          today={today}
+          busy={busyId === '__create__'}
+          onSubmit={onCreate}
+          onCancel={() => setAdding(false)}
+        />
+      )}
+
+      {rows.length === 0 && !adding ? (
         <div className="card" style={{ color: 'var(--text-muted)', fontSize: 'var(--text-base)', textAlign: 'center' }}>
-          No billing schedules yet — run <code>supabase/seed_billing.sql</code> to load the signed-contract sheet.
+          No billing schedules yet — run <code>supabase/seed_billing.sql</code> to load the
+          signed-contract sheet, or add a client above.
         </div>
-      ) : (
+      ) : rows.length === 0 ? null : (
         <div style={{ background: 'var(--surface-1)', border: '1px solid var(--border)', borderRadius: 12 }}>
           <div style={{
             display: 'grid', gridTemplateColumns: GRID, gap: 'var(--space-3)',
@@ -183,6 +243,106 @@ export default function ScheduleManager({ rows, today }: { rows: ScheduleRow[]; 
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+// Start a client's retainer. Picking the brand prefills the retainer and start
+// date already recorded on the brand row — that pairing is almost always what
+// the schedule should be, and typing it a second time is how the two drift
+// apart. Both stay editable, because the brand row is often the stale one.
+function AddScheduleForm({
+  brands,
+  today,
+  busy,
+  onSubmit,
+  onCancel,
+}: {
+  brands: AddableBrand[]
+  today: string
+  busy: boolean
+  onSubmit: (brandId: string, startDate: string, amount: string) => void
+  onCancel: () => void
+}) {
+  const [brandId, setBrandId] = useState('')
+  const [startDate, setStartDate] = useState('')
+  const [amount, setAmount] = useState('')
+
+  const pickBrand = (id: string) => {
+    setBrandId(id)
+    const brand = brands.find(b => b.id === id)
+    if (!brand) return
+    setStartDate(brand.startDate ?? today)
+    setAmount(brand.monthlyRetainer != null ? String(brand.monthlyRetainer) : '')
+  }
+
+  const ready = brandId !== '' && /^\d{4}-\d{2}-\d{2}$/.test(startDate) && amount.trim() !== ''
+
+  return (
+    <div style={{
+      background: 'var(--surface-1)', border: '1px solid var(--border)', borderRadius: 12,
+      padding: 'var(--space-4) var(--space-5)', marginBottom: 'var(--space-4)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
+        <div>
+          <label htmlFor="add-sched-brand">Client</label>
+          <select
+            id="add-sched-brand"
+            value={brandId}
+            onChange={e => pickBrand(e.target.value)}
+            // Global CSS sets select { width: 100% }; an inline-sized select
+            // has to say so explicitly or it swallows the row.
+            style={{ width: 240, padding: '6px 10px', fontSize: 'var(--text-base)' }}
+          >
+            <option value="">Pick a client…</option>
+            {brands.map(b => (
+              <option key={b.id} value={b.id}>{b.name}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label htmlFor="add-sched-start">First invoice date</label>
+          <input
+            id="add-sched-start"
+            type="date"
+            value={startDate}
+            onChange={e => setStartDate(e.target.value)}
+            style={{ width: 165, padding: '6px 10px', fontSize: 'var(--text-base)' }}
+          />
+        </div>
+        <div>
+          <label htmlFor="add-sched-amount">Monthly retainer</label>
+          <input
+            id="add-sched-amount"
+            type="text"
+            inputMode="decimal"
+            placeholder="2500"
+            value={amount}
+            onChange={e => setAmount(e.target.value)}
+            style={{ width: 120, padding: '6px 10px', fontSize: 'var(--text-base)' }}
+          />
+        </div>
+        <button
+          type="button"
+          className="btn-accent btn-sm"
+          disabled={!ready || busy}
+          onClick={() => onSubmit(brandId, startDate, amount)}
+        >
+          {busy ? 'Adding…' : 'Add schedule'}
+        </button>
+        <button type="button" className="btn-secondary btn-sm" onClick={onCancel} disabled={busy}>
+          Cancel
+        </button>
+      </div>
+      <p style={{
+        fontSize: 'var(--text-sm)', color: 'var(--text-muted)',
+        margin: 'var(--space-3) 0 0', lineHeight: 1.5,
+      }}>
+        Every invoice from the first date through the end of next month is created as{' '}
+        <strong>scheduled</strong> — mark the ones already collected as paid in the Payments table
+        above, since only paid invoices count toward moments owed. Only active clients without a
+        schedule are listed here.
+      </p>
     </div>
   )
 }
