@@ -41,7 +41,13 @@ import {
   shortDateLabel,
   addDaysIso,
   STALE_AFTER_HOURS,
+  momentKey,
+  isGrouped,
+  combineDailyByDate,
+  trackedLabel,
+  trackedSublabel,
   type DailyResult,
+  type TrackedCampaign,
 } from '../src/lib/results.ts'
 
 import {
@@ -289,6 +295,85 @@ console.log('\n--- COD label formatting ---')
 check('percent mode', formatCodLabel(pct35), '35% of revenue')
 check('per-order mode', formatCodLabel(perOrder), '$18.50 per order')
 check('unset', formatCodLabel({ cod_value: null, cod_mode: 'percent' }), '—')
+
+console.log('\n--- moment grouping: identity and labels ---')
+function tc(overrides: Partial<TrackedCampaign> & { id: string }): TrackedCampaign {
+  return {
+    project_id: 'p-1', brand_id: 'b-1', meta_ad_account_id: 'act_1',
+    meta_campaign_id: null, campaign_name: null, meta_adset_id: null, adset_name: null,
+    launched_on: '2026-08-01', ended_on: null, created_at: '2026-08-01T00:00:00Z',
+    moment_group_id: null, moment_group_label: null,
+    ...overrides,
+  }
+}
+
+const lone = tc({ id: 'tc-lone' })
+check('an ungrouped row is its own key', momentKey(lone), 'tc-lone')
+check('isGrouped is false for it', isGrouped(lone), false)
+
+const memberA = tc({ id: 'tc-a', meta_adset_id: '111', adset_name: 'Prospecting', moment_group_id: 'grp-1', moment_group_label: "Father's Day 2026" })
+const memberB = tc({ id: 'tc-b', meta_adset_id: '222', adset_name: 'Retention', moment_group_id: 'grp-1', moment_group_label: "Father's Day 2026" })
+check('grouped members share the group as their key', momentKey(memberA), 'grp-1')
+check('...both of them', momentKey(memberB), 'grp-1')
+check('isGrouped true for a member', isGrouped(memberA), true)
+
+console.log('\n--- moment grouping: labels ---')
+check('a grouped row is named after the MOMENT, not the ad set', trackedLabel(memberA), "Father's Day 2026")
+checkTrue('sublabel says how many ad sets, when told', trackedSublabel(memberA, 2) === 'combined from 2 ad sets')
+check('an ungrouped ad-set row keeps its own ad-set label', trackedLabel({ ...lone, meta_adset_id: '999', adset_name: 'Solo Ad Set' }), 'Solo Ad Set')
+
+console.log('\n--- combineDailyByDate: the prospecting + retention case ---')
+// Hand-checked: two ad sets, three overlapping days.
+//   date        prospecting            retention              combined
+//   Aug 1     $100 / $200 / 4p        $50 / $300 / 6p       $150 / $500 / 10p
+//   Aug 2     $200 / $100 / 1p              —                $200 / $100 / 1p  (retention absent that day)
+//   Aug 3           —                $80 / $400 / 8p         $80  / $400 / 8p  (prospecting absent that day)
+const prospecting = [
+  day({ tracked_campaign_id: 'tc-a', stat_date: '2026-08-01', spend_cents: 10_000, revenue_cents: 20_000, purchases: 4, landing_page_views: 100 }),
+  day({ tracked_campaign_id: 'tc-a', stat_date: '2026-08-02', spend_cents: 20_000, revenue_cents: 10_000, purchases: 1, landing_page_views: 50 }),
+]
+const retention = [
+  day({ tracked_campaign_id: 'tc-b', stat_date: '2026-08-01', spend_cents: 5_000, revenue_cents: 30_000, purchases: 6, landing_page_views: 60 }),
+  day({ tracked_campaign_id: 'tc-b', stat_date: '2026-08-03', spend_cents: 8_000, revenue_cents: 40_000, purchases: 8, landing_page_views: 80 }),
+]
+const combined = combineDailyByDate([prospecting, retention])
+check('3 combined days (union of dates, not intersection)', combined.length, 3)
+check('Aug 1 sums both members', [combined[0].spend_cents, combined[0].revenue_cents, combined[0].purchases], [15_000, 50_000, 10])
+check('Aug 2 is prospecting alone (retention had no row that day)', [combined[1].spend_cents, combined[1].revenue_cents], [20_000, 10_000])
+check('Aug 3 is retention alone (prospecting had no row that day)', [combined[2].spend_cents, combined[2].revenue_cents], [8_000, 40_000])
+check('combined dates are in order', combined.map(r => r.stat_date), ['2026-08-01', '2026-08-02', '2026-08-03'])
+
+console.log('\n--- combineDailyByDate: ratios re-derived, never averaged ---')
+// Aug 1 ROAS naive-averaged would be (2.0 + 6.0)/2 = 4.0. The correct
+// spend-weighted answer from $150 spend / $500 revenue is 3.3333.
+check('Aug 1 combined ROAS is spend-weighted (3.3333), not the naive mean (4.0)', combined[0].roas, 3.3333)
+checkTrue('...and it is NOT the naive average', combined[0].roas !== 4.0)
+
+console.log('\n--- combineDailyByDate: outbound CTR cannot be honestly combined ---')
+// No stored impressions denominator across entities — averaging two CTRs
+// would silently weight a $10 ad set the same as a $10,000 one.
+checkTrue('combined CTR is always null, never an average of the two', combined.every(r => r.unique_outbound_ctr === null))
+
+console.log('\n--- combineDailyByDate: warnings union, not first-one-wins ---')
+const flaggedA = [day({ tracked_campaign_id: 'tc-a', stat_date: '2026-08-05', spend_cents: 100, revenue_cents: 100, warnings: ['ROAS disagrees with revenue/spend'] })]
+const flaggedB = [day({ tracked_campaign_id: 'tc-b', stat_date: '2026-08-05', spend_cents: 100, revenue_cents: 100, warnings: ['CPA disagrees with spend/purchases'] })]
+const combinedFlagged = combineDailyByDate([flaggedA, flaggedB])
+check('both warnings survive being combined — grouping cannot launder a flag away',
+  combinedFlagged[0].warnings, ['ROAS disagrees with revenue/spend', 'CPA disagrees with spend/purchases'])
+
+console.log('\n--- combineDailyByDate: a disagreeing attribution window is flagged, not silently picked ---')
+const winA = [day({ tracked_campaign_id: 'tc-a', stat_date: '2026-08-06', attribution_window: '1d_view_7d_click' })]
+const winB = [day({ tracked_campaign_id: 'tc-b', stat_date: '2026-08-06', attribution_window: '28d_click' })]
+checkTrue('mismatched windows across members produce a warning',
+  combineDailyByDate([winA, winB])[0].warnings.some(w => w.includes('disagree on attribution window')))
+
+console.log('\n--- combineDailyByDate: freshness follows the LATEST member pull ---')
+const staleA = [day({ tracked_campaign_id: 'tc-a', stat_date: '2026-08-07', reported_at: '2026-08-07T09:00:00.000Z' })]
+const freshB = [day({ tracked_campaign_id: 'tc-b', stat_date: '2026-08-07', reported_at: '2026-08-08T09:00:00.000Z' })]
+check('combined reported_at is the most recent across members', combineDailyByDate([staleA, freshB])[0].reported_at, '2026-08-08T09:00:00.000Z')
+
+console.log('\n--- combineDailyByDate: an empty set of rows for a date pair yields nothing to sum ---')
+check('combining two empty sets is empty, not a phantom zero day', combineDailyByDate([[], []]), [])
 
 console.log('\n--- cumulative series ---')
 const series = cumulativeSeries(FIXTURE)

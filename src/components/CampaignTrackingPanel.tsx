@@ -1,5 +1,8 @@
 import Link from 'next/link'
-import { linkCampaign, endCampaignTracking, resumeCampaignTracking, unlinkCampaign } from '@/lib/results-actions'
+import {
+  linkCampaign, endCampaignTracking, resumeCampaignTracking, unlinkCampaign,
+  setMomentGroup, ungroupFromMoment,
+} from '@/lib/results-actions'
 import SubmitButton from '@/components/SubmitButton'
 import ConfirmDeleteForm from '@/components/ConfirmDeleteForm'
 import { daysLive, shortDateLabel, trackedLabel, trackedSublabel, type TrackedCampaign } from '@/lib/results'
@@ -83,6 +86,20 @@ export default function CampaignTrackingPanel({
                         {trackedSublabel(c)}
                       </div>
                     )}
+                    {/* Grouped: this row's own numbers are folded into a
+                        combined card elsewhere. Say so here too, or someone
+                        reading THIS row's figures could mistake them for the
+                        moment's whole result. */}
+                    {c.moment_group_id && (
+                      <div style={{ fontSize: 11, marginTop: 4 }}>
+                        <Link
+                          href={`/results/moments/${c.moment_group_id}`}
+                          style={{ color: 'var(--accent)', textDecoration: 'none' }}
+                        >
+                          part of &ldquo;{c.moment_group_label}&rdquo; →
+                        </Link>
+                      </div>
+                    )}
                     <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3, fontFamily: 'monospace' }}>
                       {c.meta_ad_account_id} · {c.meta_campaign_id}
                       {c.meta_adset_id && ` · ${c.meta_adset_id}`}
@@ -134,11 +151,69 @@ export default function CampaignTrackingPanel({
                         Unlink
                       </SubmitButton>
                     </ConfirmDeleteForm>
+                    {c.moment_group_id && (
+                      // Non-destructive — this row's own history is untouched,
+                      // it just stops being folded into the combined card.
+                      <form action={ungroupFromMoment.bind(null, c.id)}>
+                        <SubmitButton className="btn-secondary btn-sm" pendingText="Ungrouping…">
+                          Ungroup
+                        </SubmitButton>
+                      </form>
+                    )}
                   </div>
                 )}
               </div>
             )
           })}
+        </div>
+      )}
+
+      {/* Grouping: for the moment that's really two ad sets — prospecting +
+          retention is the pattern that surfaced this, on Mad Viking and WOW
+          Sports. Plain checkboxes with a shared `name` need no client JS;
+          the server action reads them all via formData.getAll. */}
+      {canEdit && campaigns.length >= 2 && (
+        <div style={{
+          border: '1px solid var(--border)',
+          borderRadius: 8,
+          padding: '12px 14px',
+          marginBottom: 'var(--space-5)',
+          background: 'var(--surface-2)',
+        }}>
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 'var(--space-3)' }}>
+            <strong>Is one of these moments actually split across ad sets?</strong> Check the ones
+            that belong together and give the moment a name — Results will show them as one
+            combined card instead of separate ones.
+          </div>
+          <form action={setMomentGroup} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {campaigns.map(c => (
+                <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
+                  <input type="checkbox" name="tracked_campaign_id" value={c.id} defaultChecked={c.moment_group_id !== null} />
+                  {trackedLabel(c)}
+                  {c.moment_group_id && (
+                    <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+                      (currently in &ldquo;{c.moment_group_label}&rdquo;)
+                    </span>
+                  )}
+                </label>
+              ))}
+            </div>
+            <div style={{ maxWidth: 320 }}>
+              <label style={LABEL_STYLE} htmlFor="moment_group_label">Moment name</label>
+              <input
+                id="moment_group_label"
+                name="moment_group_label"
+                placeholder="Father's Day 2026"
+                style={INPUT_STYLE}
+              />
+            </div>
+            <div>
+              <SubmitButton className="btn-secondary btn-sm" pendingText="Grouping…">
+                Group selected
+              </SubmitButton>
+            </div>
+          </form>
         </div>
       )}
 

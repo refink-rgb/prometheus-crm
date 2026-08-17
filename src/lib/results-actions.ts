@@ -298,6 +298,101 @@ export async function setBrandCod(formData: FormData) {
   revalidatePath(`/brands/${brandId}`)
 }
 
+// Groups two or more already-tracked entities into one combined Results card
+// — the fix for a moment split across sibling ad sets (Mad Viking and WOW
+// Sports both run "prospecting" + "retention" as separate ad sets for the
+// same moment). Grouping is a display-layer join: the underlying rows are
+// untouched, so ending or unlinking one member never touches its sibling.
+//
+// Server-validated rather than trusting the UI's selection: every id must
+// belong to the SAME project. Grouping across projects would combine two
+// different moments' numbers under one label, which is exactly the kind of
+// silent-wrong-total this feature exists to prevent, not create.
+export async function setMomentGroup(formData: FormData) {
+  const { supabase } = await requireEditor()
+
+  const ids = formData.getAll('tracked_campaign_id').map(v => String(v)).filter(Boolean)
+  const label = ((formData.get('moment_group_label') as string) ?? '').trim()
+
+  if (ids.length < 2) throw new Error('Select at least two tracked campaigns to group.')
+  if (!label) throw new Error('A label is required — it is what the combined card is called.')
+
+  const { data: rows, error } = await supabase
+    .from('tracked_campaigns')
+    .select('id, project_id, moment_group_id')
+    .in('id', ids)
+  if (error) throw new Error(`Failed to load tracked campaigns: ${error.message}`)
+  if (!rows || rows.length !== ids.length) throw new Error('One or more tracked campaigns were not found.')
+
+  const projectIds = new Set(rows.map(r => r.project_id))
+  if (projectIds.size > 1) {
+    throw new Error('All grouped entries must belong to the same project — grouping across projects would combine two different moments.')
+  }
+
+  // If any selected row already belongs to a group, adopt THAT group id rather
+  // than minting a new one — this is how a third ad set joins an existing
+  // pair. Two DIFFERENT existing groups can't both be right, so refuse rather
+  // than guessing which one wins.
+  const existingGroups = new Set(rows.map(r => r.moment_group_id).filter((g): g is string => g !== null))
+  if (existingGroups.size > 1) {
+    throw new Error('These are already in two different groups — ungroup them first, then regroup together.')
+  }
+  const groupId = existingGroups.size === 1 ? [...existingGroups][0] : crypto.randomUUID()
+
+  const { error: updateErr } = await supabase
+    .from('tracked_campaigns')
+    .update({ moment_group_id: groupId, moment_group_label: label })
+    .in('id', ids)
+  if (updateErr) throw new Error(`Failed to group: ${updateErr.message}`)
+
+  const projectId = [...projectIds][0]
+  revalidatePath('/results')
+  const { data: proj } = await supabase.from('projects').select('brand_id').eq('id', projectId).single()
+  if (proj?.brand_id) revalidatePath(`/brands/${proj.brand_id}/projects/${projectId}`)
+}
+
+// Removes one tracked campaign from its moment group. If that leaves only one
+// member behind, the group is dissolved entirely rather than left as a
+// "group of one" — a lone row rendering as a combined card would be a
+// distinction with no visible difference, and stale group state is exactly
+// the kind of thing that causes confusion months later.
+export async function ungroupFromMoment(trackedCampaignId: string) {
+  const { supabase } = await requireEditor()
+
+  const { data: row, error } = await supabase
+    .from('tracked_campaigns')
+    .select('id, project_id, moment_group_id')
+    .eq('id', trackedCampaignId)
+    .single()
+  if (error || !row) throw new Error('Tracked campaign not found.')
+  if (!row.moment_group_id) return // already ungrouped — nothing to do
+
+  const { data: siblings, error: sibErr } = await supabase
+    .from('tracked_campaigns')
+    .select('id')
+    .eq('moment_group_id', row.moment_group_id)
+    .neq('id', trackedCampaignId)
+  if (sibErr) throw new Error(`Failed to check group members: ${sibErr.message}`)
+
+  const { error: clearErr } = await supabase
+    .from('tracked_campaigns')
+    .update({ moment_group_id: null, moment_group_label: null })
+    .eq('id', trackedCampaignId)
+  if (clearErr) throw new Error(`Failed to ungroup: ${clearErr.message}`)
+
+  if (siblings && siblings.length === 1) {
+    const { error: dissolveErr } = await supabase
+      .from('tracked_campaigns')
+      .update({ moment_group_id: null, moment_group_label: null })
+      .eq('id', siblings[0].id)
+    if (dissolveErr) console.error(`[ungroupFromMoment] failed to dissolve trailing group member: ${dissolveErr.message}`)
+  }
+
+  const { data: proj } = await supabase.from('projects').select('brand_id').eq('id', row.project_id).single()
+  if (proj?.brand_id) revalidatePath(`/brands/${proj.brand_id}/projects/${row.project_id}`)
+  revalidatePath('/results')
+}
+
 // Hands a day back to the agent: clears the manual lock so the next run
 // re-pulls it. The row keeps its numbers until that run lands, so there is no
 // window where the day is blank.

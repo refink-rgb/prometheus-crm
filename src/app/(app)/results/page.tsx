@@ -22,6 +22,8 @@ import {
   formatPercent,
   contributionMargin,
   breakEvenRoas,
+  momentKey,
+  combineDailyByDate,
   type BrandCod,
   type DailyResult,
   type TrackedCampaign,
@@ -48,7 +50,7 @@ export default async function ResultsPage() {
 
   const { data: campaignsRaw, error: campaignErr } = await supabase
     .from('tracked_campaigns')
-    .select('id, project_id, brand_id, meta_ad_account_id, meta_campaign_id, campaign_name, meta_adset_id, adset_name, launched_on, ended_on, created_at, projects(id, name), brands(id, name, cod_value, cod_mode)')
+    .select('id, project_id, brand_id, meta_ad_account_id, meta_campaign_id, campaign_name, meta_adset_id, adset_name, moment_group_id, moment_group_label, launched_on, ended_on, created_at, projects(id, name), brands(id, name, cod_value, cod_mode)')
     .is('ended_on', null)
     .order('launched_on', { ascending: false })
 
@@ -96,6 +98,19 @@ export default async function ResultsPage() {
   // calendar/timeline already read the clock this way.)
   const nowMs = new Date().getTime()
 
+  // Group tracked rows by moment: a lone row is its own group of one, and
+  // rows sharing a moment_group_id (a prospecting + retention pair, say)
+  // become ONE card with a combined daily series. See combineDailyByDate for
+  // why this is safe to feed into every existing rollup unchanged.
+  const groups = new Map<string, CampaignRow[]>()
+  for (const c of campaigns) {
+    const key = momentKey(c)
+    const list = groups.get(key)
+    if (list) list.push(c)
+    else groups.set(key, [c])
+  }
+  const cards: CardModel[] = [...groups.values()].map(members => buildCardModel(members, byCampaign))
+
   return (
     <div style={{ padding: 'var(--space-6) 32px 40px' }}>
       <div style={{ marginBottom: 'var(--space-6)' }}>
@@ -142,14 +157,8 @@ export default async function ResultsPage() {
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-            {campaigns.map(c => (
-              <CampaignCard
-                key={c.id}
-                campaign={c}
-                rows={byCampaign.get(c.id) ?? []}
-                todayIso={today}
-                nowMs={nowMs}
-              />
+            {cards.map(card => (
+              <CampaignCard key={card.key} model={card} todayIso={today} nowMs={nowMs} />
             ))}
           </div>
         </>
@@ -158,49 +167,92 @@ export default async function ResultsPage() {
   )
 }
 
+// One card's worth of display data, whether it's a lone tracked row or a
+// combined moment. Building this once up front means CampaignCard never has
+// to know whether it's rendering a group — it just reads the model.
+interface CardModel {
+  key: string
+  href: string
+  label: string
+  sublabel: string | null
+  brandName: string | null
+  projectName: string | null
+  launchedOn: string
+  endedOn: string | null
+  cod: BrandCod
+  rows: DailyResult[]
+  memberCount: number
+}
+
+function buildCardModel(members: CampaignRow[], byCampaign: Map<string, DailyResult[]>): CardModel {
+  const representative = members[0]
+  const grouped = members.length > 1
+  const rowSets = members.map(m => byCampaign.get(m.id) ?? [])
+  const rows = grouped ? combineDailyByDate(rowSets) : sortByDate(rowSets[0] ?? [])
+
+  // Earliest launch, and "still live" if ANY member has no end date — the
+  // combined moment is only over once every member is.
+  const launchedOn = members.reduce((min, m) => (m.launched_on < min ? m.launched_on : min), representative.launched_on)
+  const anyLive = members.some(m => m.ended_on === null)
+  const endedOn = anyLive ? null : members.reduce((max, m) => (m.ended_on && m.ended_on > (max ?? '') ? m.ended_on : max), null as string | null)
+
+  return {
+    key: momentKey(representative),
+    href: grouped ? `/results/moments/${representative.moment_group_id}` : `/results/${representative.id}`,
+    label: trackedLabel(representative),
+    sublabel: trackedSublabel(representative, grouped ? members.length : undefined),
+    brandName: representative.brands?.name ?? null,
+    projectName: representative.projects?.name ?? null,
+    launchedOn,
+    endedOn,
+    cod: codOf(representative),
+    rows,
+    memberCount: members.length,
+  }
+}
+
 function CampaignCard({
-  campaign,
-  rows,
+  model,
   todayIso,
   nowMs,
 }: {
-  campaign: CampaignRow
-  rows: DailyResult[]
+  model: CardModel
   todayIso: string
   nowMs: number
 }) {
-  const ordered = sortByDate(rows)
+  const ordered = model.rows
   const totals = sumResults(ordered)
   const latest = ordered.length > 0 ? ordered[ordered.length - 1] : null
-  const live = daysLive(campaign.launched_on, campaign.ended_on, todayIso)
+  const live = daysLive(model.launchedOn, model.endedOn, todayIso)
   const series = cumulativeSeries(ordered)
 
   // The agent stops at yesterday, so the expected window ends there. A gap
   // here is normal under restatement lag; a growing one is a broken agent.
-  const gaps = missingDates(ordered, campaign.launched_on, previousDay(todayIso))
+  const gaps = missingDates(ordered, model.launchedOn, previousDay(todayIso))
   const flagged = ordered.filter(r => r.warnings.length > 0).length
-  const margin = contributionMargin(codOf(campaign), totals.revenue_cents, totals.spend_cents, totals.purchases)
-  const be = breakEvenRoas(codOf(campaign))
+  const margin = contributionMargin(model.cod, totals.revenue_cents, totals.spend_cents, totals.purchases)
+  const be = breakEvenRoas(model.cod)
 
   return (
     <div className="card" style={{ padding: '18px 20px' }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 'var(--space-4)', flexWrap: 'wrap' }}>
         <div style={{ minWidth: 0, flex: '1 1 260px' }}>
           <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 3 }}>
-            {campaign.brands?.name ?? 'Unknown brand'}
-            {campaign.projects?.name ? ` · ${campaign.projects.name}` : ''}
+            {model.brandName ?? 'Unknown brand'}
+            {model.projectName ? ` · ${model.projectName}` : ''}
           </div>
           <Link
-            href={`/results/${campaign.id}`}
+            href={model.href}
             style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', textDecoration: 'none' }}
           >
-            {trackedLabel(campaign)}
+            {model.label}
           </Link>
           <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-            {/* Says "ad set in <campaign>" when tracking is narrowed, so nobody
-                reads these numbers as the whole campaign's. */}
-            {trackedSublabel(campaign) && <>{trackedSublabel(campaign)} · </>}
-            Launched {shortDateLabel(campaign.launched_on)} · day {live}
+            {/* Says "combined from N ad sets" for a grouped moment, or "ad set
+                in <campaign>" for a lone narrowed one, so nobody reads either
+                figure as something it isn't. */}
+            {model.sublabel && <>{model.sublabel} · </>}
+            Launched {shortDateLabel(model.launchedOn)} · day {live}
           </div>
         </div>
 
@@ -218,7 +270,7 @@ function CampaignCard({
           lineHeight: 1.6,
         }}>
           No results pulled yet. The scheduled agent picks this campaign up on its next run
-          (~7am Eastern) and backfills from {shortDateLabel(campaign.launched_on)}.
+          (~7am Eastern) and backfills from {shortDateLabel(model.launchedOn)}.
         </div>
       ) : (
         <>
@@ -280,7 +332,7 @@ function CampaignCard({
       )}
 
       <div style={{ marginTop: 'var(--space-4)' }}>
-        <Link href={`/results/${campaign.id}`} style={{ fontSize: 12, color: 'var(--accent)', textDecoration: 'none' }}>
+        <Link href={model.href} style={{ fontSize: 12, color: 'var(--accent)', textDecoration: 'none' }}>
           Daily breakdown →
         </Link>
       </div>

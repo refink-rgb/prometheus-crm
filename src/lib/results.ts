@@ -53,6 +53,22 @@ export interface TrackedCampaign {
   launched_on: string
   ended_on: string | null
   created_at: string
+  // Optional display-layer grouping. Rows sharing a moment_group_id render as
+  // ONE combined card — see combineDailyByDate. NULL means "just this row,"
+  // which is every row created before grouping existed.
+  moment_group_id: string | null
+  moment_group_label: string | null
+}
+
+// The key cards are grouped by: the moment group if the row belongs to one,
+// otherwise the row's own id. A lone row is therefore its own group of one —
+// grouping is additive, nothing has to change for ungrouped rows.
+export function momentKey(c: Pick<TrackedCampaign, 'id' | 'moment_group_id'>): string {
+  return c.moment_group_id ?? c.id
+}
+
+export function isGrouped(c: Pick<TrackedCampaign, 'moment_group_id'>): boolean {
+  return c.moment_group_id !== null
 }
 
 // The one id that identifies a tracked row. Mirrors the DB's
@@ -72,17 +88,27 @@ export function isAdsetLevel(c: Pick<TrackedCampaign, 'meta_adset_id'>): boolean
 // been supplied or backfilled yet, which is honest about what we know rather
 // than borrowing the campaign's name and implying the wrong scope.
 export function trackedLabel(
-  c: Pick<TrackedCampaign, 'campaign_name' | 'adset_name' | 'meta_adset_id' | 'meta_campaign_id'>,
+  c: Pick<TrackedCampaign, 'campaign_name' | 'adset_name' | 'meta_adset_id' | 'meta_campaign_id' | 'moment_group_label'>,
 ): string {
+  // A grouped card is named after the MOMENT, not whichever ad set happens to
+  // be first — no single member's name represents a prospecting+retention
+  // pair, so the group label always wins here.
+  if (c.moment_group_label) return c.moment_group_label
   if (c.meta_adset_id) return c.adset_name ?? `Ad set ${c.meta_adset_id}`
   return c.campaign_name ?? `Campaign ${c.meta_campaign_id ?? '—'}`
 }
 
 // Context line. Null until the agent backfills the campaign name, so it simply
-// doesn't render rather than showing "ad set in null".
+// doesn't render rather than showing "ad set in null". `memberCount` is only
+// meaningful for a grouped card — pass how many tracked rows feed into it, so
+// the reader knows this figure is a sum, not one entity's own number.
 export function trackedSublabel(
-  c: Pick<TrackedCampaign, 'campaign_name' | 'meta_adset_id'>,
+  c: Pick<TrackedCampaign, 'campaign_name' | 'meta_adset_id' | 'moment_group_label'>,
+  memberCount?: number,
 ): string | null {
+  if (c.moment_group_label) {
+    return memberCount ? `combined from ${memberCount} ad sets` : 'combined moment'
+  }
   if (!c.meta_adset_id) return null
   return c.campaign_name ? `ad set in ${c.campaign_name}` : 'ad set'
 }
@@ -286,6 +312,92 @@ export function formatCodLabel(cod: BrandCod | null | undefined): string {
   return cod.cod_mode === 'percent'
     ? `${cod.cod_value}% of revenue`
     : `${formatCents(Math.round(cod.cod_value * 100))} per order`
+}
+
+// ---------------------------------------------------------------------------
+// Moment grouping — combining several tracked entities into one series
+// ---------------------------------------------------------------------------
+//
+// A grouped moment (e.g. "Father's Day 2026" = a prospecting ad set + a
+// retention ad set) needs one combined daily row per date, not two separate
+// rows sitting side by side. combineDailyByDate produces that: for each date
+// present in ANY member's rows, sum spend/revenue/purchases the same way
+// sumResults does (cents in, cents out, ratios re-derived from the summed
+// cents — never averaged), so every existing consumer — sumResults,
+// cumulativeSeries, missingDates, contributionMargin — works on the result
+// unchanged. This is the same reason sumResults re-derives ratios instead of
+// averaging them: a $12 ad set and a $12,000 ad set are not equally
+// informative about the combined ROAS.
+export function combineDailyByDate(rowSets: readonly (readonly DailyResult[])[]): DailyResult[] {
+  const byDate = new Map<string, DailyResult[]>()
+  for (const rows of rowSets) {
+    for (const r of rows) {
+      const list = byDate.get(r.stat_date)
+      if (list) list.push(r)
+      else byDate.set(r.stat_date, [r])
+    }
+  }
+
+  const combined: DailyResult[] = []
+  for (const [date, rows] of byDate) {
+    const totals = sumResults(rows)
+    combined.push({
+      id: `combined-${date}`,
+      // Synthetic — a combined row isn't any one tracked entity, so this id
+      // is a display placeholder only. Never write it back to the DB.
+      tracked_campaign_id: 'combined',
+      stat_date: date,
+      spend_cents: totals.spend_cents,
+      revenue_cents: totals.revenue_cents,
+      incremental_revenue_cents: totals.incremental_revenue_cents,
+      cpa_cents: totals.cpa_cents,
+      purchases: totals.purchases,
+      landing_page_views: totals.landing_page_views,
+      roas: totals.roas,
+      // Outbound CTR has no honest combined value: it's a ratio over
+      // impressions, and impressions aren't a stored column. Averaging two
+      // ad sets' CTRs would weight a $10 ad set the same as a $10,000 one —
+      // exactly the mistake sumResults' cents-based derivation exists to
+      // avoid elsewhere. Null is the correct answer, not a compromise.
+      unique_outbound_ctr: null,
+      lp_conversion_rate: totals.landing_page_views !== null
+        ? safeRate(totals.purchases, totals.landing_page_views)
+        : null,
+      // Display only. If members disagree, that's a real fact worth a
+      // warning rather than silently picking one — see below.
+      attribution_window: rows[0].attribution_window,
+      // Display only, and deliberately conservative: the combined card reads
+      // as agent-updating unless EVERY member is manually locked.
+      source: rows.every(r => r.source === 'manual') ? 'manual' : 'mcp_agent',
+      // Union, not first-one-wins — a warning on one member must stay visible
+      // once it's folded into a combined card, or grouping would be a way to
+      // launder a flagged row into a clean-looking total.
+      warnings: dedupeWarnings(rows),
+      // Latest wins, matching freshnessOf's "most recent pull across the
+      // set" rule — the combined card's staleness should reflect whichever
+      // member was checked longest ago, not whichever happened to sum last.
+      reported_at: rows.reduce((latest, r) => (r.reported_at > latest ? r.reported_at : latest), rows[0].reported_at),
+    })
+  }
+
+  return sortByDate(combined)
+}
+
+function dedupeWarnings(rows: readonly DailyResult[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const r of rows) {
+    for (const w of r.warnings) {
+      if (!seen.has(w)) { seen.add(w); out.push(w) }
+    }
+  }
+  if (rows.length > 1) {
+    const windows = new Set(rows.map(r => r.attribution_window))
+    if (windows.size > 1) {
+      out.push(`members disagree on attribution window (${[...windows].join(', ')})`)
+    }
+  }
+  return out
 }
 
 // ---------------------------------------------------------------------------

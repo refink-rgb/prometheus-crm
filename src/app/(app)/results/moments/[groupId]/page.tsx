@@ -6,21 +6,21 @@ import { easternToday } from '@/lib/eastern'
 import FreshnessStamp from '@/components/FreshnessStamp'
 import CampaignDailyCharts from '@/components/CampaignDailyCharts'
 import DailyResultsTable from '@/components/DailyResultsTable'
-import { fetchDailyResults } from '@/lib/results-queries'
 import BrandCodEditor from '@/components/BrandCodEditor'
+import { fetchDailyResults } from '@/lib/results-queries'
 import {
   sumResults,
   cumulativeSeries,
   sortByDate,
   daysLive,
   missingDates,
+  combineDailyByDate,
+  trackedLabel,
   formatCents,
   formatRoas,
   formatCount,
   formatPercent,
   shortDateLabel,
-  trackedLabel,
-  trackedSublabel,
   safeRate,
   contributionMargin,
   breakEvenRoas,
@@ -30,19 +30,23 @@ import {
 
 export const maxDuration = 60
 
-interface CampaignRow extends TrackedCampaign {
+interface MemberRow extends TrackedCampaign {
   projects: { id: string; name: string } | null
   brands: ({ id: string; name: string } & BrandCod) | null
 }
 
-// The literal ask: every campaign we launched, one row per day, from launch
-// through the last update, with all eight metrics.
-export default async function CampaignResultsPage({
+// The combined view for a moment split across two or more tracked entities
+// (a prospecting ad set + a retention ad set, most often). This page is
+// deliberately READ-ONLY for daily corrections — a combined day is a sum
+// across members, and "correcting" a sum without knowing which member's
+// number was wrong would just be guessing. Corrections happen on each
+// member's own page, linked below.
+export default async function MomentResultsPage({
   params,
 }: {
-  params: Promise<{ trackedCampaignId: string }>
+  params: Promise<{ groupId: string }>
 }) {
-  const { trackedCampaignId } = await params
+  const { groupId } = await params
   const supabase = await createClient()
   const user = await getCachedUser()
   if (!user) redirect('/login')
@@ -51,43 +55,45 @@ export default async function CampaignResultsPage({
 
   const today = easternToday()
 
-  const { data: campaignRaw } = await supabase
+  const { data: membersRaw } = await supabase
     .from('tracked_campaigns')
     .select('id, project_id, brand_id, meta_ad_account_id, meta_campaign_id, campaign_name, meta_adset_id, adset_name, moment_group_id, moment_group_label, launched_on, ended_on, created_at, projects(id, name), brands(id, name, cod_value, cod_mode)')
-    .eq('id', trackedCampaignId)
-    .single()
+    .eq('moment_group_id', groupId)
+    .order('launched_on', { ascending: true })
 
-  if (!campaignRaw) notFound()
-  const campaign = campaignRaw as unknown as CampaignRow
+  const members = (membersRaw ?? []) as unknown as MemberRow[]
+  if (members.length === 0) notFound()
 
-  // Paged — a long-running campaign can exceed a single result set, and a
-  // truncated daily table would silently drop days from the middle of the run.
-  const { rows: dailyRows } = await fetchDailyResults(supabase, [trackedCampaignId])
+  const representative = members[0]
+  const label = representative.moment_group_label ?? 'Combined moment'
 
-  // `new Date()` rather than `Date.now()` — the react-hooks/purity rule flags
-  // the latter inside a component.
+  const { rows: allDaily } = await fetchDailyResults(supabase, members.map(m => m.id))
+  const dailyByMember = new Map<string, typeof allDaily>()
+  for (const r of allDaily) {
+    const list = dailyByMember.get(r.tracked_campaign_id)
+    if (list) list.push(r)
+    else dailyByMember.set(r.tracked_campaign_id, [r])
+  }
+
+  const rows = combineDailyByDate(members.map(m => sortByDate(dailyByMember.get(m.id) ?? [])))
   const nowMs = new Date().getTime()
-  const rows = sortByDate(dailyRows)
   const totals = sumResults(rows)
   const series = cumulativeSeries(rows)
-  const live = daysLive(campaign.launched_on, campaign.ended_on, today)
-  // The agent stops at yesterday — today is still accruing.
-  const gaps = missingDates(rows, campaign.launched_on, previousDay(today))
-  const flagged = rows.filter(r => r.warnings.length > 0)
-  const manualCount = rows.filter(r => r.source === 'manual').length
 
-  // Cumulative LP conversion across the run, derived from the stored
-  // denominators rather than averaging the daily rates.
+  const launchedOn = members.reduce((min, m) => (m.launched_on < min ? m.launched_on : min), representative.launched_on)
+  const anyLive = members.some(m => m.ended_on === null)
+  const endedOn = anyLive ? null : members.reduce((max, m) => (m.ended_on && m.ended_on > (max ?? '') ? m.ended_on : max), null as string | null)
+  const live = daysLive(launchedOn, endedOn, today)
+
+  const gaps = missingDates(rows, launchedOn, previousDay(today))
+  const flagged = rows.filter(r => r.warnings.length > 0)
+
   const overallLpConv = totals.landing_page_views === null
     ? null
     : safeRate(totals.purchases, totals.landing_page_views)
 
-  // Contribution margin is DERIVED AT RENDER from the brand's current COD, not
-  // stored on the daily rows. Correcting a brand's COD therefore fixes every
-  // historical day at once, instead of leaving months of rows computed against
-  // a number nobody remembers setting.
-  const cod: BrandCod = campaign.brands
-    ? { cod_value: campaign.brands.cod_value, cod_mode: campaign.brands.cod_mode }
+  const cod: BrandCod = representative.brands
+    ? { cod_value: representative.brands.cod_value, cod_mode: representative.brands.cod_mode }
     : { cod_value: null, cod_mode: 'percent' }
   const margin = contributionMargin(cod, totals.revenue_cents, totals.spend_cents, totals.purchases)
   const be = breakEvenRoas(cod)
@@ -96,48 +102,55 @@ export default async function CampaignResultsPage({
     <div style={{ padding: 'var(--space-6) 32px 40px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 'var(--text-base)', color: 'var(--text-muted)', marginBottom: 'var(--space-4)', flexWrap: 'wrap' }}>
         <Link href="/results" style={{ color: 'var(--text-muted)', textDecoration: 'none' }}>← Results</Link>
-        {campaign.brands && (
+        {representative.brands && (
           <>
             <span style={{ opacity: 0.5 }}>/</span>
-            <Link href={`/brands/${campaign.brand_id}`} style={{ color: 'var(--text-muted)', textDecoration: 'none' }}>
-              {campaign.brands.name}
+            <Link href={`/brands/${representative.brand_id}`} style={{ color: 'var(--text-muted)', textDecoration: 'none' }}>
+              {representative.brands.name}
             </Link>
           </>
         )}
-        {campaign.projects && (
+        {representative.projects && (
           <>
             <span style={{ opacity: 0.5 }}>/</span>
             <Link
-              href={`/brands/${campaign.brand_id}/projects/${campaign.project_id}`}
+              href={`/brands/${representative.brand_id}/projects/${representative.project_id}`}
               style={{ color: 'var(--text-muted)', textDecoration: 'none' }}
             >
-              {campaign.projects.name}
+              {representative.projects.name}
             </Link>
           </>
         )}
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 'var(--space-4)', flexWrap: 'wrap', marginBottom: 'var(--space-6)' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 'var(--space-4)', flexWrap: 'wrap', marginBottom: 'var(--space-3)' }}>
         <div style={{ minWidth: 0 }}>
           <h1 style={{ fontSize: 'var(--text-xl)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 'var(--space-2)' }}>
-            {trackedLabel(campaign)}
+            {label}
           </h1>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6 }}>
-            {/* Ad-set-level tracking is stated up front. These numbers are one
-                ad set's, not the parent campaign's, and the page must say so
-                before anyone quotes a figure off it. */}
-            {trackedSublabel(campaign) && <>{trackedSublabel(campaign)}<br /></>}
-            <span style={{ fontFamily: 'monospace' }}>
-              {campaign.meta_ad_account_id} · {campaign.meta_campaign_id}
-              {campaign.meta_adset_id && ` · ${campaign.meta_adset_id}`}
-            </span>
-            <br />
-            Launched {shortDateLabel(campaign.launched_on)} · day {live}
-            {campaign.ended_on && ` · tracking ended ${shortDateLabel(campaign.ended_on)}`}
-            {rows.length > 0 && ` · ${rows[0].attribution_window} attribution`}
+            <span className="badge badge-in_progress" style={{ marginRight: 6 }}>combined moment</span>
+            Launched {shortDateLabel(launchedOn)} · day {live}
+            {endedOn && ` · tracking ended ${shortDateLabel(endedOn)}`}
           </div>
         </div>
         <FreshnessStamp rows={rows} nowMs={nowMs} />
+      </div>
+
+      {/* The members this combines. Each links to its OWN page, where the
+          daily table and the Correct button actually live — this page is
+          the sum, not the place to fix one day of it. */}
+      <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap', marginBottom: 'var(--space-6)' }}>
+        {members.map(m => (
+          <Link
+            key={m.id}
+            href={`/results/${m.id}`}
+            className="badge badge-brief"
+            style={{ textDecoration: 'none' }}
+          >
+            {trackedLabel(m)} →
+          </Link>
+        ))}
       </div>
 
       {rows.length === 0 ? (
@@ -151,11 +164,7 @@ export default async function CampaignResultsPage({
           lineHeight: 1.7,
           maxWidth: 640,
         }}>
-          <strong style={{ color: 'var(--text-primary)' }}>No results pulled yet.</strong>
-          <p style={{ marginTop: 8 }}>
-            The scheduled agent picks this campaign up on its next run (~7am Eastern) and
-            backfills from {shortDateLabel(campaign.launched_on)} through yesterday.
-          </p>
+          <strong style={{ color: 'var(--text-primary)' }}>No results pulled yet for either member.</strong>
         </div>
       ) : (
         <>
@@ -165,10 +174,10 @@ export default async function CampaignResultsPage({
             gap: 'var(--space-3)',
             marginBottom: 'var(--space-6)',
           }}>
-            <Tile label="Spend" value={formatCents(totals.spend_cents)} sub="since launch" />
-            <Tile label="Revenue" value={formatCents(totals.revenue_cents)} sub="since launch" />
-            <Tile label="ROAS" value={formatRoas(totals.roas)} sub="spend-weighted" />
-            <Tile label="Purchases" value={formatCount(totals.purchases)} sub="since launch" />
+            <Tile label="Spend" value={formatCents(totals.spend_cents)} sub="since launch, combined" />
+            <Tile label="Revenue" value={formatCents(totals.revenue_cents)} sub="since launch, combined" />
+            <Tile label="ROAS" value={formatRoas(totals.roas)} sub="spend-weighted, combined" />
+            <Tile label="Purchases" value={formatCount(totals.purchases)} sub="since launch, combined" />
             <Tile label="CPA" value={formatCents(totals.cpa_cents)} sub="spend ÷ purchases" />
             <Tile
               label="Incremental revenue"
@@ -176,56 +185,39 @@ export default async function CampaignResultsPage({
               sub={totals.incremental_revenue_cents === null ? 'not reported' : 'as reported'}
             />
             <Tile label="LP conversion" value={formatPercent(overallLpConv)} sub="purchases ÷ LP views" />
-            <Tile label="Days recorded" value={formatCount(totals.days)} sub={`of ${live} live`} />
-            {/* Margin tiles sit with the rest rather than in their own block:
-                ROAS without CM beside it is what makes a losing campaign look
-                like a winning one. */}
             <Tile
               label="Contribution margin"
               value={formatCents(margin.cm_cents)}
               sub={margin.cm_cents === null ? 'set a COD below' : 'revenue − delivery − spend'}
             />
-            <Tile
-              label="CM %"
-              value={formatPercent(margin.cm_pct)}
-              sub={margin.cm_pct === null ? 'set a COD below' : 'of revenue'}
-            />
           </div>
 
-          {/* Break-even is the single most actionable number once a COD is
-              set: it turns "is 2.1x good?" into a yes or no. */}
           {be !== null && totals.roas !== null && (
             <div style={{ marginBottom: 'var(--space-6)' }}>
               <Notice tone={totals.roas >= be ? 'muted' : 'warn'}>
-                Break-even ROAS for {campaign.brands?.name ?? 'this brand'} is{' '}
-                <strong>{formatRoas(be)}</strong>. This campaign is running at{' '}
+                Break-even ROAS for {representative.brands?.name ?? 'this brand'} is{' '}
+                <strong>{formatRoas(be)}</strong>. Combined, this moment is running at{' '}
                 <strong>{formatRoas(totals.roas)}</strong> —{' '}
                 {totals.roas >= be ? 'above break-even, so it is contributing margin.' : 'below break-even, so it is losing money on every order.'}
               </Notice>
             </div>
           )}
 
-          {(gaps.length > 0 || flagged.length > 0 || manualCount > 0) && (
+          {(gaps.length > 0 || flagged.length > 0) && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', marginBottom: 'var(--space-6)' }}>
               {gaps.length > 0 && (
                 <Notice tone="muted">
                   <strong>{gaps.length} day{gaps.length === 1 ? '' : 's'} missing</strong> between launch and
                   yesterday: {gaps.slice(0, 12).map(shortDateLabel).join(', ')}
-                  {gaps.length > 12 && ` and ${gaps.length - 12} more`}. A short lag is normal — Meta
-                  restates for days after the fact. A gap that keeps growing means the agent isn&apos;t running.
+                  {gaps.length > 12 && ` and ${gaps.length - 12} more`}. A day is only a gap here if EVERY
+                  member is missing it — check the individual pages above if only one looks off.
                 </Notice>
               )}
               {flagged.length > 0 && (
                 <Notice tone="warn">
-                  <strong>{flagged.length} day{flagged.length === 1 ? '' : 's'} flagged</strong> by validation —
-                  the row was stored, not dropped, and is badged in the table below. A flag means the
-                  numbers disagree with each other, not that they&apos;re definitely wrong.
-                </Notice>
-              )}
-              {manualCount > 0 && (
-                <Notice tone="muted">
-                  <strong>{manualCount} day{manualCount === 1 ? '' : 's'} manually corrected.</strong> The agent
-                  will not overwrite these on future runs.
+                  <strong>{flagged.length} day{flagged.length === 1 ? '' : 's'} flagged</strong> — at least one
+                  member&apos;s number disagreed with itself that day. Open the member pages above for the
+                  specific warning; the combined table below shows the union of every flag.
                 </Notice>
               )}
             </div>
@@ -235,22 +227,23 @@ export default async function CampaignResultsPage({
             <CampaignDailyCharts points={series} />
           </div>
 
-          {campaign.brands && (
+          {representative.brands && (
             <div style={{ marginBottom: 'var(--space-6)' }}>
               <BrandCodEditor
-                brandId={campaign.brands.id}
-                brandName={campaign.brands.name}
+                brandId={representative.brands.id}
+                brandName={representative.brands.name}
                 cod={cod}
                 canEdit={isEditor}
               />
             </div>
           )}
 
-          <DailyResultsTable
-            rows={rows}
-            trackedCampaignId={campaign.id}
-            canEdit={isEditor}
-          />
+          {/* Read-only: canEdit is hard-false here regardless of the viewer's
+              real permissions. A combined day is a sum of members, and
+              "correcting" it here would mean guessing which member's number
+              was actually wrong — that only makes sense on the member's own
+              page, linked above. */}
+          <DailyResultsTable rows={rows} trackedCampaignId="combined" canEdit={false} />
         </>
       )}
     </div>

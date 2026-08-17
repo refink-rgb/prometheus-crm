@@ -74,7 +74,7 @@ export default async function ProjectPage({
     // empty link form). Same tolerance the cron has for a missing table.
     supabase
       .from('tracked_campaigns')
-      .select('id, project_id, brand_id, meta_ad_account_id, meta_campaign_id, campaign_name, meta_adset_id, adset_name, launched_on, ended_on, created_at')
+      .select('id, project_id, brand_id, meta_ad_account_id, meta_campaign_id, campaign_name, meta_adset_id, adset_name, moment_group_id, moment_group_label, launched_on, ended_on, created_at')
       .eq('project_id', projectId)
       .order('launched_on', { ascending: false }),
     getCachedProfiles(),

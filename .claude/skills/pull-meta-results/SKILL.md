@@ -174,6 +174,18 @@ If the user asked for "tudo" / everything, summarize per brand or per moment rat
 than dumping all raw rows — a short table of spend/revenue/ROAS per entity that just
 got refreshed is more useful than a wall of JSON.
 
+## A note on moments split across ad sets
+
+Some clients (Mad Viking, WOW Sports) run one marketing moment as TWO sibling
+ad sets — "prospecting" and "retention". Both get linked and pulled as
+separate `tracked_campaigns` rows; that part of the pipeline doesn't change.
+What's different is the Results tab: if Giovane has grouped them (via the
+"Group these into one moment" control on the project's Campaign Tracking
+panel), they render as ONE combined card instead of two. That grouping is
+purely a display-layer join — it doesn't change anything about how you pull
+or post data here. Pull and post each tracked entity exactly as described
+above; the combining happens after, when the page reads the data back.
+
 ## What this skill is not
 
 There is no cron, no daily trigger, nothing running when this conversation isn't
