@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useCallback, useEffect, cloneElement } from 'react'
+import { useState, useRef, useCallback, useEffect, useMemo, cloneElement } from 'react'
 import type { ReactElement, CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
 import { addProjectComment, approveProject, deleteProjectComment } from '@/lib/actions'
@@ -51,24 +51,25 @@ export default function LpReviewPanel({
   const [approving, setApproving] = useState(false)
 
   // Pin-a-comment: drop a numbered marker on a spot in the page, then attach the
-  // comment to it. Pins are stored as % of the document (pin_x/pin_y, the same
-  // columns the image review uses) and injected INTO the same-origin iframe doc,
-  // so they scroll and scale natively with the page. Additive to the existing
-  // section-tagged feedback — a comment can have a pin, a section, or both.
+  // comment to it. The iframe has an opaque origin, so a narrow postMessage
+  // bridge exchanges only pin coordinates and state with the untrusted page.
   const [pinMode, setPinMode] = useState(false)
   const [pendingPin, setPendingPin] = useState<{ x: number; y: number } | null>(null)
   const [activePin, setActivePin] = useState<string | null>(null)
   const commentRefs = useRef<Record<string, HTMLDivElement | null>>({})
 
   // Oldest-first so a pin's number never changes as newer pins are added.
-  const pinnedOrdered = comments
-    .filter(c => c.pin_x != null)
-    .sort((a, b) => a.created_at.localeCompare(b.created_at))
+  const pinnedOrdered = useMemo(
+    () => comments
+      .filter(c => c.pin_x != null)
+      .sort((a, b) => a.created_at.localeCompare(b.created_at)),
+    [comments],
+  )
   const pinNumber = (id: string) => pinnedOrdered.findIndex(p => p.id === id) + 1
 
-  // Same-origin proxy: fetches the live URL server-side, strips scripts/CSP,
-  // fixes lazy-loaded images, and serves the cleaned HTML from our origin so
-  // the iframe can't be blocked by X-Frame-Options / frame-ancestors.
+  // The proxy fetches the live URL server-side and serves it inside an opaque,
+  // script-capable sandbox. That bypasses frame headers without giving the
+  // landing page Prometheus's origin or credentials.
   const previewSrc = lpUrl ? `/api/preview?token=${encodeURIComponent(token)}` : null
 
   // Headless fetch can take a while on slow/large pages; give the proxy room
@@ -99,130 +100,90 @@ export default function LpReviewPanel({
     return () => ro.disconnect()
   }, [])
 
-  const handleIframeLoad = useCallback(() => {
-    // The proxy is same-origin, so we can read the doc directly. It injects a
-    // <meta name="__preview_status"> marker — "ok" means real cleaned content,
-    // "fallback" means upstream blocked/failed and the proxy returned an
-    // error card. In the fallback case, surface our own polished error UI
-    // instead of the embedded card.
-    try {
-      const doc = iframeRef.current?.contentDocument
-      const status = doc
-        ?.querySelector('meta[name="__preview_status"]')
-        ?.getAttribute('content')
-      if (status === 'fallback') {
-        setLoadState('error')
-        return
-      }
-    } catch {
-      /* same-origin so this shouldn't throw; fall through to 'loaded' */
-    }
-    setLoadState('loaded')
+  const postToPreview = useCallback((message: Record<string, unknown>) => {
+    iframeRef.current?.contentWindow?.postMessage({
+      channel: 'prometheus-lp-preview-v1',
+      ...message,
+    }, '*')
   }, [])
+
+  const handleIframeLoad = useCallback(() => {
+    setLoadState('loaded')
+    postToPreview({ type: 'ping' })
+  }, [postToPreview])
 
   const handleIframeError = useCallback(() => {
     setLoadState('error')
   }, [])
 
   // Click a page pin (or its sidebar card) → select it and reveal the matching
-  // comment. Stable identity so injectPins doesn't churn.
+  // comment.
   const handlePinClick = useCallback((id: string) => {
     setActivePin(prev => (prev === id ? null : id))
     commentRefs.current[id]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
   }, [])
 
-  // Draw the numbered markers directly inside the iframe's document, in the
-  // page's own (unscaled) coordinate space. The parent's CSS transform then
-  // scales them along with the page, and native scrolling moves them for free —
-  // no overlay to keep in sync.
-  const injectPins = useCallback(() => {
-    const doc = iframeRef.current?.contentDocument
-    if (!doc || !doc.body) return
-    let layer = doc.getElementById('__lp_pin_layer') as HTMLDivElement | null
-    if (!layer) {
-      layer = doc.createElement('div')
-      layer.id = '__lp_pin_layer'
-      layer.style.cssText = 'position:absolute;top:0;left:0;margin:0;padding:0;pointer-events:none;z-index:2147483647;'
-      doc.body.appendChild(layer)
-    }
-    const scroller = doc.scrollingElement || doc.documentElement
-    const w = scroller.scrollWidth || 1
-    const h = scroller.scrollHeight || 1
-    layer.textContent = ''
-
-    const marker = (num: number, xPct: number, yPct: number, opts: { active: boolean; onClick?: () => void }) => {
-      const el = doc.createElement('div')
-      el.textContent = String(num)
-      el.style.cssText = [
-        'position:absolute',
-        `left:${(xPct / 100) * w}px`,
-        `top:${(yPct / 100) * h}px`,
-        'transform:translate(-50%,-50%)',
-        'width:26px', 'height:26px', 'border-radius:50%',
-        `background:${opts.active ? '#ffffff' : '#6366f1'}`,
-        `color:${opts.active ? '#6366f1' : '#ffffff'}`,
-        'border:2px solid #ffffff',
-        'font:700 12px/1 system-ui,-apple-system,sans-serif',
-        'display:flex', 'align-items:center', 'justify-content:center',
-        'box-shadow:0 2px 8px rgba(0,0,0,0.45)',
-        `pointer-events:${opts.onClick ? 'auto' : 'none'}`,
-        'cursor:pointer', 'user-select:none',
-      ].join(';')
-      if (opts.onClick) {
-        const cb = opts.onClick
-        el.addEventListener('click', ev => { ev.preventDefault(); ev.stopPropagation(); cb() })
-      }
-      layer!.appendChild(el)
-    }
-
-    const ordered = comments
-      .filter(c => c.pin_x != null)
-      .sort((a, b) => a.created_at.localeCompare(b.created_at))
-    ordered.forEach((c, i) => {
-      marker(i + 1, c.pin_x as number, c.pin_y as number, { active: activePin === c.id, onClick: () => handlePinClick(c.id) })
-    })
-    if (pendingPin) {
-      marker(ordered.length + 1, pendingPin.x, pendingPin.y, { active: true })
-    }
-  }, [comments, activePin, pendingPin, handlePinClick])
-
-  // Re-draw pins when they change, when the LP finishes loading, or when the
-  // device toggle reflows the document (that reflow is async — re-run shortly
-  // after so markers land on the new layout).
+  // Sync parent-owned pin state into the sandboxed document. Only coordinates,
+  // ordering, and selection state cross the boundary.
   useEffect(() => {
     if (loadState !== 'loaded') return
-    injectPins()
-    const t = setTimeout(injectPins, 250)
-    return () => clearTimeout(t)
-  }, [injectPins, loadState, device])
+    const markers = pinnedOrdered.map((comment, index) => ({
+      number: index + 1,
+      x: comment.pin_x,
+      y: comment.pin_y,
+      active: activePin === comment.id,
+      pending: false,
+    }))
+    if (pendingPin) {
+      markers.push({
+        number: pinnedOrdered.length + 1,
+        x: pendingPin.x,
+        y: pendingPin.y,
+        active: true,
+        pending: true,
+      })
+    }
+    postToPreview({ type: 'markers', markers })
+  }, [activePin, loadState, pendingPin, pinnedOrdered, postToPreview, device])
 
-  // While pinning, capture the next click on the page as the pin location.
   useEffect(() => {
-    if (!pinMode || loadState !== 'loaded') return
-    const doc = iframeRef.current?.contentDocument
-    if (!doc) return
-    const onClick = (e: MouseEvent) => {
-      e.preventDefault()
-      e.stopPropagation()
-      const scroller = doc.scrollingElement || doc.documentElement
-      const w = scroller.scrollWidth || 1
-      const h = scroller.scrollHeight || 1
-      const x = Math.min(100, Math.max(0, (e.pageX / w) * 100))
-      const y = Math.min(100, Math.max(0, (e.pageY / h) * 100))
-      setPendingPin({ x, y })
-      setPinMode(false)
+    if (loadState !== 'loaded') return
+    postToPreview({ type: 'pin-mode', enabled: pinMode })
+  }, [loadState, pinMode, postToPreview])
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.source !== iframeRef.current?.contentWindow) return
+      const data = event.data as {
+        channel?: string
+        type?: string
+        status?: string
+        number?: number
+        x?: number
+        y?: number
+      }
+      if (data?.channel !== 'prometheus-lp-preview-v1') return
+
+      if (data.type === 'status') {
+        setLoadState(data.status === 'fallback' ? 'error' : 'loaded')
+      } else if (
+        data.type === 'pin-selected' &&
+        typeof data.x === 'number' &&
+        typeof data.y === 'number'
+      ) {
+        setPendingPin({
+          x: Math.min(100, Math.max(0, data.x)),
+          y: Math.min(100, Math.max(0, data.y)),
+        })
+        setPinMode(false)
+      } else if (data.type === 'pin-activated' && typeof data.number === 'number') {
+        const comment = pinnedOrdered[data.number - 1]
+        if (comment) handlePinClick(comment.id)
+      }
     }
-    doc.addEventListener('click', onClick, true)
-    // Crosshair cursor via an injected <style> (a freshly-created node) rather
-    // than mutating body.style, which the ref is reachable from.
-    const cursorStyle = doc.createElement('style')
-    cursorStyle.textContent = '*{cursor:crosshair !important}'
-    ;(doc.head ?? doc.body).appendChild(cursorStyle)
-    return () => {
-      doc.removeEventListener('click', onClick, true)
-      cursorStyle.remove()
-    }
-  }, [pinMode, loadState])
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [handlePinClick, pinnedOrdered])
 
   async function handlePost(e: React.FormEvent) {
     e.preventDefault()
@@ -444,7 +405,8 @@ export default function LpReviewPanel({
                     // its own and leave dark text on dark.
                     style={{ border: 'none', display: 'block', background: '#ffffff' }}
                     title="Landing page preview"
-                    sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+                    sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads"
+                    referrerPolicy="no-referrer"
                   />
                 </DeviceFrame>
 

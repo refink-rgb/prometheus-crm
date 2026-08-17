@@ -12,7 +12,7 @@ export async function GET(req: Request) {
   if (!token) {
     return new Response(renderErrorCard(null, 'no_token'), {
       status: 200,
-      headers: HTML_HEADERS,
+      headers: htmlHeaders(),
     })
   }
 
@@ -27,7 +27,7 @@ export async function GET(req: Request) {
   if (!sourceUrl || !/^https?:\/\//i.test(sourceUrl)) {
     return new Response(renderErrorCard(sourceUrl, 'no_url'), {
       status: 200,
-      headers: HTML_HEADERS,
+      headers: htmlHeaders(),
     })
   }
 
@@ -66,7 +66,7 @@ export async function GET(req: Request) {
   if (!html) {
     return new Response(renderErrorCard(sourceUrl, upstreamStatus || 502), {
       status: 200,
-      headers: HTML_HEADERS,
+      headers: htmlHeaders(),
     })
   }
 
@@ -74,13 +74,28 @@ export async function GET(req: Request) {
   const baseHref = sourceUrl.replace(/[?#].*$/, '').replace(/[^/]*$/, '')
   const cleaned = sanitizeForPreview(html, baseHref, sourceUrl)
 
-  return new Response(cleaned, { status: 200, headers: HTML_HEADERS })
+  return new Response(cleaned, {
+    status: 200,
+    headers: htmlHeaders(new URL(sourceUrl).origin),
+  })
 }
 
-const HTML_HEADERS = {
-  'content-type': 'text/html; charset=utf-8',
-  'x-robots-tag': 'noindex, nofollow, noarchive',
-  'cache-control': 'no-store, no-cache, must-revalidate',
+function htmlHeaders(sourceOrigin?: string): Record<string, string> {
+  // Apply the sandbox in the response too, so direct visits to /api/preview
+  // remain isolated instead of relying only on the embedding iframe.
+  const sandbox = sourceOrigin
+    ? `sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads; form-action ${sourceOrigin}; frame-ancestors 'self'`
+    : `sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox; frame-ancestors 'self'`
+
+  return {
+    'content-type': 'text/html; charset=utf-8',
+    'content-security-policy': sandbox,
+    'permissions-policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=()',
+    'referrer-policy': 'no-referrer',
+    'x-content-type-options': 'nosniff',
+    'x-robots-tag': 'noindex, nofollow, noarchive',
+    'cache-control': 'no-store, no-cache, must-revalidate',
+  }
 }
 
 function sanitizeForPreview(
@@ -94,10 +109,10 @@ function sanitizeForPreview(
   // fallback card.
   $('head').prepend('<meta name="__preview_status" content="ok">')
 
-  // 1. Strip all scripts. A visual review needs no JS; this removes
-  // frame-busting, CORS fetches, cookie/geo/email popups, chat widgets.
-  $('script').remove()
-  $('noscript').remove()
+  // 1. Keep the page's scripts so JavaScript-rendered product grids and theme
+  // interactions work. The response CSP and iframe both omit
+  // allow-same-origin, so these scripts execute in an opaque origin and cannot
+  // inherit Prometheus credentials or reach the parent document.
 
   // 2. Drop CSP / X-Frame meta tags.
   $("meta[http-equiv='Content-Security-Policy']").remove()
@@ -140,14 +155,18 @@ function sanitizeForPreview(
     if (dataSrcset && !$el.attr('srcset')) $el.attr('srcset', dataSrcset)
   })
 
-  // 6. Drop preload/prefetch hints that point at JS.
-  $('link[rel="preload"][as="script"]').remove()
-  $('link[rel="modulepreload"]').remove()
+  // 6. Drop speculative prefetches. Script and module preloads stay because
+  // the interactive preview now executes the page's JavaScript.
   $('link[rel="prefetch"]').remove()
 
   // 7. Ensure a <base href> so relative URLs resolve back to the original
   // domain. Without this every relative asset 404s against our origin.
-  if (!$('base').length) $('head').prepend(`<base href="${baseHref}">`)
+  $('base').remove()
+  $('head').prepend(`<base href="${escapeHtml(baseHref)}">`)
+
+  // A meta refresh can navigate the iframe away from the sandboxed proxy and
+  // replace the review with a frame-blocked live page.
+  $("meta[http-equiv='refresh']").remove()
 
   // 8. Reveal CSS — many themes hide body until JS marks the page "loaded",
   // and many animations sit at opacity:0 waiting for an IntersectionObserver
@@ -185,13 +204,18 @@ function sanitizeForPreview(
     $el.attr('style', `${$el.attr('style') || ''};${reveal}`)
   })
 
-  // 10. Discreet "static snapshot" badge linking to the live page.
+  // 10. Bridge the isolated document to the review UI. It only exchanges pin
+  // coordinates and readiness state; no comments, tokens, or account data enter
+  // the untrusted frame.
+  $('head').append(`<script>${PREVIEW_BRIDGE_SCRIPT}</script>`)
+
+  // 11. Discreet preview badge linking to the live page.
   $('body').append(`
     <div style="position:fixed;bottom:12px;left:12px;z-index:2147483647;
       background:rgba(0,0,0,.7);color:#fff;font:11px -apple-system,sans-serif;
       padding:6px 10px;border-radius:6px;pointer-events:auto;">
-      Static snapshot ·
-      <a href="${sourceUrl}" target="_blank" rel="noopener noreferrer"
+      Isolated preview ·
+      <a href="${escapeHtml(sourceUrl)}" target="_blank" rel="noopener noreferrer"
          style="color:#fff;text-decoration:underline;">Open live page</a>
     </div>
   `)
@@ -199,19 +223,136 @@ function sanitizeForPreview(
   return $.html()
 }
 
+const PREVIEW_BRIDGE_SCRIPT = String.raw`
+(() => {
+  const channel = 'prometheus-lp-preview-v1'
+  const layerId = '__lp_pin_layer'
+  const cursorId = '__lp_pin_cursor'
+  let markers = []
+  let pinMode = false
+
+  const send = (type, payload = {}) => {
+    if (window.parent === window) return
+    window.parent.postMessage({ channel, type, ...payload }, '*')
+  }
+
+  const size = () => {
+    const scroller = document.scrollingElement || document.documentElement
+    return {
+      width: Math.max(1, scroller?.scrollWidth || 0),
+      height: Math.max(1, scroller?.scrollHeight || 0),
+    }
+  }
+
+  const renderMarkers = () => {
+    if (!document.body) return
+    let layer = document.getElementById(layerId)
+    if (!layer) {
+      layer = document.createElement('div')
+      layer.id = layerId
+      layer.style.cssText = 'position:absolute;inset:0 auto auto 0;margin:0;padding:0;pointer-events:none;z-index:2147483647'
+      document.body.appendChild(layer)
+    }
+    layer.textContent = ''
+    const documentSize = size()
+
+    for (const marker of markers) {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.textContent = String(marker.number)
+      button.setAttribute('aria-label', 'Open pinned comment ' + marker.number)
+      button.style.cssText = [
+        'position:absolute',
+        'left:' + ((marker.x / 100) * documentSize.width) + 'px',
+        'top:' + ((marker.y / 100) * documentSize.height) + 'px',
+        'transform:translate(-50%,-50%)',
+        'width:26px', 'height:26px', 'border-radius:50%',
+        'background:' + (marker.active ? '#ffffff' : '#6366f1'),
+        'color:' + (marker.active ? '#6366f1' : '#ffffff'),
+        'border:2px solid #ffffff',
+        'font:700 12px/1 system-ui,-apple-system,sans-serif',
+        'display:flex', 'align-items:center', 'justify-content:center',
+        'box-shadow:0 2px 8px rgba(0,0,0,0.45)',
+        'pointer-events:' + (marker.pending ? 'none' : 'auto'),
+        'cursor:pointer', 'user-select:none', 'padding:0',
+      ].join(';')
+      if (!marker.pending) {
+        button.addEventListener('click', event => {
+          event.preventDefault()
+          event.stopPropagation()
+          send('pin-activated', { number: marker.number })
+        })
+      }
+      layer.appendChild(button)
+    }
+  }
+
+  const setPinMode = enabled => {
+    pinMode = Boolean(enabled)
+    document.getElementById(cursorId)?.remove()
+    if (!pinMode) return
+    const style = document.createElement('style')
+    style.id = cursorId
+    style.textContent = '*{cursor:crosshair !important}'
+    ;(document.head || document.body).appendChild(style)
+  }
+
+  window.addEventListener('message', event => {
+    if (event.source !== window.parent) return
+    const data = event.data
+    if (!data || data.channel !== channel) return
+    if (data.type === 'markers') {
+      markers = Array.isArray(data.markers) ? data.markers : []
+      renderMarkers()
+    } else if (data.type === 'pin-mode') {
+      setPinMode(data.enabled)
+    } else if (data.type === 'ping') {
+      send('status', { status: 'ok' })
+      renderMarkers()
+    }
+  })
+
+  document.addEventListener('click', event => {
+    if (!pinMode || event.target?.closest?.('#' + layerId)) return
+    event.preventDefault()
+    event.stopPropagation()
+    const documentSize = size()
+    const x = Math.min(100, Math.max(0, (event.pageX / documentSize.width) * 100))
+    const y = Math.min(100, Math.max(0, (event.pageY / documentSize.height) * 100))
+    setPinMode(false)
+    send('pin-selected', { x, y })
+  }, true)
+
+  const ready = () => {
+    renderMarkers()
+    send('status', { status: 'ok' })
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', ready, { once: true })
+  } else {
+    ready()
+  }
+  window.addEventListener('load', ready, { once: true })
+  window.addEventListener('resize', renderMarkers)
+  if (window.ResizeObserver) new ResizeObserver(renderMarkers).observe(document.documentElement)
+})()
+`
+
+function escapeHtml(value: string): string {
+  return value.replace(
+    /[&<>"']/g,
+    (char) =>
+      ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+      })[char]!,
+  )
+}
+
 function renderErrorCard(sourceUrl: string | null, status: number | string): string {
-  const esc = (s: string) =>
-    s.replace(
-      /[&<>"']/g,
-      (c) =>
-        ({
-          '&': '&amp;',
-          '<': '&lt;',
-          '>': '&gt;',
-          '"': '&quot;',
-          "'": '&#39;',
-        })[c]!,
-    )
   const reason =
     status === 'no_url'
       ? 'No landing page URL has been set yet'
@@ -223,13 +364,13 @@ function renderErrorCard(sourceUrl: string | null, status: number | string): str
             ? 'The page was not found'
             : 'The site is temporarily unavailable'
   const link = sourceUrl
-    ? `<a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer"
+    ? `<a href="${escapeHtml(sourceUrl)}" target="_blank" rel="noopener noreferrer"
          style="display:inline-block;background:#18181b;color:#fff;padding:8px 14px;border-radius:6px;text-decoration:none">Open live page →</a>`
     : ''
   const code = sourceUrl
-    ? `<code style="display:block;font-size:12px;color:#71717a;background:#f4f4f5;padding:8px 12px;border-radius:6px;margin-bottom:16px;word-break:break-all">${esc(sourceUrl)}</code>`
+    ? `<code style="display:block;font-size:12px;color:#71717a;background:#f4f4f5;padding:8px 12px;border-radius:6px;margin-bottom:16px;word-break:break-all">${escapeHtml(sourceUrl)}</code>`
     : ''
-  return `<!doctype html><meta charset="utf-8"><meta name="__preview_status" content="fallback"><body style="font:15px/1.5 -apple-system,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0;background:#fafafa">
+  return `<!doctype html><meta charset="utf-8"><meta name="__preview_status" content="fallback"><script>if(parent!==window)parent.postMessage({channel:'prometheus-lp-preview-v1',type:'status',status:'fallback'},'*')</script><body style="font:15px/1.5 -apple-system,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0;background:#fafafa">
     <div style="max-width:460px;padding:32px;background:#fff;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.06)">
       <h1 style="font-size:18px;margin:0 0 8px">Can't render this page here</h1>
       <p style="color:#52525b;margin:0 0 16px">${reason}. The link itself is fine — opening it directly works.</p>
