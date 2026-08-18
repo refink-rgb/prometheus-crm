@@ -128,6 +128,32 @@ call silently applied.
 Percentages as percent (`2.90` means 2.90%, not a fraction). ROAS as a plain
 multiple (`2.5`, not `250%`).
 
+**PAUSED at Meta means retire it, not just skip it this run.** This is about the
+entity's actual `effective_status` field from Meta — the platform's own on/off
+switch — not the truncation gap described above (a real gap can make a still-ACTIVE
+entity look quiet for a stretch; that is not what this rule is about). For every
+entity in the work list, fetch `effective_status` alongside the metrics — one extra
+attribute-only call per entity is enough:
+
+```
+ads_get_ad_entities({ level: <same level as the entry>, fields: ["id", "effective_status"] })
+```
+
+filtered to that entity's `campaign.id` or `adset.id`. If it comes back `PAUSED`
+(also treat `ARCHIVED` / `DELETED` the same way), Giovane's standing rule is: a
+paused campaign here has ended for good, not paused-for-now — so don't keep
+re-checking it every run. Add its `tracked_campaign_id` to a `paused_campaigns`
+array in this call's POST payload (see Step 4). The route sets `ended_on` for it
+server-side, which is what removes it from the next `GET` work list — this is a
+**one-way door**: if the client actually wants a paused campaign's tracking
+resumed later, that's a human decision made in the CRM's Campaign Tracking panel
+(clearing `ended_on`), not something a future ingest run undoes on its own.
+
+A campaign that's still pulling real spend/metrics for the days you fetched is
+ACTIVE by definition for this rule, even if its `effective_status` briefly reads
+something else mid-call — trust the explicit `effective_status` field over
+guessing from a data gap.
+
 ## Step 4 — Post the rows back
 
 ```
@@ -152,12 +178,17 @@ Content-Type: application/json
       "unique_outbound_ctr": 1.23,
       "attribution_window": "1d_view_7d_click"
     }
-  ]
+  ],
+  "paused_campaigns": ["<tracked_campaign_id>", "..."]
 }
 ```
 
 You can batch every entity's rows into a single POST call — that's the normal case,
-not an exception.
+not an exception. `paused_campaigns` is optional and goes in the SAME call as the
+rows for that run — list every `tracked_campaign_id` you found PAUSED (or
+ARCHIVED/DELETED) at Meta this run. `rows` may be empty only if every entity in
+this run came back paused with nothing to pull; don't send an empty call with
+neither.
 
 ## Step 5 — Report back plainly
 
@@ -166,6 +197,9 @@ State clearly:
 
 - `rows_upserted`
 - `rows_rejected` — if this is anything above 0, lead with it and show the reasons.
+- `paused_campaigns` — if you reported any, say which ones were newly marked
+  ended (`marked_ended`) vs already closed out (`already_ended`) vs not recognized
+  (`unknown` — a wrong id, worth a second look).
   Don't say "done" and bury a rejection in the details.
 - `rows_flagged` — the row was stored but its own numbers disagreed with each other
   (e.g. reported ROAS didn't match revenue/spend); show the warnings.

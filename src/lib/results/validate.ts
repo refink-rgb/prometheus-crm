@@ -505,6 +505,11 @@ export function identityOf(c: Pick<CampaignRef, 'meta_adset_id' | 'meta_campaign
 export interface IngestPayload {
   reported_at: string
   rows: RawResultRow[]
+  // tracked_campaign_id values the agent found PAUSED (not just quiet for a
+  // day) at Meta. The route sets ended_on for these so the next GET work-list
+  // stops asking the agent to pull them — a paused campaign never resumes on
+  // its own in this pipeline, so re-checking it every run is pure waste.
+  paused_campaigns: string[]
 }
 
 // Validates the envelope only — row-level checks are validateRows(). Returns
@@ -514,8 +519,17 @@ export function parsePayload(body: unknown): { payload: IngestPayload } | { erro
   if (!body || typeof body !== 'object') return { error: 'Body must be a JSON object.' }
   const b = body as Record<string, unknown>
 
+  const pausedCampaigns = Array.isArray(b.paused_campaigns)
+    ? b.paused_campaigns.filter((x): x is string => typeof x === 'string' && x.trim() !== '')
+    : []
+
   if (!Array.isArray(b.rows)) return { error: 'Body must include a `rows` array.' }
-  if (b.rows.length === 0) return { error: '`rows` is empty — nothing to ingest.' }
+  // Rows may be empty ONLY when the call exists purely to report paused
+  // campaigns (e.g. every one of today's entities came back paused, so there
+  // was nothing left to pull) — otherwise an empty payload is a no-op mistake.
+  if (b.rows.length === 0 && pausedCampaigns.length === 0) {
+    return { error: '`rows` is empty and no `paused_campaigns` were reported — nothing to ingest.' }
+  }
   // A cap so a runaway agent loop can't try to write a million rows in one
   // request. ~50 campaigns × 90 days of backfill fits comfortably.
   if (b.rows.length > 5000) return { error: '`rows` exceeds the 5000-row limit for a single request.' }
@@ -527,5 +541,5 @@ export function parsePayload(body: unknown): { payload: IngestPayload } | { erro
     ? new Date(b.reported_at).toISOString()
     : new Date().toISOString()
 
-  return { payload: { reported_at: reportedAt, rows: b.rows as RawResultRow[] } }
+  return { payload: { reported_at: reportedAt, rows: b.rows as RawResultRow[], paused_campaigns: pausedCampaigns } }
 }

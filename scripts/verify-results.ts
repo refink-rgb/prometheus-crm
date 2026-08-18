@@ -730,6 +730,23 @@ const badStamp = parsePayload({ reported_at: 'yesterday-ish', rows: [raw()] })
 checkTrue('unparseable reported_at also falls back rather than being stored',
   'payload' in badStamp && !Number.isNaN(Date.parse(badStamp.payload.reported_at)))
 
+console.log('\n--- payload envelope: paused_campaigns ---')
+// A day where every tracked entity came back PAUSED has nothing left to pull —
+// that must still be a valid call, not "empty rows" rejected as a mistake.
+const pausedOnly = parsePayload({ rows: [], paused_campaigns: ['tc-1', 'tc-2'] })
+check('empty rows + paused_campaigns is accepted, not rejected as empty',
+  'payload' in pausedOnly, true)
+check('paused_campaigns carried through', 'payload' in pausedOnly ? pausedOnly.payload.paused_campaigns : null, ['tc-1', 'tc-2'])
+check('still rejected when BOTH rows and paused_campaigns are empty',
+  'error' in parsePayload({ rows: [] }), true)
+check('a normal row-only payload has an empty paused_campaigns, not undefined',
+  'payload' in okPayload ? okPayload.payload.paused_campaigns : null, [])
+const messyPaused = parsePayload({ rows: [raw()], paused_campaigns: ['tc-1', '', '  ', 42, null, 'tc-1'] })
+check('non-string and blank entries are dropped (duplicates survive parsing; the route dedupes them)',
+  'payload' in messyPaused ? messyPaused.payload.paused_campaigns : null, ['tc-1', 'tc-1'])
+check('missing paused_campaigns defaults to empty, never undefined',
+  'payload' in noStamp ? noStamp.payload.paused_campaigns : null, [])
+
 // ---------------------------------------------------------------------------
 // Upsert semantics — the restatement fix
 // ---------------------------------------------------------------------------

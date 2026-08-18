@@ -261,7 +261,7 @@ export async function POST(request: Request) {
   if ('error' in parsed) {
     return NextResponse.json({ error: parsed.error }, { status: 400 })
   }
-  const { reported_at, rows } = parsed.payload
+  const { reported_at, rows, paused_campaigns } = parsed.payload
 
   const supabase = createServiceClient()
   const today = easternToday()
@@ -294,6 +294,12 @@ export async function POST(request: Request) {
   // COALESCE(adset_id, campaign_id) and adset_id is already set. Best-effort:
   // a failure here must not fail an otherwise good ingest.
   await backfillContext(supabase, tracked, rows)
+
+  // A campaign the agent found PAUSED at Meta doesn't come back on its own in
+  // this pipeline — there is no reason to keep asking the agent to re-check it
+  // every run. Setting ended_on here is what makes the GET work-list (which
+  // filters on ended_on IS NULL) stop surfacing it next time.
+  const pausedResult = await markPausedAsEnded(supabase, tracked, paused_campaigns, today)
 
   // A MANUAL ROW IS NEVER OVERWRITTEN BY THE AGENT. That is the repair path:
   // when the agent gets a day wrong, a human fixes it in the UI and the fix
@@ -405,6 +411,7 @@ export async function POST(request: Request) {
       rows_received: rows.length,
       rows_rejected: allRejected.length,
       rejected: allRejected,
+      paused_campaigns_marked_ended: pausedResult.marked_ended,
     }, { status: 500 })
   }
 
@@ -421,7 +428,59 @@ export async function POST(request: Request) {
     rejected: allRejected,
     rows_flagged: flagged.length,
     flagged: flagged.map(r => ({ stat_date: r.stat_date, warnings: r.warnings })),
+    // Campaigns the agent reported PAUSED at Meta: ended_on is now set for
+    // marked_ended, so the next GET work-list will stop including them.
+    // already_ended means tracking had already been closed out (no-op).
+    // unknown means the id wasn't a real tracked_campaign_id — surfaced so a
+    // typo'd id doesn't silently vanish.
+    paused_campaigns: pausedResult,
   })
+}
+
+// Marks tracked_campaigns as ended when the agent reported them PAUSED at
+// Meta. Only ever touches rows that are (a) actually tracked and (b) not
+// already ended — this is a one-way door per campaign, never a toggle back to
+// live, because re-opening tracking is a human decision made in the UI, not
+// something a future ingest run should undo silently.
+async function markPausedAsEnded(
+  supabase: ReturnType<typeof createServiceClient>,
+  tracked: Array<{ id: string; ended_on: string | null }>,
+  pausedCampaignIds: string[],
+  today: string,
+): Promise<{ marked_ended: string[]; already_ended: string[]; unknown: string[] }> {
+  const marked_ended: string[] = []
+  const already_ended: string[] = []
+  const unknown: string[] = []
+  if (pausedCampaignIds.length === 0) {
+    return { marked_ended, already_ended, unknown }
+  }
+
+  const byId = new Map(tracked.map(t => [t.id, t]))
+  const toEnd: string[] = []
+  for (const id of new Set(pausedCampaignIds)) {
+    const t = byId.get(id)
+    if (!t) {
+      unknown.push(id)
+    } else if (t.ended_on) {
+      already_ended.push(id)
+    } else {
+      toEnd.push(id)
+    }
+  }
+
+  if (toEnd.length > 0) {
+    const { error } = await supabase
+      .from('tracked_campaigns')
+      .update({ ended_on: today })
+      .in('id', toEnd)
+    if (error) {
+      console.error(`[results/ingest] failed to mark paused campaigns ended: ${error.message}`)
+    } else {
+      marked_ended.push(...toEnd)
+    }
+  }
+
+  return { marked_ended, already_ended, unknown }
 }
 
 type TrackedWithNames = CampaignRef & { campaign_name: string | null; adset_name: string | null }
