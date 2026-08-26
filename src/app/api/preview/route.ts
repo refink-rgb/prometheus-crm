@@ -72,7 +72,7 @@ export async function GET(req: Request) {
 
   // <base href> must end in '/' so relative asset paths resolve to the origin.
   const baseHref = sourceUrl.replace(/[?#].*$/, '').replace(/[^/]*$/, '')
-  const cleaned = sanitizeForPreview(html, baseHref, sourceUrl)
+  const cleaned = sanitizeForPreview(html, baseHref, sourceUrl, token)
 
   return new Response(cleaned, {
     status: 200,
@@ -102,6 +102,7 @@ function sanitizeForPreview(
   html: string,
   baseHref: string,
   sourceUrl: string,
+  token: string,
 ): string {
   const $ = cheerio.load(html)
 
@@ -161,8 +162,15 @@ function sanitizeForPreview(
 
   // 7. Ensure a <base href> so relative URLs resolve back to the original
   // domain. Without this every relative asset 404s against our origin.
+  //
+  // The environment shim goes immediately after it and before every script the
+  // page ships, because it has to patch `localStorage` and friends before the
+  // first theme script touches them. See PREVIEW_ENV_SHIM.
   $('base').remove()
-  $('head').prepend(`<base href="${escapeHtml(baseHref)}">`)
+  $('head').prepend(
+    `<base href="${escapeHtml(baseHref)}">` +
+      `<script>${previewEnvShim(new URL(sourceUrl).origin, token)}</script>`,
+  )
 
   // A meta refresh can navigate the iframe away from the sandboxed proxy and
   // replace the review with a frame-blocked live page.
@@ -221,6 +229,114 @@ function sanitizeForPreview(
   `)
 
   return $.html()
+}
+
+// The preview frame runs in an opaque origin (no `allow-same-origin`), which is
+// what keeps the client's page — and every third-party app script it loads —
+// away from Prometheus's origin, cookies, and storage. The cost is that the
+// browser makes three things fail for the page itself:
+//
+//   • `localStorage` / `sessionStorage` throw SecurityError on first touch
+//   • `document.cookie` throws on read *and* write
+//   • same-origin XHR is now cross-origin, so CORS blocks it
+//
+// The first two are what actually broke previews: a theme reading storage at
+// the top of its bundle throws, the script dies, and every section that script
+// was going to render stays empty — the page shows its static hero and nothing
+// below it. This shim restores in-memory equivalents so the page's JavaScript
+// keeps running, and routes the page's own XHR through /api/preview/fetch.
+//
+// It only ever fills in for APIs that are already broken here: if a real
+// storage or cookie implementation works, it is left untouched.
+function previewEnvShim(origin: string, token: string): string {
+  const proxyPrefix = `/api/preview/fetch?token=${encodeURIComponent(token)}&path=`
+  return String.raw`
+(() => {
+  const ORIGIN = ${JSON.stringify(origin)}
+  const PROXY = ${JSON.stringify(proxyPrefix)}
+
+  // ── Storage ────────────────────────────────────────────────────────────────
+  const memoryStorage = () => {
+    const entries = new Map()
+    const api = {
+      getItem: key => (entries.has(String(key)) ? entries.get(String(key)) : null),
+      setItem: (key, value) => { entries.set(String(key), String(value)) },
+      removeItem: key => { entries.delete(String(key)) },
+      clear: () => { entries.clear() },
+      key: index => Array.from(entries.keys())[index] ?? null,
+    }
+    Object.defineProperty(api, 'length', { get: () => entries.size })
+    return api
+  }
+
+  for (const name of ['localStorage', 'sessionStorage']) {
+    let usable = false
+    try {
+      const store = window[name]
+      store.setItem('__prometheus_probe__', '1')
+      store.removeItem('__prometheus_probe__')
+      usable = true
+    } catch (_) { /* opaque origin → SecurityError */ }
+    if (usable) continue
+    try {
+      Object.defineProperty(window, name, {
+        value: memoryStorage(), configurable: true, writable: false,
+      })
+    } catch (_) { /* nothing more we can do; page may still degrade */ }
+  }
+
+  // ── Cookies ────────────────────────────────────────────────────────────────
+  let cookiesUsable = false
+  try { void document.cookie; cookiesUsable = true } catch (_) {}
+  if (!cookiesUsable) {
+    const jar = new Map()
+    try {
+      Object.defineProperty(Document.prototype, 'cookie', {
+        configurable: true,
+        get: () => Array.from(jar, ([k, v]) => k + '=' + v).join('; '),
+        set: value => {
+          const pair = String(value).split(';')[0]
+          const split = pair.indexOf('=')
+          if (split < 1) return
+          jar.set(pair.slice(0, split).trim(), pair.slice(split + 1).trim())
+        },
+      })
+    } catch (_) {}
+  }
+
+  // ── Same-origin XHR ────────────────────────────────────────────────────────
+  // Subresources (images, CSS, scripts) load cross-origin without CORS, so only
+  // fetch/XHR need redirecting. Anything pointed at a third party is left alone.
+  const reroute = url => {
+    try {
+      const parsed = new URL(String(url), document.baseURI)
+      if (parsed.origin !== ORIGIN) return String(url)
+      return PROXY + encodeURIComponent(parsed.pathname + parsed.search)
+    } catch (_) { return String(url) }
+  }
+
+  const nativeFetch = window.fetch
+  if (typeof nativeFetch === 'function') {
+    window.fetch = function (input, init) {
+      try {
+        if (typeof input === 'string' || input instanceof URL) {
+          return nativeFetch.call(this, reroute(input), init)
+        }
+        if (input && typeof input.url === 'string') {
+          return nativeFetch.call(this, new Request(reroute(input.url), input), init)
+        }
+      } catch (_) {}
+      return nativeFetch.apply(this, arguments)
+    }
+  }
+
+  const nativeOpen = XMLHttpRequest.prototype.open
+  XMLHttpRequest.prototype.open = function (method, url, ...rest) {
+    try { return nativeOpen.call(this, method, reroute(url), ...rest) }
+    catch (_) { return nativeOpen.apply(this, arguments) }
+  }
+})()
+`
 }
 
 const PREVIEW_BRIDGE_SCRIPT = String.raw`
