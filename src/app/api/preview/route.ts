@@ -72,12 +72,25 @@ export async function GET(req: Request) {
 
   // <base href> must end in '/' so relative asset paths resolve to the origin.
   const baseHref = sourceUrl.replace(/[?#].*$/, '').replace(/[^/]*$/, '')
-  const cleaned = sanitizeForPreview(html, baseHref, sourceUrl, token)
+  const cleaned = sanitizeForPreview(html, baseHref, sourceUrl, token, appOrigin(req))
 
   return new Response(cleaned, {
     status: 200,
     headers: htmlHeaders(new URL(sourceUrl).origin),
   })
+}
+
+// Our own origin, as the browser sees it. The shim's proxy URL has to be
+// absolute: the previewed document carries a <base href> pointing at the
+// client's domain, so a site-relative path would resolve against *their*
+// origin instead of ours.
+function appOrigin(req: Request): string {
+  const forwardedHost = req.headers.get('x-forwarded-host') ?? req.headers.get('host')
+  if (forwardedHost) {
+    const proto = req.headers.get('x-forwarded-proto') ?? 'https'
+    return `${proto}://${forwardedHost}`
+  }
+  return new URL(req.url).origin
 }
 
 function htmlHeaders(sourceOrigin?: string): Record<string, string> {
@@ -103,6 +116,7 @@ function sanitizeForPreview(
   baseHref: string,
   sourceUrl: string,
   token: string,
+  selfOrigin: string,
 ): string {
   const $ = cheerio.load(html)
 
@@ -169,7 +183,7 @@ function sanitizeForPreview(
   $('base').remove()
   $('head').prepend(
     `<base href="${escapeHtml(baseHref)}">` +
-      `<script>${previewEnvShim(new URL(sourceUrl).origin, token)}</script>`,
+      `<script>${previewEnvShim(new URL(sourceUrl).origin, token, selfOrigin)}</script>`,
   )
 
   // A meta refresh can navigate the iframe away from the sandboxed proxy and
@@ -248,8 +262,8 @@ function sanitizeForPreview(
 //
 // It only ever fills in for APIs that are already broken here: if a real
 // storage or cookie implementation works, it is left untouched.
-function previewEnvShim(origin: string, token: string): string {
-  const proxyPrefix = `/api/preview/fetch?token=${encodeURIComponent(token)}&path=`
+function previewEnvShim(origin: string, token: string, selfOrigin: string): string {
+  const proxyPrefix = `${selfOrigin}/api/preview/fetch?token=${encodeURIComponent(token)}&path=`
   return String.raw`
 (() => {
   const ORIGIN = ${JSON.stringify(origin)}
