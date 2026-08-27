@@ -403,6 +403,38 @@ const PREVIEW_BRIDGE_SCRIPT = String.raw`
     }
   }
 
+  // ── Start the review at the top of the page ────────────────────────────────
+  // Consent widgets, chat launchers, popup apps and anchor scripts all move the
+  // scroll position shortly after load — a focus() call alone scrolls its
+  // target into view. In a normal tab that is invisible; in the preview it
+  // drops the reviewer somewhere down the page, often past the last section, so
+  // the frame reads as blank. Hold the top until the reviewer scrolls, then get
+  // out of the way.
+  let reviewerScrolled = false
+  const noteInteraction = () => { reviewerScrolled = true }
+  for (const type of ['wheel', 'touchstart', 'keydown', 'pointerdown']) {
+    window.addEventListener(type, noteInteraction, { passive: true, capture: true })
+  }
+  const holdTop = () => {
+    if (reviewerScrolled) return
+    const scroller = document.scrollingElement || document.documentElement
+    if (scroller && scroller.scrollTop) scroller.scrollTop = 0
+    if (window.scrollY || window.scrollX) window.scrollTo(0, 0)
+  }
+  // A poll alongside the listeners: scroll events get coalesced, and some
+  // scripts move the position without one firing in time to catch it.
+  const holdTimer = setInterval(holdTop, 200)
+  const releaseTop = () => {
+    clearInterval(holdTimer)
+    window.removeEventListener('scroll', holdTop, true)
+    window.removeEventListener('focusin', holdTop, true)
+  }
+  try { history.scrollRestoration = 'manual' } catch (_) {}
+  window.addEventListener('scroll', holdTop, { passive: true, capture: true })
+  window.addEventListener('focusin', holdTop, true)
+  // Long enough to outlast the app scripts that jump the scroll on load.
+  setTimeout(releaseTop, 5000)
+
   const setPinMode = enabled => {
     pinMode = Boolean(enabled)
     document.getElementById(cursorId)?.remove()
