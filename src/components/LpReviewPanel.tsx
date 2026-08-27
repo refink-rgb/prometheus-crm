@@ -54,6 +54,14 @@ export default function LpReviewPanel({
   // comment to it. The iframe has an opaque origin, so a narrow postMessage
   // bridge exchanges only pin coordinates and state with the untrusted page.
   const [pinMode, setPinMode] = useState(false)
+
+  // An iframe swallows the wheel. With the cursor over the preview, scrolling
+  // the review page instead scrolls the landing page — the reviewer has to
+  // wind the whole LP to its end before the page underneath moves at all, and
+  // is left looking at its footer. So the frame stays inert until it is
+  // clicked, and goes inert again when the pointer leaves.
+  const [frameEngaged, setFrameEngaged] = useState(false)
+  const frameInteractive = frameEngaged || pinMode
   const [pendingPin, setPendingPin] = useState<{ x: number; y: number } | null>(null)
   const [activePin, setActivePin] = useState<string | null>(null)
   const commentRefs = useRef<Record<string, HTMLDivElement | null>>({})
@@ -350,7 +358,11 @@ export default function LpReviewPanel({
         </div>
 
         {/* LP embed area */}
-        <div ref={embedRef} style={{ flex: 1, overflow: 'hidden', position: 'relative', background: lpUrl ? 'var(--surface-2)' : 'var(--surface)' }}>
+        <div
+          ref={embedRef}
+          onMouseLeave={() => setFrameEngaged(false)}
+          style={{ flex: 1, overflow: 'hidden', position: 'relative', background: lpUrl ? 'var(--surface-2)' : 'var(--surface)' }}
+        >
           {lpUrl ? (
             loadState === 'error' ? (
               // Polished fallback — replaces the iframe entirely when the LP
@@ -403,12 +415,40 @@ export default function LpReviewPanel({
                     // page, authored against a browser's white viewport default. A
                     // themed background would show through any LP that doesn't set
                     // its own and leave dark text on dark.
-                    style={{ border: 'none', display: 'block', background: '#ffffff' }}
+                    style={{
+                      border: 'none', display: 'block', background: '#ffffff',
+                      // Inert until engaged, so the wheel reaches the review page.
+                      pointerEvents: frameInteractive ? 'auto' : 'none',
+                    }}
                     title="Landing page preview"
                     sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads"
                     referrerPolicy="no-referrer"
                   />
                 </DeviceFrame>
+
+                {/* Click-to-engage. Transparent, so the preview stays fully
+                    visible; the wheel passes straight through it to the review
+                    page until the reviewer clicks in. */}
+                {loadState === 'loaded' && !frameInteractive && (
+                  <div
+                    onClick={() => setFrameEngaged(true)}
+                    title="Click to scroll and interact with the page"
+                    style={{
+                      position: 'absolute', inset: 0, zIndex: 10,
+                      cursor: 'pointer', background: 'transparent',
+                    }}
+                  >
+                    <span style={{
+                      position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)',
+                      padding: '5px 11px', borderRadius: 999,
+                      background: 'rgba(0,0,0,0.62)', backdropFilter: 'blur(4px)',
+                      color: 'rgba(255,255,255,0.92)', fontSize: 11, fontWeight: 600,
+                      whiteSpace: 'nowrap', pointerEvents: 'none',
+                    }}>
+                      Click to interact
+                    </span>
+                  </div>
+                )}
 
                 {/* Loading overlay — covers the iframe so the broken-content flash is never visible */}
                 {loadState === 'loading' && (

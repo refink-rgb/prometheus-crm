@@ -196,6 +196,9 @@ function sanitizeForPreview(
   $('head').append(`
     <style id="__preview_reveal">
       html, body { visibility: visible !important; opacity: 1 !important; }
+      /* Reaching the end of the LP must not start scrolling the review page
+         underneath it. */
+      html { overscroll-behavior: contain !important; }
       .preloader, .page-loader, .loading-overlay, .loader-wrap,
       [data-preloader], [data-loader], .js-loading,
       .shopify-section--loading, .skeleton-loader { display: none !important; }
