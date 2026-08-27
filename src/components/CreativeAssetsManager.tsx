@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import Image from 'next/image'
-import { syncDriveImages, toggleAssetVisibility, applyAiEdits, approveAndPublishRevision, publishAssets } from '@/lib/actions'
+import { syncDriveImages, toggleAssetVisibility, applyAiEdits, approveAndPublishRevision, publishAssets, unpublishAllAssets } from '@/lib/actions'
 import { useRouter } from 'next/navigation'
 import type { CreativeAsset, ProjectComment } from '@/lib/types'
 
@@ -338,6 +338,7 @@ export default function CreativeAssetsManager({
   const [togglingId, setTogglingId] = useState<string | null>(null)
   const [lightboxAsset, setLightboxAsset] = useState<CreativeAsset | null>(null)
   const [bulkPublishing, setBulkPublishing] = useState(false)
+  const [clearing, setClearing] = useState(false)
 
   async function handleSync() {
     if (!folderUrl.trim()) return
@@ -400,6 +401,30 @@ export default function CreativeAssetsManager({
       setSyncMsg(err instanceof Error ? `Error: ${err.message}` : 'Error: bulk publish failed')
     } finally {
       setBulkPublishing(false)
+    }
+  }
+
+  // Pulls every creative off the client review link. Reversible: the assets,
+  // their revisions and their comments stay, and "Publish all internal" puts
+  // them back.
+  async function handleClearClientReview() {
+    if (liveCount === 0) return
+    if (!confirm(
+      `Remove all ${liveCount} creative${liveCount !== 1 ? 's' : ''} from the client review?\n\n` +
+      `The creatives section of the review link goes empty. Nothing is deleted — the images, ` +
+      `AI revisions and client comments all stay here, and "Publish all internal" puts them back.`
+    )) return
+    setClearing(true)
+    setSyncMsg('')
+    try {
+      const n = await unpublishAllAssets(projectId, brandId)
+      setAssets(prev => prev.map(a => a.client_visible ? { ...a, client_visible: false } : a))
+      setLightboxAsset(prev => prev ? { ...prev, client_visible: false } : null)
+      setSyncMsg(`Removed ${n} creative${n !== 1 ? 's' : ''} from the client review.`)
+    } catch (err) {
+      setSyncMsg(err instanceof Error ? `Error: ${err.message}` : 'Error: could not clear the client review')
+    } finally {
+      setClearing(false)
     }
   }
 
@@ -482,6 +507,23 @@ export default function CreativeAssetsManager({
               }}
             >
               {bulkPublishing ? 'Publishing…' : `↗ Publish all internal${internalCount > 0 ? ` (${internalCount})` : ''}`}
+            </button>
+            <button
+              onClick={handleClearClientReview}
+              disabled={clearing || liveCount === 0}
+              title={liveCount === 0
+                ? 'No creatives are on the client review link'
+                : `Remove all ${liveCount} creative${liveCount !== 1 ? 's' : ''} from the client review (reversible)`}
+              style={{
+                fontSize: 12, padding: '7px 12px', borderRadius: 7, fontWeight: 600,
+                cursor: liveCount === 0 ? 'not-allowed' : 'pointer',
+                border: `1px solid ${liveCount === 0 ? 'var(--border)' : 'var(--danger)'}`,
+                background: 'transparent',
+                color: liveCount === 0 ? 'var(--text-muted)' : 'var(--danger)',
+                opacity: liveCount === 0 ? 0.5 : 1,
+              }}
+            >
+              {clearing ? 'Removing…' : `✕ Clear from client review${liveCount > 0 ? ` (${liveCount})` : ''}`}
             </button>
             {liveCount > 0 ? (
               <a

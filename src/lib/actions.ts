@@ -1088,6 +1088,46 @@ export async function publishAssets(
   return published
 }
 
+// The inverse of publishAssets: pull every creative back off the client review
+// link. Nothing is destroyed — the assets, their revisions and their pinned
+// comments all stay put, and publishing again restores them. Only the
+// client_visible flag moves, so `published_url` is left alone as the record of
+// what the client last saw.
+export async function unpublishAllAssets(
+  projectId: string,
+  brandId: string
+): Promise<number> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
+
+  const { data: rows, error: selErr } = await supabase
+    .from('creative_assets')
+    .select('id')
+    .eq('project_id', projectId)
+    .eq('client_visible', true)
+  if (selErr) throw new Error(selErr.message)
+
+  const ids = (rows ?? []).map(r => r.id)
+  if (ids.length === 0) return 0
+
+  const { error } = await supabase
+    .from('creative_assets')
+    .update({ client_visible: false })
+    .in('id', ids)
+  if (error) throw new Error(error.message)
+
+  // No pipeline event: `event_type` is CHECK-constrained to the five pipeline
+  // milestones, and pulling creatives back is a correction rather than a
+  // milestone. Adding a type here would mean a migration for no timeline value.
+
+  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+  revalidatePath(`/brands/${brandId}/projects/${projectId}/internal-review`)
+  revalidatePath(`/review`, 'layout')
+  return ids.length
+}
+
 // Internal helper: move a single asset's Drive file into the project's Delete
 // subfolder and set is_hidden=true. Does NOT do auth — callers gate access.
 // Throws on Drive failure; callers decide whether to swallow that error.
