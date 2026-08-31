@@ -404,10 +404,20 @@ export default function ReviewWorkspace({
                   { key: 'original', label: 'Original', url: null as string | null, thumb: originalUrl, fullUrl: full(active), at: null as string | null },
                   ...activeRevs.map(r => ({ key: r.id, label: `Edit ${r.revision_number}`, url: r.image_url, thumb: r.image_url, fullUrl: r.image_url, at: r.created_at })),
                 ]
+                // client_visible is the "is the client seeing this at all" flag —
+                // it is exactly what the client review link filters on.
+                // published_url only records WHICH version was sent, and
+                // publishAssets leaves it null for an unedited ad, so
+                // visible + null means the client is looking at the Original.
+                //
+                // Reading null as "nothing sent yet" made the stack contradict
+                // the Visible-to-client switch directly above it, and suppressed
+                // the stale warning in the one case it matters most: an ad
+                // published as the Original that has since been revised.
                 const publishedUrl = active.published_url
-                // null published_url + never published = nothing sent yet
+                const clientSees = !!active.client_visible
                 const isLive = (url: string | null) =>
-                  publishedUrl ? url === publishedUrl : false
+                  clientSees && (publishedUrl ? url === publishedUrl : url === null)
                 const anyLive = rows.some(r => isLive(r.url))
                 const latest = rows[rows.length - 1]
                 const stale = anyLive && !isLive(latest.url)
@@ -422,7 +432,9 @@ export default function ReviewWorkspace({
                         </span>
                       )}
                       {!anyLive && (
-                        <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)' }}>nothing sent yet</span>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)' }}>
+                          {clientSees ? 'visible, version unknown' : 'nothing sent yet'}
+                        </span>
                       )}
                     </div>
 
