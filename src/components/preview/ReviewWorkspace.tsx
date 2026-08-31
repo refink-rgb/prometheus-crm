@@ -9,6 +9,8 @@ import {
   approveAndPublishRevision,
   setAssetClientVisible,
   publishAssets,
+  toggleCommentResolved,
+  uploadAssetRevision,
 } from '@/lib/actions'
 
 // Review, inline in the Creatives tab. Replaces the separate /internal-review
@@ -57,6 +59,7 @@ export default function ReviewWorkspace({
   const [filter, setFilter] = useState<Filter>('all')
   const [selected, setSelected] = useState<string | null>(assets[0]?.id ?? null)
   const [zoom, setZoom] = useState(false)
+  const [uploading, setUploading] = useState(false)
   const [err, setErr] = useState('')
 
   // Internal and client approval are separate columns. One set of counts for
@@ -233,6 +236,40 @@ export default function ReviewWorkspace({
                 </div>
               )}
 
+              {/* Where a fixed file goes — straight onto this asset, not a Drive subfolder */}
+              <label style={{
+                display: 'flex', alignItems: 'center', gap: 9, padding: '9px 11px', marginBottom: 10,
+                border: '1px dashed var(--border-strong)', borderRadius: 8,
+                cursor: uploading || pending ? 'wait' : 'pointer',
+              }}>
+                <input
+                  type="file"
+                  accept="image/*"
+                  disabled={uploading || pending}
+                  style={{ display: 'none' }}
+                  onChange={async e => {
+                    const f = e.target.files?.[0]
+                    if (!f) return
+                    setUploading(true); setErr('')
+                    try {
+                      const fd = new FormData()
+                      fd.append('file', f); fd.append('asset_id', active.id)
+                      fd.append('project_id', projectId); fd.append('brand_id', brandId)
+                      const r = await uploadAssetRevision(fd)
+                      if (!r.ok) setErr(r.error); else router.refresh()
+                    } catch (ex) { setErr(ex instanceof Error ? ex.message : 'Upload failed') }
+                    finally { setUploading(false); e.target.value = '' }
+                  }}
+                />
+                <span style={{ fontSize: 15 }}>⬆</span>
+                <div>
+                  <div style={{ fontSize: 12.5, fontWeight: 600 }}>{uploading ? 'Uploading…' : 'Upload revised version'}</div>
+                  <div style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>
+                    Becomes Edit {activeRevs.length + 1}. The client keeps seeing the published version until you send it.
+                  </div>
+                </div>
+              </label>
+
               {/* Visible-to-client switch */}
               <label style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '8px 11px', border: '1px solid var(--border)', borderRadius: 8, marginBottom: 12, cursor: pending ? 'wait' : 'pointer' }}>
                 <input
@@ -263,26 +300,60 @@ export default function ReviewWorkspace({
                 {activeRevs.length === 0 && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>no edits yet</span>}
               </div>
 
-              <div style={{ fontSize: 10.5, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 7 }}>
-                Comments ({commentsFor[active.id]?.length ?? 0})
-              </div>
-              {(commentsFor[active.id] ?? []).map(c => (
-                <div key={c.id} style={{ padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 8, marginBottom: 6 }}>
-                  <div style={{ display: 'flex', gap: 7, alignItems: 'center', marginBottom: 4, flexWrap: 'wrap' }}>
-                    <strong style={{ fontSize: 11.5 }}>{c.author_name}</strong>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 9.5, fontWeight: 700, color: c.audience === 'internal' ? 'var(--text-muted)' : '#60a5fa' }}>
-                      <Dot color={c.audience === 'internal' ? 'var(--text-muted)' : '#60a5fa'} size={6} />
-                      {c.audience === 'internal' ? 'Internal' : 'Client'}
-                    </span>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 9.5, fontWeight: 700, color: c.resolved_at ? 'var(--success)' : 'var(--text-muted)' }}>
-                      <Dot color={c.resolved_at ? 'var(--success)' : 'var(--border-strong)'} size={6} />
-                      {c.resolved_at ? 'Resolved' : 'Open'}
-                    </span>
+              {(() => {
+                const all = commentsFor[active.id] ?? []
+                const client = all.filter(c => c.audience !== 'internal')
+                const internal = all.filter(c => c.audience === 'internal')
+                if (all.length === 0) return <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>No comments on this creative.</p>
+
+                // Two labelled groups, never one mixed list. Which audience a note
+                // came from changes what you do about it, so it should never take
+                // a second read to work out.
+                const group = (title: string, list: typeof all, accent: string) => list.length === 0 ? null : (
+                  <div key={title} style={{ marginBottom: 14 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 7 }}>
+                      <Dot color={accent} />
+                      <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase', color: accent }}>{title}</span>
+                      <span style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>
+                        {list.filter(c => !c.resolved_at).length} open of {list.length}
+                      </span>
+                      <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+                    </div>
+                    {list.map(c => {
+                      const done = !!c.resolved_at
+                      return (
+                        <div key={c.id} style={{
+                          padding: '9px 11px', borderRadius: 8, marginBottom: 6,
+                          border: `1px solid ${done ? 'var(--border)' : `color-mix(in srgb, ${accent} 30%, var(--border))`}`,
+                          background: done ? 'transparent' : `color-mix(in srgb, ${accent} 5%, var(--surface-1))`,
+                          opacity: done ? 0.6 : 1,
+                        }}>
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                            {/* Tick it off once addressed — this is also what marks the ad "Revised". */}
+                            <input
+                              type="checkbox"
+                              checked={done}
+                              disabled={pending}
+                              title={done ? 'Mark as not addressed' : 'Mark as addressed'}
+                              onChange={e => run(() => toggleCommentResolved(c.id, projectId, brandId, e.target.checked))}
+                              style={{ width: 'auto', margin: '2px 0 0', flexShrink: 0, cursor: pending ? 'wait' : 'pointer' }}
+                            />
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <div style={{ display: 'flex', gap: 7, alignItems: 'center', marginBottom: 3, flexWrap: 'wrap' }}>
+                                <strong style={{ fontSize: 11.5 }}>{c.author_name}</strong>
+                                <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{new Date(c.created_at).toLocaleDateString()}</span>
+                                {done && <span style={{ fontSize: 9.5, fontWeight: 700, color: 'var(--success)' }}>✓ ADDRESSED</span>}
+                              </div>
+                              <div style={{ fontSize: 12.5, lineHeight: 1.5, textDecoration: done ? 'line-through' : 'none' }}>{c.content}</div>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
                   </div>
-                  <div style={{ fontSize: 12.5, lineHeight: 1.5 }}>{c.content}</div>
-                </div>
-              ))}
-              {(commentsFor[active.id]?.length ?? 0) === 0 && <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>No comments on this creative.</p>}
+                )
+                return <>{group('Client feedback', client, '#60a5fa')}{mode === 'internal' && group('Internal notes', internal, 'var(--text-secondary)')}</>
+              })()}
             </div>
           ) : <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>No creatives synced yet.</p>}
         </div>

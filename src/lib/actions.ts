@@ -1100,6 +1100,67 @@ export async function publishAssets(
 // anything that leaves the root folder), so a value set by hand there can be
 // flipped back by a routine sync — and it also hides the asset from our own
 // editors. client_visible is the client-facing flag and nothing else writes it.
+// Upload a revised creative straight onto the asset it replaces.
+//
+// This is the answer to "where does the fixed file go". Today editors put
+// revisions in a Drive subfolder, which breaks the sync twice over: it only
+// reads the root folder, and it soft-hides anything that left it. Worse, a new
+// Drive file gets a new drive_file_id and lands as a SEPARATE asset, orphaned
+// from the comments and status on the one it was meant to replace.
+//
+// Uploading here writes the same fields an AI edit writes, so the revision
+// attaches to the existing asset and shows up as the next Edit in its history.
+// Drive stays the pristine v1 source and nothing has to move inside it.
+export async function uploadAssetRevision(
+  formData: FormData,
+): Promise<{ ok: true; revisionNumber: number | null } | { ok: false; error: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
+
+  const file = formData.get('file') as File | null
+  const assetId = formData.get('asset_id') as string
+  const projectId = formData.get('project_id') as string
+  const brandId = formData.get('brand_id') as string
+  if (!file || !assetId) return { ok: false, error: 'Missing file or asset.' }
+  if (!file.type.startsWith('image/')) return { ok: false, error: 'That is not an image file.' }
+
+  try {
+    const buffer = Buffer.from(await file.arrayBuffer())
+    // Same path shape the AI editor uses, so both kinds of revision live together.
+    const path = `revisions/${assetId}-${Date.now()}.png`
+    const { error: upErr } = await supabase.storage
+      .from('project-images')
+      .upload(path, buffer, { contentType: file.type || 'image/png', upsert: false, cacheControl: '31536000' })
+    if (upErr) return { ok: false, error: `Upload failed: ${upErr.message}` }
+
+    const { data: { publicUrl } } = supabase.storage.from('project-images').getPublicUrl(path)
+
+    // revision_url only — NOT published_url. The client keeps seeing the last
+    // published version until someone explicitly sends the latest.
+    const { error } = await supabase
+      .from('creative_assets')
+      .update({ revision_url: publicUrl, revision_created_at: new Date().toISOString() })
+      .eq('id', assetId)
+    if (error) return { ok: false, error: `Failed to attach revision: ${error.message}` }
+
+    const { recordAssetRevision } = await import('@/lib/revisions')
+    const revisionNumber = await recordAssetRevision(supabase, {
+      assetId,
+      imageUrl: publicUrl,
+      prompt: null,
+      createdBy: user.email ?? null,
+    })
+
+    revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+    revalidatePath(`/preview/project/${projectId}`)
+    return { ok: true, revisionNumber }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Upload failed.' }
+  }
+}
+
 export async function setAssetClientVisible(
   assetId: string,
   visible: boolean,
