@@ -11,7 +11,6 @@ import {
   toggleCommentResolved,
   uploadAssetRevision,
   setClientVersion,
-  pushApprovedToDrive,
 } from '@/lib/actions'
 
 // Review, inline in the Creatives tab. Replaces the separate /internal-review
@@ -61,7 +60,6 @@ export default function ReviewWorkspace({
   const [selected, setSelected] = useState<string | null>(assets[0]?.id ?? null)
   const [zoom, setZoom] = useState(false)
   const [uploading, setUploading] = useState(false)
-  const [driveMsg, setDriveMsg] = useState('')
   // Which version is being LOOKED AT. Deliberately separate from which one the
   // client sees — previously the only interactive thing on a version row was
   // "publish it", so inspecting Edit 1 meant sending it to the client first.
@@ -146,21 +144,13 @@ export default function ReviewWorkspace({
           {counts.visible} of {assets.length} ads visible to the client
         </span>
         {clientApproved.length > 0 && (
-          <button
-            onClick={() => {
-              setDriveMsg(''); setErr('')
-              startTransition(async () => {
-                const r = await pushApprovedToDrive(projectId, brandId)
-                if (!r.ok) setErr(r.error)
-                else setDriveMsg(`${r.pushed} pushed to the Approved folder${r.replaced ? ` (${r.replaced} replaced)` : ''}.`)
-              })
-            }}
-            disabled={pending}
-            title="Copies every client-approved creative into an Approved subfolder of this project's Drive folder, for the media buyers"
-            style={btn('transparent', 'var(--text-secondary)')}
+          <a
+            href={`/api/projects/${projectId}/download?set=approved`}
+            title="Downloads a zip of every client-approved creative, using the version the client signed off"
+            style={{ ...btn('transparent', 'var(--text-secondary)'), textDecoration: 'none', display: 'inline-block' }}
           >
-            ⬆ Push {clientApproved.length} approved to Drive
-          </button>
+            ⬇ Download {clientApproved.length} approved
+          </a>
         )}
         {mode === 'internal' && approvedNotPushed.length > 0 && (
           <button
@@ -173,7 +163,6 @@ export default function ReviewWorkspace({
         )}
       </div>
 
-      {driveMsg && <div style={{ marginBottom: 12, padding: '9px 13px', borderRadius: 8, background: 'rgba(16,185,129,0.09)', border: '1px solid rgba(16,185,129,0.28)', color: 'var(--success)', fontSize: 12.5 }}>{driveMsg}</div>}
       {err && <div style={{ marginBottom: 12, padding: '9px 13px', borderRadius: 8, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', color: 'var(--danger)', fontSize: 12.5 }}>{err}</div>}
 
       {/* Counters — units on every number so "27 ads" can't read as "27 comments" */}

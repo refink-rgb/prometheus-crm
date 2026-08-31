@@ -1132,6 +1132,12 @@ export async function publishAssets(
 // parents), so files placed in this subfolder are never pulled back in as new
 // assets. Uploads overwrite by filename, so pushing twice refreshes rather than
 // accumulating "file (1).png".
+// NOT WIRED TO ANY UI. Service accounts have no storage quota of their own, so
+// uploading into a normal My Drive folder fails with "Service Accounts do not
+// have storage quota" — folders work (they cost no quota), file bytes do not.
+// Kept because it becomes a one-line re-enable if domain-wide delegation is ever
+// configured (add `subject: <a real user>` to the JWT in lib/drive.ts). Until
+// then the Download-approved zip is the handoff to media buyers.
 export async function pushApprovedToDrive(
   projectId: string,
   brandId: string,
