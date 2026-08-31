@@ -5,6 +5,8 @@ import { usePathname } from 'next/navigation'
 import { signOut } from '@/lib/actions'
 import ThemeToggle from '@/components/ThemeToggle'
 import NotificationBell from '@/components/NotificationBell'
+import UiVersionToggle from '@/components/UiVersionToggle'
+import type { UiVersion } from '@/lib/ui-version'
 import type { CapacitySummary } from '@/lib/capacity'
 
 interface SidebarProps {
@@ -12,6 +14,8 @@ interface SidebarProps {
   showFinancials: boolean
   // Management-only workload counters; null hides the block entirely.
   capacity?: CapacitySummary | null
+  /** Which interface generation is being rendered. */
+  uiVersion: UiVersion
 }
 
 function capacityColor(total: number): string {
@@ -129,7 +133,7 @@ const ShowcaseIcon = (
   </svg>
 )
 
-export default function Sidebar({ email, showFinancials, capacity = null }: SidebarProps) {
+export default function Sidebar({ email, showFinancials, capacity = null, uiVersion }: SidebarProps) {
   const pathname = usePathname()
 
   const items: NavItem[] = [
@@ -341,6 +345,7 @@ export default function Sidebar({ email, showFinancials, capacity = null }: Side
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
             <NotificationBell />
             <ThemeToggle />
+            <UiVersionToggle current={uiVersion} />
             <form action={signOut}>
               <button type="submit" style={{
                 display: 'inline-flex',
