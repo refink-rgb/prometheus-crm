@@ -118,33 +118,7 @@ function Missing({ tone = 'muted', children }: { tone?: 'warn' | 'muted'; childr
 
 type Tab = 'overview' | 'lp' | 'creatives'
 
-const SUB_NAV: Record<Tab, string[]> = {
-  // The overview tab computes its own nav (see overviewNav) — its ids can't be
-  // derived from labels like "Product & offer".
-  overview: [],
-  // lp computes its own nav (lpNav) for the same reason overview does.
-  lp: [],
-  creatives: ['Creative Brief', 'Copy Deck', 'Drive Folder', 'Review'],
-}
 
-function Row({ label, value }: { label: string; value: React.ReactNode }) {
-  if (value === null || value === undefined || value === '') return null
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: '190px 1fr', gap: 16, padding: '9px 0', borderBottom: '1px solid var(--border)' }}>
-      <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</div>
-      <div style={{ fontSize: 13, color: 'var(--text-primary)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{value}</div>
-    </div>
-  )
-}
-
-function Section({ id, title, children }: { id: string; title: string; children: React.ReactNode }) {
-  return (
-    <section id={id} style={{ marginBottom: 32, scrollMarginTop: 20 }}>
-      <h3 style={{ fontSize: 13, fontWeight: 700, marginBottom: 12, color: 'var(--text-primary)' }}>{title}</h3>
-      {children}
-    </section>
-  )
-}
 
 
 // Dot AND label, always together. Roberto's note on J36: keep the dot, but the
@@ -283,13 +257,18 @@ export default function PreviewProjectView({
     { id: 'notes', label: 'Internal notes', show: noteComments.length > 0 },
   ]).filter(n => n.show), [hasProduct, lpOpen.length, lpComments.length, noteComments.length])
 
-  const activeNav = tab === 'overview' ? overviewNav : tab === 'lp' ? lpNav : null
+  const creativesNav = useMemo(() => ([
+    { id: 'brief', label: 'Brief', show: true },
+    { id: 'copy', label: 'Copy deck', show: hasAdCopy },
+    { id: 'review', label: 'Review', show: true },
+  ]).filter(n => n.show), [hasAdCopy])
+
+  const activeNav = tab === 'overview' ? overviewNav : tab === 'lp' ? lpNav : creativesNav
 
   // Scroll-spy. This was written once before and silently did nothing — the edit
   // anchored on a line that had already changed, so activeSection stayed null and
   // the sub-nav's active state never fired on any tab.
   useEffect(() => {
-    if (!activeNav) { setActiveSection(null); return }
     const els = activeNav.map(n => document.getElementById(n.id)).filter(Boolean) as HTMLElement[]
     if (!els.length) return
     setActiveSection(activeNav[0].id)
@@ -450,7 +429,7 @@ export default function PreviewProjectView({
       <div style={{ display: 'grid', gridTemplateColumns: '210px minmax(0,1fr)', gap: 32 }}>
         {/* Sub-nav */}
         <nav style={{ position: 'sticky', top: 16, alignSelf: 'start' }}>
-          {(activeNav ?? SUB_NAV[tab].map(x => ({ id: x.replace(/[^a-z]/gi, '').toLowerCase(), label: x }))).map(({ id, label: s }) => {
+          {activeNav.map(({ id, label: s }) => {
             const on = activeSection === id
             return (
               <a
@@ -1077,34 +1056,103 @@ export default function PreviewProjectView({
 
           {tab === 'creatives' && (
             <>
-              <Section id="creativebrief" title="Creative Brief">
-                <Row label="Product" value={p.product_featured} />
-                <Row label="Offer" value={p.offer} />
-                <Row label="Retail price" value={p.retail_price} />
-                <Row label="Competitor reference" value={p.competitor_reference} />
-                <Row label="Client inspiration" value={p.client_ad_inspiration} />
-                <Row label="Editor" value={creativeEditorName} />
-              </Section>
-              <Section id="copydeck" title="Copy Deck">
-                {(['ad_headlines', 'ad_eyebrows', 'ad_subcopies'] as const).map(k => {
-                  const v = p[k] as string[] | null
-                  if (!v?.length) return null
-                  return (
-                    <div key={k} style={{ marginBottom: 16 }}>
-                      <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
-                        {k.replace('ad_', '').replace('subcopies', 'subheadlines')} ({v.length})
-                      </div>
-                      {v.map((line, i) => (
-                        <div key={i} style={{ fontSize: 13, padding: '5px 0', borderBottom: '1px solid var(--border)' }}>{line}</div>
+              {/* One card, not three. Creative Brief, Copy Deck and Drive Folder
+                  were separate sections for six rows, three arrays and a single
+                  link — and the brief half of it reprinted Overview's product,
+                  offer and price plus the header's own editor chip.
+
+                  This tab is where the ad gets made, so the product is shown
+                  rather than named: 23% of client revisions are "wrong product
+                  shown", and an editor should not have to leave the tab they are
+                  working on to see what they are drawing. */}
+              <Card id="brief" title="Brief" purpose="What you're advertising, and the words to put on it.">
+                <div style={{ display: 'grid', gridTemplateColumns: images.length ? 'auto minmax(0,1fr)' : '1fr', gap: 16, alignItems: 'start' }}>
+                  {images.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, maxWidth: 200 }}>
+                      {images.map((im, i) => (
+                        <a key={im.id} href={im.storage_url} target="_blank" rel="noreferrer">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={im.storage_url} alt={`Reference ${i + 1}`} loading="lazy"
+                            style={{ width: 62, height: 62, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--border)', display: 'block' }} />
+                        </a>
                       ))}
                     </div>
-                  )
-                })}
-              </Section>
-              <Section id="drivefolder" title="Drive Folder">
-                <Row label="Folder" value={p.drive_folder_url ? <a href={p.drive_folder_url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>Open Drive folder ↗</a> : <span style={{ color: 'var(--text-muted)' }}>Not linked</span>} />
-              </Section>
-              <Section id="review" title="Review">
+                  )}
+
+                  <div>
+                    {skus.length === 0 ? (
+                      <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-muted)' }}>Product not specified</div>
+                    ) : skus.length === 1 ? (
+                      <div style={{ fontSize: 15, fontWeight: 700 }}>{skus[0]}</div>
+                    ) : (
+                      <>
+                        <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: 4 }}>{skus.length} SKUs in this ad</div>
+                        {skus.map((sku, i) => (
+                          <div key={sku} style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 2 }}>
+                            <span style={{ flexShrink: 0, width: 16, height: 16, borderRadius: 4, background: 'var(--surface-raised)', color: 'var(--text-secondary)', fontSize: 10, display: 'grid', placeItems: 'center' }}>{i + 1}</span>
+                            <span style={{ fontSize: 13, fontWeight: 600 }}>{sku}</span>
+                          </div>
+                        ))}
+                      </>
+                    )}
+
+                    {p.offer && <div style={{ fontSize: 13, marginTop: 10, color: 'var(--text-secondary)' }}>{p.offer}</div>}
+
+                    {p.retail_price
+                      ? <div style={{ marginTop: 10 }}><Field label="Price / anchor — verbatim"><Clamp text={p.retail_price} lines={2} /></Field></div>
+                      : <div style={{ marginTop: 10 }}><Missing tone="warn">No price anchor given — don&rsquo;t put a price on the ad.</Missing></div>}
+
+                    {images.length === 0 && (
+                      <div style={{ marginTop: 10 }}>
+                        {imageFallback
+                          ? <a href={imageFallback.href} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--accent)' }}>{imageFallback.label}</a>
+                          : <Missing tone="warn">Nothing here shows what &ldquo;{skus[0] ?? 'this product'}&rdquo; looks like — don&rsquo;t guess.</Missing>}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {(p.competitor_reference || p.client_ad_inspiration) && (
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+                    <span style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginRight: 8 }}>References</span>
+                    {[p.competitor_reference, p.client_ad_inspiration].filter(Boolean).map((r, i) => (
+                      <span key={i} style={{ marginRight: 12 }}>
+                        {isUrl(r as string)
+                          ? <a href={r as string} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>{hostOf(r as string)} ↗</a>
+                          : (r as string)}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {/* A link, not a section of its own. */}
+                {p.drive_folder_url && (
+                  <div style={{ marginTop: 16 }}>
+                    <a href={p.drive_folder_url} target="_blank" rel="noreferrer"
+                      style={{ fontSize: 12, fontWeight: 600, padding: '8px 12px', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', textDecoration: 'none' }}>Drive folder ↗</a>
+                  </div>
+                )}
+              </Card>
+
+              {/* Copy, in the order an editor picks it, and liftable. It used to
+                  be a plain list on the one tab where the words actually get
+                  used, so every line was retyped by hand. */}
+              {hasAdCopy && (
+                <Card id="copy" title="Copy deck" purpose="Click any line to copy it.">
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 16 }}>
+                    {([['Headlines', p.ad_headlines], ['Subheadlines', p.ad_subcopies], ['Eyebrows', p.ad_eyebrows]] as const)
+                      .filter(([, arr]) => arr && arr.length)
+                      .map(([label, arr]) => (
+                        <div key={label}>
+                          <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: 6 }}>{label} ({arr!.length})</div>
+                          {arr!.map((line, i) => <CopyLine key={`${line}-${i}`} text={line} />)}
+                        </div>
+                      ))}
+                  </div>
+                </Card>
+              )}
+
+              <Card id="review" title="Review" purpose="Give a verdict, upload fixes, and control what the client sees.">
                 {/* /internal-review is staying. This inline workspace is for the
                     routine pass; the dedicated screen is still where you work a
                     batch at full width, so say so and link it rather than
@@ -1121,7 +1169,7 @@ export default function PreviewProjectView({
                   </Link>
                 </div>
                 <ReviewWorkspace projectId={p.id} brandId={p.brand_id} assets={assets} comments={creativeComments} revisionsByAsset={revisionsByAsset} />
-              </Section>
+              </Card>
             </>
           )}
         </div>
