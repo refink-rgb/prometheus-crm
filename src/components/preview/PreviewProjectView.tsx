@@ -4,15 +4,106 @@ import { useEffect, useMemo, useState } from 'react'
 import type { Project, Brand, CreativeAsset, ProjectComment, BrandDna, ProjectImage } from '@/lib/types'
 import type { AssetRevision } from '@/lib/revisions'
 import ReviewWorkspace from '@/components/preview/ReviewWorkspace'
-import StageTracker from '@/components/StageTracker'
 import Link from 'next/link'
 import CopyMarkdownButton from '@/components/CopyMarkdownButton'
 import { projectBriefMarkdown } from '@/lib/markdown-export'
+import { STAGE_COLORS } from '@/lib/stageColors'
+import { STAGE_LABELS, normalizeStage } from '@/lib/types'
+
+// product_featured is a semicolon-delimited SKU list in 23 of 59 populated
+// projects. Rendered as one string, a four-SKU brief reads as one product —
+// which is the shape of the single most common revision (23% of client
+// comments are "wrong product shown").
+const splitSkus = (raw: string | null | undefined): string[] =>
+  raw ? raw.split(';').map(x => x.trim()).filter(Boolean) : []
+
+const isUrl = (v: string) => /^https?:\/\//i.test(v.trim())
+const hostOf = (u: string) => { try { return new URL(u).host } catch { return u } }
+const pathOf = (u: string) => { try { return new URL(u).pathname.replace(/\/$/, '') } catch { return '' } }
+
+// Several of these fields hold far more than a field's worth of text: offer
+// descriptions average ~985 characters, and one Noble supporting_message holds
+// 52,723 — a pasted meeting transcript that renders as a ~700-line wall.
+// The character count in the toggle is load-bearing: it tells you a field is a
+// transcript before you open it.
+function Clamp({ text, lines }: { text: string; lines: number }) {
+  const [open, setOpen] = useState(false)
+  const long = text.length > lines * 90
+  return (
+    <>
+      <div style={open ? { whiteSpace: 'pre-wrap' } : {
+        display: '-webkit-box', WebkitLineClamp: lines, WebkitBoxOrient: 'vertical',
+        overflow: 'hidden', whiteSpace: 'pre-wrap',
+      }}>{text}</div>
+      {long && (
+        <button onClick={() => setOpen(v => !v)} style={{ fontSize: 11, color: 'var(--accent)', background: 'none', border: 'none', padding: '4px 0', cursor: 'pointer' }}>
+          {open ? 'Show less' : `Show all (${text.length.toLocaleString()} characters)`}
+        </button>
+      )}
+    </>
+  )
+}
+
+// Copy is meant to be lifted, not retyped.
+function CopyLine({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <button
+      onClick={async () => {
+        try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1000) } catch { /* clipboard blocked — say nothing */ }
+      }}
+      style={{
+        textAlign: 'left', width: '100%', fontSize: 13, padding: '6px 12px', marginBottom: 4,
+        border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface-2)',
+        color: copied ? 'var(--success)' : 'var(--text-primary)', cursor: 'pointer',
+        whiteSpace: 'normal', lineHeight: 1.45,
+      }}
+    >{copied ? 'Copied' : text}</button>
+  )
+}
+
+// Replaces Row on this tab. A 190px label gutter beside 22 fields is what made
+// the old Overview read as a form: every fact, load-bearing or not, got the
+// same weight.
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  if (children === null || children === undefined || children === '') return null
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 13, color: 'var(--text-primary)', lineHeight: 1.6, whiteSpace: 'pre-wrap', maxWidth: '68ch' }}>{children}</div>
+    </div>
+  )
+}
+
+function Card({ id, title, purpose, children }: { id: string; title: string; purpose: string; children: React.ReactNode }) {
+  return (
+    <section id={id} className="card" style={{ marginBottom: 32, scrollMarginTop: 20 }}>
+      <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>{title}</h3>
+      <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2, marginBottom: 16 }}>{purpose}</div>
+      {children}
+    </section>
+  )
+}
+
+// A missing fact an editor can act on, not a blank to skim past.
+function Missing({ tone = 'muted', children }: { tone?: 'warn' | 'muted'; children: React.ReactNode }) {
+  const warn = tone === 'warn'
+  return (
+    <div style={{
+      padding: '10px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+      background: warn ? 'var(--urgent-soon-bg)' : 'var(--surface-2)',
+      color: warn ? 'var(--urgent-soon)' : 'var(--text-secondary)',
+      border: `1px solid ${warn ? 'var(--urgent-soon)' : 'var(--border)'}`,
+    }}>{children}</div>
+  )
+}
 
 type Tab = 'overview' | 'lp' | 'creatives'
 
 const SUB_NAV: Record<Tab, string[]> = {
-  overview: ['Timeline', 'Project Info', 'Copy and Offer', 'Brand DNA', 'Featured Product List', 'Links / HD Photos'],
+  // The overview tab computes its own nav (see overviewNav) — its ids can't be
+  // derived from labels like "Product & offer".
+  overview: [],
   lp: ['Project Info', 'Offer Description', 'Copy & Offer', 'Deliverables', 'Client Feedback', 'Notes'],
   creatives: ['Creative Brief', 'Copy Deck', 'Drive Folder', 'Review'],
 }
@@ -89,6 +180,76 @@ export default function PreviewProjectView({
   const lpComments = useMemo(() => comments.filter(c => c.track === 'lp' || c.track === 'general'), [comments])
   const noteComments = useMemo(() => comments.filter(c => c.track === 'note'), [comments])
 
+  // One media query, used in exactly one place (section 1's split).
+  const [wide, setWide] = useState(true)
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1100px)')
+    const sync = () => setWide(mq.matches)
+    sync(); mq.addEventListener('change', sync)
+    return () => mq.removeEventListener('change', sync)
+  }, [])
+
+  const skus = useMemo(() => splitSkus(p.product_featured), [p.product_featured])
+
+  // Escalating fallback when no image is stored, so the loud "don't guess" state
+  // is reserved for a genuine dead end.
+  const imageFallback = p.product_images_link ? { href: p.product_images_link, label: 'Open product photos ↗' }
+    : p.drive_folder_url ? { href: p.drive_folder_url, label: 'Open Drive folder ↗' }
+    : p.lp_url ? { href: p.lp_url, label: 'See it on the landing page ↗' }
+    : null
+
+  const hasAdCopy = !!(p.ad_eyebrows?.length || p.ad_headlines?.length || p.ad_subcopies?.length)
+  const hasLpCopy = !!(p.headline || p.body_copy || p.supporting_message || p.cta)
+
+  // The DNA fields that are actually populated. Measured over the 13 active
+  // brand_dna rows: these run 10-13/13, while the fonts the old section led with
+  // are 4-6/13 and tagline is decorative.
+  const LOOK_FIELDS = useMemo(() => ([
+    ['Subject matter', dna?.subject_matter],
+    ['Composition', dna?.composition],
+    ['Lighting', dna?.lighting],
+    ['Mood', dna?.mood],
+    ['Props and surfaces', dna?.props_and_surfaces],
+    ['Text overlay', dna?.text_overlay_style],
+    ['Offer presentation', dna?.offer_presentation],
+    ['Positioning', dna?.positioning],
+  ] as const).filter(([, v]) => !!v) as ReadonlyArray<readonly [string, string]>, [dna])
+  const showLook = LOOK_FIELDS.length > 0
+  const hooks: string[] = Array.isArray(dna?.winning_hooks) ? dna!.winning_hooks as string[] : []
+
+  const missing = useMemo(() => ([
+    { when: images.length === 0 && !p.product_images_link, label: 'No product image', to: 'making' },
+    { when: !p.retail_price, label: 'No price anchor', to: 'making' },
+    { when: !p.offer_dynamics_type, label: 'No offer mechanic', to: 'making' },
+    { when: !hasAdCopy, label: 'No ad copy', to: 'copy' },
+    { when: !p.page_type, label: 'No page type', to: 'destination' },
+    { when: !p.lp_url, label: 'No LP URL', to: 'destination' },
+  ]).filter(m => m.when), [images.length, p.product_images_link, p.retail_price, p.offer_dynamics_type, hasAdCopy, p.page_type, p.lp_url])
+
+  // Sections that don't render get no nav entry — the nav never advertises a
+  // destination that turns out to be an apology.
+  const overviewNav = useMemo(() => ([
+    { id: 'making', label: "Product & offer", show: true },
+    { id: 'copy', label: 'Copy', show: hasAdCopy || hasLpCopy },
+    { id: 'look', label: 'Look', show: showLook },
+    { id: 'destination', label: 'Destination', show: true },
+  ]).filter(n => n.show), [hasAdCopy, hasLpCopy, showLook])
+
+  // No 'Live' entry: the Due block above is the live date, and printing it twice
+  // is what let the old Timeline disagree with the header.
+  const stageDates = useMemo(() => ([
+    ['Brief', p.stage_brief_due_date], ['In progress', p.stage_in_progress_due_date],
+    ['Internal', p.stage_internal_review_due_date], ['Client', p.stage_client_review_due_date],
+  ] as const).filter(([, v]) => !!v).map(([label, v]) => {
+    const d = new Date(v as string + 'T00:00:00')
+    const days = Math.ceil((d.getTime() - Date.now()) / 86400000)
+    return {
+      label,
+      date: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      tone: days < 0 ? 'var(--urgent-overdue)' : days <= 3 ? 'var(--urgent-soon)' : 'var(--text-primary)',
+    }
+  }), [p.stage_brief_due_date, p.stage_in_progress_due_date, p.stage_internal_review_due_date, p.stage_client_review_due_date])
+
   const due = p.due_date ? new Date(p.due_date + 'T00:00:00') : null
   const daysLeft = due ? Math.ceil((due.getTime() - Date.now()) / 86400000) : null
 
@@ -128,13 +289,11 @@ export default function PreviewProjectView({
       <div className="card" style={{ marginBottom: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20, flexWrap: 'wrap', marginBottom: 12 }}>
           <div style={{ minWidth: 0 }}>
-            <h1 style={{ fontSize: 23, fontWeight: 800, letterSpacing: '-0.02em', marginBottom: 8 }}>{p.name}</h1>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {p.marketing_moment && chip(`Moment ${p.marketing_moment}`)}
-              {p.page_type && chip(p.page_type)}
-              {chip(`LP · ${lpEditorName ?? 'unassigned'}`, 'lp')}
-              {chip(`CR · ${creativeEditorName ?? 'unassigned'}`, 'cre')}
-            </div>
+            {/* Chips live on one line below, with the stage pills. This row used
+                to repeat moment, page type and both owners immediately above
+                them — and page_type now sits in "Where it goes", next to the
+                person who needs it. */}
+            <h1 style={{ fontSize: 23, fontWeight: 800, letterSpacing: '-0.02em' }}>{p.name}</h1>
           </div>
           <div style={{ textAlign: 'right', flexShrink: 0 }}>
             <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Due</div>
@@ -161,23 +320,42 @@ export default function PreviewProjectView({
             />
           </div>
         </div>
-        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 4 }}>
-          <StageTracker
-            projectId={p.id}
-            brandId={p.brand_id}
-            track="lp_stage"
-            currentStage={p.lp_stage}
-            label="Landing Page"
-            disabled
-          />
-          <StageTracker
-            projectId={p.id}
-            brandId={p.brand_id}
-            track="creatives_stage"
-            currentStage={p.creatives_stage}
-            label="Creatives / Statics"
-            disabled
-          />
+        {/* Two inert 7-step rails cost ~240px and rendered the pipeline at a
+            granularity the old Timeline section disagreed with — Revisions and
+            Ready have no dates, Internal and Client were abbreviated differently,
+            so two adjacent renderings of the same pipeline visibly contradicted
+            each other. One line of stage state, plus the dates that exist. */}
+        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12, marginTop: 12 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+            {([['LP', p.lp_stage], ['CRE', p.creatives_stage]] as const).map(([k, st]) => {
+              const norm = normalizeStage(st)
+              const c = STAGE_COLORS[norm]
+              return (
+                <span key={k} style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, background: c.bg, color: c.text }}>
+                  {k} · {STAGE_LABELS[norm]}
+                </span>
+              )
+            })}
+            {p.marketing_moment ? chip(`Moment ${p.marketing_moment}`) : null}
+            {chip(`LP · ${lpEditorName ?? 'unassigned'}`, 'lp')}
+            {chip(`CR · ${creativeEditorName ?? 'unassigned'}`, 'cre')}
+            {journeyName ? chip(journeyName) : null}
+            {p.offer_locked ? <span style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, background: 'var(--complete-bg)', color: 'var(--complete-text)' }}>Offer locked</span> : null}
+            {p.is_complete ? <span style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, background: 'var(--complete-bg)', color: 'var(--complete-text)' }}>Complete</span> : null}
+          </div>
+
+          {/* Present-only. 16 of 66 projects have no stage dates at all and used
+              to get a row of five em-dashes as the first thing on the tab. */}
+          {stageDates.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, fontSize: 11, color: 'var(--text-secondary)', borderTop: '1px solid var(--border)', paddingTop: 10, marginTop: 12 }}>
+              {stageDates.map((d, i) => (
+                <span key={d.label}>
+                  {i > 0 && <span style={{ color: 'var(--text-muted)' }}> · </span>}
+                  {d.label} <span style={{ color: d.tone }}>{d.date}</span>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -200,8 +378,7 @@ export default function PreviewProjectView({
       <div style={{ display: 'grid', gridTemplateColumns: '210px minmax(0,1fr)', gap: 32 }}>
         {/* Sub-nav */}
         <nav style={{ position: 'sticky', top: 16, alignSelf: 'start' }}>
-          {SUB_NAV[tab].map(s => {
-            const id = s.replace(/[^a-z]/gi, '').toLowerCase()
+          {(tab === 'overview' ? overviewNav : SUB_NAV[tab].map(x => ({ id: x.replace(/[^a-z]/gi, '').toLowerCase(), label: x }))).map(({ id, label: s }) => {
             const on = activeSection === id
             return (
               <a
@@ -229,72 +406,285 @@ export default function PreviewProjectView({
         <div style={{ minWidth: 0 }}>
           {tab === 'overview' && (
             <>
-              <Section id="timeline" title="Timeline">
-                <div style={{ display: 'flex', gap: 0, flexWrap: 'wrap' }}>
-                  {[['Brief', p.stage_brief_due_date], ['In Progress', p.stage_in_progress_due_date], ['Internal', p.stage_internal_review_due_date], ['Client', p.stage_client_review_due_date], ['Live', p.due_date]].map(([l, v]) => (
-                    <div key={l as string} style={{ flex: 1, minWidth: 110, padding: '8px 12px', borderLeft: '2px solid var(--border)' }}>
-                      <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{l}</div>
-                      <div style={{ fontSize: 13, fontWeight: 600, marginTop: 4 }}>{v ? new Date((v as string) + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}</div>
-                    </div>
+              {/* What is missing, named and jumpable. No score and no meters —
+                  a ledger can only certify that a fact is on file, not that it
+                  is the right fact, and false confidence is the error this
+                  screen exists to prevent. */}
+              {missing.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 20 }}>
+                  <span style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)' }}>Missing</span>
+                  {missing.map(m => (
+                    <a
+                      key={m.label}
+                      href={`#${m.to}`}
+                      onClick={e => { e.preventDefault(); document.getElementById(m.to)?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }}
+                      style={{ fontSize: 11, fontWeight: 600, padding: '4px 8px', borderRadius: 999, background: 'var(--surface-2)', color: 'var(--text-secondary)', border: '1px dashed var(--border-strong)', textDecoration: 'none' }}
+                    >{m.label}</a>
                   ))}
                 </div>
-              </Section>
-              <Section id="projectinfo" title="Project Info">
-                <Row label="Journey" value={journeyName} />
-                <Row label="Marketing moment" value={p.marketing_moment ? `Moment ${p.marketing_moment}` : null} />
-                <Row label="Page type" value={p.page_type} />
-                <Row label="LP editor" value={lpEditorName} />
-                <Row label="Creative editor" value={creativeEditorName} />
-              </Section>
-              <Section id="copyandoffer" title="Copy and Offer">
-                <Row label="Offer" value={p.offer} />
-                <Row label="Offer description" value={p.offer_description} />
-                <Row label="Headline" value={p.headline} />
-                <Row label="Body copy" value={p.body_copy} />
-                <Row label="Supporting message" value={p.supporting_message} />
-                <Row label="CTA" value={p.cta} />
-              </Section>
-              <Section id="branddna" title="Brand DNA">
-                {dna ? (
-                  <>
-                    <Row label="Tagline" value={dna.tagline} />
-                    <Row label="Primary font" value={dna.primary_font} />
-                    <Row label="Secondary font" value={dna.secondary_font} />
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', paddingTop: 12 }}>
-                      {([['Primary', dna.primary_color], ['Secondary', dna.secondary_color], ['Accent', dna.accent_color], ['Contrast', dna.contrast_color]] as const)
-                        .filter(([, v]) => !!v)
-                        .map(([l, v]) => (
-                          <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px 6px 8px', border: '1px solid var(--border)', borderRadius: 10 }}>
-                            <span style={{ width: 22, height: 22, borderRadius: 6, background: v as string, border: '1px solid var(--border)' }} />
-                            <div>
-                              <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase' }}>{l}</div>
-                              <div style={{ fontSize: 12, fontWeight: 600, fontFamily: 'ui-monospace, monospace' }}>{v}</div>
+              )}
+
+              {/* 1 — the artefact */}
+              <Card id="making" title="What you're making" purpose="The product, the offer, and the reference images.">
+                <div style={{ display: 'grid', gridTemplateColumns: wide ? '360px minmax(0,1fr)' : '1fr', gap: 20 }}>
+                  <div>
+                    {images.length > 0 ? (
+                      <>
+                        {/* contain, never cover: cropping a label is how a wrong SKU survives review. */}
+                        <a href={images[0].storage_url} target="_blank" rel="noreferrer">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={images[0].storage_url} alt={p.product_featured ?? 'Product reference'} loading="lazy" decoding="async"
+                            style={{ width: '100%', aspectRatio: '1', objectFit: 'contain', background: 'var(--surface-2)', borderRadius: 12, border: '1px solid var(--border-strong)', display: 'block' }} />
+                        </a>
+                        {images.length > 1 && (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
+                            {/* No cap. Five projects hold 14-22 references and the
+                                old slice(0,12) dropped the rest silently, on the
+                                one tab whose job is preventing wrong-product errors. */}
+                            {images.slice(1).map((im, i) => (
+                              <a key={im.id} href={im.storage_url} target="_blank" rel="noreferrer">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src={im.storage_url} alt={`Reference ${i + 2}`} loading="lazy"
+                                  style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--border)', display: 'block' }} />
+                              </a>
+                            ))}
+                          </div>
+                        )}
+                        <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 8 }}>
+                          {images.length} reference image{images.length === 1 ? '' : 's'} · click to open full size
+                        </div>
+                      </>
+                    ) : (
+                      // Escalating, so the loud state stays meaningful. A red box on
+                      // every image-less project is wallpaper within a week.
+                      <div style={{
+                        aspectRatio: '1', borderRadius: 12, display: 'grid', placeItems: 'center', textAlign: 'center', padding: 16, gap: 8,
+                        background: imageFallback ? 'var(--surface-2)' : 'var(--urgent-soon-bg)',
+                        border: `1px dashed ${imageFallback ? 'var(--border-strong)' : 'var(--urgent-soon)'}`,
+                      }}>
+                        {imageFallback ? (
+                          <div>
+                            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>No image stored in the CRM</div>
+                            <a href={imageFallback.href} target="_blank" rel="noreferrer" style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}>{imageFallback.label}</a>
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--urgent-soon)', lineHeight: 1.5 }}>
+                            Nothing here shows what &ldquo;{skus[0] ?? 'this product'}&rdquo; looks like — don&rsquo;t guess.
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    {skus.length === 0 ? (
+                      <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-muted)' }}>Product not specified</div>
+                    ) : skus.length === 1 && isUrl(skus[0]) ? (
+                      <>
+                        <a href={skus[0]} target="_blank" rel="noreferrer" style={{ fontSize: 15, fontWeight: 600, color: 'var(--accent)' }}>Product page ↗</a>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>This field holds a link, not a product name.</div>
+                      </>
+                    ) : skus.length === 1 ? (
+                      <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.01em' }}>{skus[0]}</div>
+                    ) : (
+                      <>
+                        <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: 6 }}>{skus.length} SKUs in this ad</div>
+                        {skus.map((sku, i) => (
+                          <div key={sku} style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 4 }}>
+                            <span style={{ flexShrink: 0, width: 16, height: 16, borderRadius: 4, background: 'var(--surface-raised)', color: 'var(--text-secondary)', fontSize: 10, display: 'grid', placeItems: 'center' }}>{i + 1}</span>
+                            <span style={{ fontSize: i === 0 ? 20 : 15, fontWeight: i === 0 ? 700 : 600, letterSpacing: i === 0 ? '-0.01em' : undefined }}>{sku}</span>
+                          </div>
+                        ))}
+                      </>
+                    )}
+
+                    {p.product_description && (
+                      <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 8, lineHeight: 1.6 }}>
+                        <Clamp text={p.product_description} lines={2} />
+                      </div>
+                    )}
+
+                    <div style={{ marginTop: 16 }}>
+                      <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: 4 }}>Price / anchor</div>
+                      {p.retail_price ? (
+                        // Verbatim, never parsed as a number: this field averages
+                        // ~90 characters of prose, and "N/A — sitewide % off, no
+                        // single anchor price" is a correct answer.
+                        <div style={{ fontSize: 15, fontWeight: 600, maxWidth: '46ch', lineHeight: 1.5 }}>
+                          <Clamp text={p.retail_price} lines={3} />
+                        </div>
+                      ) : (
+                        <Missing tone="warn">No price anchor given — don&rsquo;t put a price on the ad.</Missing>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Offer, full width under both columns */}
+                  <div style={{ gridColumn: '1 / -1', borderTop: '1px solid var(--border)', marginTop: 16, paddingTop: 16 }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+                      {p.offer_dynamics_type ? (
+                        // Normalised on render — the column is free text, and
+                        // BOGO / bogo / "Buy one get one" must not read as three
+                        // different mechanics.
+                        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', padding: '4px 10px', borderRadius: 6, background: 'var(--accent-muted)', color: 'var(--accent)', border: '1px solid var(--accent)' }}>
+                          {p.offer_dynamics_type.trim().toUpperCase()}
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: 11, color: 'var(--urgent-soon)' }}>Mechanic not set — infer it from the description below.</span>
+                      )}
+                      <span style={{
+                        fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999,
+                        background: p.offer_locked ? 'var(--complete-bg)' : 'var(--stage-brief-bg)',
+                        color: p.offer_locked ? 'var(--complete-text)' : 'var(--stage-brief-text)',
+                      }}>{p.offer_locked ? 'Offer locked' : 'Not locked — may still change'}</span>
+                    </div>
+                    {p.offer && <div style={{ fontSize: 15, fontWeight: 700, marginTop: 8 }}>{p.offer}</div>}
+                    {p.offer_description && (
+                      <div style={{ fontSize: 13, marginTop: 8, maxWidth: '80ch', lineHeight: 1.6, color: 'var(--text-secondary)' }}>
+                        <Clamp text={p.offer_description} lines={4} />
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* The only place the DNA gap is mentioned — better than a whole
+                    section that is an apology, with a nav entry pointing at it. */}
+                {!showLook && (
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+                    No Brand DNA for {brand?.name} — match the reference images above.{' '}
+                    {brand?.id && <Link href={`/brands/${brand.id}`} style={{ color: 'var(--accent)' }}>Open brand page →</Link>}
+                  </div>
+                )}
+              </Card>
+
+              {/* 2 — the words */}
+              {(hasAdCopy || hasLpCopy) && (
+                <Card id="copy" title="What it says" purpose="Copy for the ad first, then copy for the page.">
+                  <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: 12 }}>On the ad</div>
+                  {hasAdCopy ? (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 16 }}>
+                      {([['Eyebrows', p.ad_eyebrows], ['Headlines', p.ad_headlines], ['Subheadlines', p.ad_subcopies]] as const)
+                        .filter(([, arr]) => arr && arr.length)
+                        .map(([label, arr], col) => (
+                          <div key={label}>
+                            <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)' }}>{label} ({arr!.length})</div>
+                            {/* Persistent, never hover-only: in a read-only screen
+                                a hidden affordance is no affordance. */}
+                            {col === 0 && <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 6 }}>click any line to copy</div>}
+                            <div style={{ marginTop: col === 0 ? 0 : 6 }}>
+                              {arr!.map((line, i) => <CopyLine key={`${line}-${i}`} text={line} />)}
                             </div>
                           </div>
                         ))}
                     </div>
-                  </>
-                ) : <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>No Brand DNA built for {brand?.name} yet.</p>}
-              </Section>
-              <Section id="featuredproductlist" title="Featured Product List">
-                <Row label="Product" value={p.product_featured} />
-                <Row label="Description" value={p.product_description} />
-                <Row label="Retail price" value={p.retail_price} />
-                {images.length > 0 && (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(110px,1fr))', gap: 8, paddingTop: 16 }}>
-                    {images.slice(0, 12).map(im => (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img key={im.id} src={im.storage_url} alt="" loading="lazy" style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: 10, border: '1px solid var(--border)' }} />
+                  ) : (
+                    // Load-bearing sentence: the only copy the old Overview showed
+                    // was landing-page copy, which is how LP copy ends up on ads.
+                    <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                      No ad copy deck yet — the landing-page copy below is not ad copy.
+                    </div>
+                  )}
+
+                  {hasLpCopy && (
+                    <div style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10, padding: 16, marginTop: 20 }}>
+                      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: 12 }}>Landing-page copy</div>
+                      <Field label="Headline">{p.headline}</Field>
+                      {p.body_copy && <Field label="Body copy"><Clamp text={p.body_copy} lines={6} /></Field>}
+                      {p.supporting_message && <Field label="Supporting message"><Clamp text={p.supporting_message} lines={4} /></Field>}
+                      {p.cta && (
+                        <div>
+                          <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: 4 }}>CTA</div>
+                          <span style={{ display: 'inline-block', border: '1px solid var(--accent)', color: 'var(--accent)', borderRadius: 8, padding: '6px 16px', fontSize: 13, fontWeight: 600 }}>{p.cta}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </Card>
+              )}
+
+              {/* 3 — the look. Only the DNA fields that are actually populated:
+                  the old section led with fonts (4-6 of 13 rows) and omitted
+                  composition, mood, subject_matter and winning_hooks, which are
+                  filled on all 13. */}
+              {showLook && dna && (
+                <Card id="look" title="How it should look" purpose="Brand DNA an editor draws from.">
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: 12 }}>
+                    {LOOK_FIELDS.filter(([, v]) => !!v).map(([label, v]) => (
+                      <div key={label} style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '12px 12px' }}>
+                        <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: 4 }}>{label}</div>
+                        <div style={{ fontSize: 13, lineHeight: 1.55 }}><Clamp text={String(v)} lines={4} /></div>
+                      </div>
                     ))}
                   </div>
-                )}
-              </Section>
-              <Section id="linkshdphotos" title="Links / HD Photos">
-                <Row label="Landing page" value={p.lp_url ? <a href={p.lp_url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>{p.lp_url}</a> : null} />
-                <Row label="Drive folder" value={p.drive_folder_url ? <a href={p.drive_folder_url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>Open Drive folder ↗</a> : null} />
-                <Row label="Product assets" value={p.product_images_link ? <a href={p.product_images_link} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>Open ↗</a> : null} />
-                <Row label="Motion" value={p.motion_link ? <a href={p.motion_link} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>Open videos ↗</a> : null} />
-              </Section>
+
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 16 }}>
+                    {([['Primary', dna.primary_color], ['Secondary', dna.secondary_color], ['Accent', dna.accent_color], ['Contrast', dna.contrast_color]] as const)
+                      .filter(([, v]) => !!v)
+                      .map(([l, v]) => (
+                        <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px 6px 8px', border: '1px solid var(--border)', borderRadius: 10 }}>
+                          <span style={{ width: 22, height: 22, borderRadius: 6, background: v as string, border: '1px solid var(--border)' }} />
+                          <div>
+                            <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase' }}>{l}</div>
+                            <div style={{ fontSize: 12, fontWeight: 600, fontFamily: 'ui-monospace, monospace' }}>{v}</div>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+
+                  {hooks.length > 0 && (
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 16 }}>
+                      {hooks.slice(0, 5).map(h => (
+                        <span key={h} style={{ fontSize: 11, padding: '4px 10px', borderRadius: 999, background: 'var(--surface-raised)', border: '1px solid var(--border)' }}>{h}</span>
+                      ))}
+                      {hooks.length > 5 && <span style={{ fontSize: 10, color: 'var(--text-muted)', alignSelf: 'center' }}>+{hooks.length - 5} more</span>}
+                    </div>
+                  )}
+
+                  {(p.competitor_reference || p.client_ad_inspiration) && (
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 16 }}>
+                      {[p.competitor_reference, p.client_ad_inspiration].filter(Boolean).map((r, i) => (
+                        <span key={i} style={{ marginRight: 12 }}>
+                          {isUrl(r as string)
+                            ? <a href={r as string} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>{hostOf(r as string)} ↗</a>
+                            : (r as string)}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {(dna.primary_font || dna.secondary_font) && (
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 8 }}>
+                      Fonts · {dna.primary_font ?? '—'} / {dna.secondary_font ?? '—'}
+                    </div>
+                  )}
+                </Card>
+              )}
+
+              {/* 4 — where it goes */}
+              <Card id="destination" title="Where it goes" purpose="For the landing-page editor.">
+                {p.page_type
+                  ? <div style={{ fontSize: 15, fontWeight: 700 }}>{p.page_type}</div>
+                  : <Missing tone="warn">Page type not set — an LP editor can&rsquo;t start.</Missing>}
+
+                <div style={{ marginTop: 12 }}>
+                  {p.lp_url ? (
+                    <a href={p.lp_url} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: 'var(--accent)' }}>
+                      {hostOf(p.lp_url)}<span style={{ color: 'var(--text-muted)' }}>{pathOf(p.lp_url)}</span> ↗
+                    </a>
+                  ) : <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No landing page URL yet.</div>}
+                </div>
+
+                {/* Present-only. motion_link is set on 2 of 66 projects and held a
+                    permanent row on all 66. */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 16 }}>
+                  {([['Drive folder ↗', p.drive_folder_url], ['Product assets ↗', p.product_images_link], ['Motion ↗', p.motion_link], ['Ad copy doc ↗', p.ad_copy_url]] as const)
+                    .filter(([, href]) => !!href)
+                    .map(([label, href]) => (
+                      <a key={label} href={href as string} target="_blank" rel="noreferrer"
+                        style={{ fontSize: 12, fontWeight: 600, padding: '8px 12px', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', textDecoration: 'none' }}>{label}</a>
+                    ))}
+                </div>
+              </Card>
             </>
           )}
 
