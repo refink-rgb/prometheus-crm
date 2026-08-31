@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { Project, Brand, CreativeAsset, ProjectComment, BrandDna, ProjectImage } from '@/lib/types'
 import type { AssetRevision } from '@/lib/revisions'
 import ReviewWorkspace from '@/components/preview/ReviewWorkspace'
@@ -21,16 +21,16 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
   if (value === null || value === undefined || value === '') return null
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '190px 1fr', gap: 16, padding: '9px 0', borderBottom: '1px solid var(--border)' }}>
-      <div style={{ fontSize: 11.5, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</div>
-      <div style={{ fontSize: 13.5, color: 'var(--text-primary)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{value}</div>
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</div>
+      <div style={{ fontSize: 13, color: 'var(--text-primary)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{value}</div>
     </div>
   )
 }
 
 function Section({ id, title, children }: { id: string; title: string; children: React.ReactNode }) {
   return (
-    <section id={id} style={{ marginBottom: 34, scrollMarginTop: 20 }}>
-      <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12, color: 'var(--text-primary)' }}>{title}</h3>
+    <section id={id} style={{ marginBottom: 32, scrollMarginTop: 20 }}>
+      <h3 style={{ fontSize: 13, fontWeight: 700, marginBottom: 12, color: 'var(--text-primary)' }}>{title}</h3>
       {children}
     </section>
   )
@@ -50,15 +50,15 @@ function CommentList({ comments, empty }: { comments: ProjectComment[]; empty: s
       {comments.map(c => {
         const done = !!c.resolved_at
         return (
-          <div key={c.id} style={{ padding: '11px 14px', border: '1px solid var(--border)', borderRadius: 9, marginBottom: 8, background: 'var(--surface-1)' }}>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 5, flexWrap: 'wrap' }}>
-              <strong style={{ fontSize: 12.5 }}>{c.author_name}</strong>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 700, color: c.audience === 'internal' ? 'var(--text-muted)' : '#60a5fa' }}>
+          <div key={c.id} style={{ padding: '12px 16px', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 8, background: 'var(--surface-1)' }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4, flexWrap: 'wrap' }}>
+              <strong style={{ fontSize: 12 }}>{c.author_name}</strong>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 700, color: c.audience === 'internal' ? 'var(--text-muted)' : '#60a5fa' }}>
                 <Dot color={c.audience === 'internal' ? 'var(--text-muted)' : '#60a5fa'} />
                 {c.audience === 'internal' ? 'Internal' : 'Client'}
               </span>
-              {c.section_tag && <span style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>§ {c.section_tag}</span>}
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 700, color: done ? 'var(--success)' : 'var(--text-muted)' }}>
+              {c.section_tag && <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>§ {c.section_tag}</span>}
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 700, color: done ? 'var(--success)' : 'var(--text-muted)' }}>
                 <Dot color={done ? 'var(--success)' : 'var(--border-strong)'} />
                 {done ? 'Resolved' : 'Open'}
               </span>
@@ -81,6 +81,9 @@ export default function PreviewProjectView({
   lpEditorName: string | null; creativeEditorName: string | null; journeyName: string | null
 }) {
   const [tab, setTab] = useState<Tab>('overview')
+  // Which section the reader is actually in, so the sub-nav reports position
+  // rather than only offering destinations.
+  const [activeSection, setActiveSection] = useState<string | null>(null)
 
   const creativeComments = useMemo(() => comments.filter(c => c.track === 'image'), [comments])
   const lpComments = useMemo(() => comments.filter(c => c.track === 'lp' || c.track === 'general'), [comments])
@@ -91,7 +94,7 @@ export default function PreviewProjectView({
 
   const chip = (text: string, tone: 'muted' | 'lp' | 'cre' = 'muted') => (
     <span key={text} style={{
-      fontSize: 11.5, fontWeight: 600, padding: '3px 10px', borderRadius: 20, whiteSpace: 'nowrap',
+      fontSize: 11, fontWeight: 600, padding: '4px 8px', borderRadius: 999, whiteSpace: 'nowrap',
       background: tone === 'muted' ? 'var(--surface-raised)' : tone === 'lp' ? 'rgba(96,165,250,0.14)' : 'rgba(168,85,247,0.14)',
       color: tone === 'muted' ? 'var(--text-secondary)' : tone === 'lp' ? '#60a5fa' : '#a855f7',
       border: `1px solid ${tone === 'muted' ? 'var(--border)' : 'transparent'}`,
@@ -102,16 +105,16 @@ export default function PreviewProjectView({
     <div style={{ padding: '20px 32px 60px', maxWidth: 1280, margin: '0 auto' }}>
       {/* Preview banner. Keep this list honest — it is the only thing telling an
           editor which controls on this page reach the real project. */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', marginBottom: 18, borderRadius: 8, background: 'rgba(234,179,8,0.10)', border: '1px solid rgba(234,179,8,0.30)' }}>
-        <span style={{ fontSize: 14 }}>👁</span>
-        <span style={{ fontSize: 12.5, color: 'var(--warning)', fontWeight: 600 }}>Preview of the proposed layout</span>
-        <span style={{ fontSize: 12.5, color: 'var(--text-secondary)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', marginBottom: 16, borderRadius: 10, background: 'rgba(234,179,8,0.10)', border: '1px solid rgba(234,179,8,0.30)' }}>
+        <span style={{ fontSize: 13 }}>👁</span>
+        <span style={{ fontSize: 12, color: 'var(--warning)', fontWeight: 600 }}>Preview of the proposed layout</span>
+        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
           Real data. The review controls are <strong>live</strong> — approving, pushing to client
           the visibility switch and revision uploads all change the real project. Stage rails are still inert.
         </span>
       </div>
 
-      <div style={{ fontSize: 12.5, color: 'var(--text-muted)', marginBottom: 10 }}>
+      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
         <Link href="/brands" style={{ color: 'var(--text-muted)' }}>Brands</Link>
         {' / '}
         {brand?.id
@@ -122,11 +125,11 @@ export default function PreviewProjectView({
       </div>
 
       {/* Header */}
-      <div className="card" style={{ marginBottom: 18 }}>
+      <div className="card" style={{ marginBottom: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20, flexWrap: 'wrap', marginBottom: 12 }}>
           <div style={{ minWidth: 0 }}>
             <h1 style={{ fontSize: 23, fontWeight: 800, letterSpacing: '-0.02em', marginBottom: 8 }}>{p.name}</h1>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {p.marketing_moment && chip(`Moment ${p.marketing_moment}`)}
               {p.page_type && chip(p.page_type)}
               {chip(`LP · ${lpEditorName ?? 'unassigned'}`, 'lp')}
@@ -135,7 +138,7 @@ export default function PreviewProjectView({
           </div>
           <div style={{ textAlign: 'right', flexShrink: 0 }}>
             <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Due</div>
-            <div style={{ fontSize: 14, fontWeight: 700 }}>
+            <div style={{ fontSize: 13, fontWeight: 700 }}>
               {due ? due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}
               {daysLeft !== null && (
                 <span style={{ marginLeft: 8, fontWeight: 600, color: daysLeft < 0 ? 'var(--danger)' : daysLeft <= 3 ? 'var(--warning)' : 'var(--text-muted)' }}>
@@ -179,30 +182,48 @@ export default function PreviewProjectView({
       </div>
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: 26, borderBottom: '1px solid var(--border)', marginBottom: 20 }}>
+      <div style={{ display: 'flex', gap: 24, borderBottom: '1px solid var(--border)', marginBottom: 20 }}>
         {([['overview', 'Project Overview', null], ['lp', 'Landing Page', lpComments.length || null], ['creatives', 'Creatives', assets.length]] as const).map(([k, label, count]) => (
           <button key={k} onClick={() => setTab(k as Tab)} style={{
             background: 'none', border: 'none', cursor: 'pointer', padding: '10px 0 12px',
-            fontSize: 14, fontWeight: tab === k ? 700 : 500,
+            fontSize: 13, fontWeight: tab === k ? 700 : 500,
             color: tab === k ? 'var(--text-primary)' : 'var(--text-muted)',
             borderBottom: `2px solid ${tab === k ? 'var(--accent)' : 'transparent'}`,
             marginBottom: -1, display: 'inline-flex', alignItems: 'center', gap: 8,
           }}>
             {label}
-            {count ? <span style={{ fontSize: 11, fontWeight: 700, padding: '1px 7px', borderRadius: 10, background: 'var(--surface-raised)', color: 'var(--text-secondary)' }}>{count}</span> : null}
+            {count ? <span style={{ fontSize: 11, fontWeight: 700, padding: '1px 8px', borderRadius: 10, background: 'var(--surface-raised)', color: 'var(--text-secondary)' }}>{count}</span> : null}
           </button>
         ))}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '210px minmax(0,1fr)', gap: 30 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '210px minmax(0,1fr)', gap: 32 }}>
         {/* Sub-nav */}
         <nav style={{ position: 'sticky', top: 16, alignSelf: 'start' }}>
-          {SUB_NAV[tab].map(s => (
-            <a key={s} href={`#${s.replace(/[^a-z]/gi, '').toLowerCase()}`} style={{
-              display: 'block', padding: '7px 11px', marginBottom: 2, borderRadius: 7,
-              fontSize: 13, color: 'var(--text-muted)', textDecoration: 'none',
-            }}>{s}</a>
-          ))}
+          {SUB_NAV[tab].map(s => {
+            const id = s.replace(/[^a-z]/gi, '').toLowerCase()
+            const on = activeSection === id
+            return (
+              <a
+                key={s}
+                href={`#${id}`}
+                aria-current={on ? 'true' : undefined}
+                onClick={e => {
+                  e.preventDefault()
+                  document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                }}
+                style={{
+                  display: 'block', padding: '8px 12px', marginBottom: 4, borderRadius: 6,
+                  fontSize: 13, textDecoration: 'none',
+                  fontWeight: on ? 600 : 400,
+                  color: on ? 'var(--accent)' : 'var(--text-muted)',
+                  background: on ? 'var(--accent-muted)' : 'transparent',
+                  borderLeft: `2px solid ${on ? 'var(--accent)' : 'transparent'}`,
+                  transition: 'color 0.12s, background 0.12s',
+                }}
+              >{s}</a>
+            )
+          })}
         </nav>
 
         <div style={{ minWidth: 0 }}>
@@ -211,9 +232,9 @@ export default function PreviewProjectView({
               <Section id="timeline" title="Timeline">
                 <div style={{ display: 'flex', gap: 0, flexWrap: 'wrap' }}>
                   {[['Brief', p.stage_brief_due_date], ['In Progress', p.stage_in_progress_due_date], ['Internal', p.stage_internal_review_due_date], ['Client', p.stage_client_review_due_date], ['Live', p.due_date]].map(([l, v]) => (
-                    <div key={l as string} style={{ flex: 1, minWidth: 110, padding: '10px 12px', borderLeft: '2px solid var(--border)' }}>
-                      <div style={{ fontSize: 10.5, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{l}</div>
-                      <div style={{ fontSize: 13, fontWeight: 600, marginTop: 3 }}>{v ? new Date((v as string) + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}</div>
+                    <div key={l as string} style={{ flex: 1, minWidth: 110, padding: '8px 12px', borderLeft: '2px solid var(--border)' }}>
+                      <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{l}</div>
+                      <div style={{ fontSize: 13, fontWeight: 600, marginTop: 4 }}>{v ? new Date((v as string) + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}</div>
                     </div>
                   ))}
                 </div>
@@ -239,12 +260,12 @@ export default function PreviewProjectView({
                     <Row label="Tagline" value={dna.tagline} />
                     <Row label="Primary font" value={dna.primary_font} />
                     <Row label="Secondary font" value={dna.secondary_font} />
-                    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', paddingTop: 12 }}>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', paddingTop: 12 }}>
                       {([['Primary', dna.primary_color], ['Secondary', dna.secondary_color], ['Accent', dna.accent_color], ['Contrast', dna.contrast_color]] as const)
                         .filter(([, v]) => !!v)
                         .map(([l, v]) => (
-                          <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px 6px 8px', border: '1px solid var(--border)', borderRadius: 8 }}>
-                            <span style={{ width: 22, height: 22, borderRadius: 5, background: v as string, border: '1px solid var(--border)' }} />
+                          <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px 6px 8px', border: '1px solid var(--border)', borderRadius: 10 }}>
+                            <span style={{ width: 22, height: 22, borderRadius: 6, background: v as string, border: '1px solid var(--border)' }} />
                             <div>
                               <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase' }}>{l}</div>
                               <div style={{ fontSize: 12, fontWeight: 600, fontFamily: 'ui-monospace, monospace' }}>{v}</div>
@@ -260,10 +281,10 @@ export default function PreviewProjectView({
                 <Row label="Description" value={p.product_description} />
                 <Row label="Retail price" value={p.retail_price} />
                 {images.length > 0 && (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(110px,1fr))', gap: 10, paddingTop: 14 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(110px,1fr))', gap: 8, paddingTop: 16 }}>
                     {images.slice(0, 12).map(im => (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img key={im.id} src={im.storage_url} alt="" loading="lazy" style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: 8, border: '1px solid var(--border)' }} />
+                      <img key={im.id} src={im.storage_url} alt="" loading="lazy" style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: 10, border: '1px solid var(--border)' }} />
                     ))}
                   </div>
                 )}
@@ -326,8 +347,8 @@ export default function PreviewProjectView({
                   const v = p[k] as string[] | null
                   if (!v?.length) return null
                   return (
-                    <div key={k} style={{ marginBottom: 14 }}>
-                      <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+                    <div key={k} style={{ marginBottom: 16 }}>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
                         {k.replace('ad_', '').replace('subcopies', 'subheadlines')} ({v.length})
                       </div>
                       {v.map((line, i) => (
@@ -345,13 +366,13 @@ export default function PreviewProjectView({
                     routine pass; the dedicated screen is still where you work a
                     batch at full width, so say so and link it rather than
                     leaving editors to remember the URL. */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, padding: '8px 11px', border: '1px solid var(--border)', borderRadius: 8 }}>
-                  <span style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, padding: '8px 12px', border: '1px solid var(--border)', borderRadius: 10 }}>
+                  <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
                     Reviewing a whole batch? The full-width screen has keyboard nav and the annotation pins.
                   </span>
                   <Link
                     href={`/brands/${p.brand_id}/projects/${p.id}/internal-review`}
-                    style={{ marginLeft: 'auto', flexShrink: 0, fontSize: 11.5, fontWeight: 600, color: 'var(--accent)' }}
+                    style={{ marginLeft: 'auto', flexShrink: 0, fontSize: 11, fontWeight: 600, color: 'var(--accent)' }}
                   >
                     Open internal review →
                   </Link>

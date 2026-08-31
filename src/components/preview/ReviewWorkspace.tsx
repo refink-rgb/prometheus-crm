@@ -41,7 +41,7 @@ function StatusChip({ status, size = 'sm' }: { status: string; size?: 'sm' | 'md
   const m = STATUS_META[status] ?? STATUS_META.pending
   return (
     <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: 5,
+      display: 'inline-flex', alignItems: 'center', gap: 4,
       fontSize: size === 'sm' ? 10.5 : 12, fontWeight: 700, color: m.color, whiteSpace: 'nowrap',
     }}>
       <Dot color={m.color} size={size === 'sm' ? 7 : 9} />{m.label}
@@ -157,7 +157,7 @@ export default function ReviewWorkspace({
   const clientApproved = assets.filter(a => a.status === 'approved')
 
   const btn = (bg: string, fg = '#fff'): React.CSSProperties => ({
-    fontSize: 12, fontWeight: 600, padding: '7px 12px', borderRadius: 7,
+    fontSize: 12, fontWeight: 600, padding: '8px 12px', borderRadius: 6,
     border: bg === 'transparent' ? '1px solid var(--border)' : 'none',
     background: bg, color: fg, cursor: pending ? 'wait' : 'pointer', opacity: pending ? 0.6 : 1,
   })
@@ -165,11 +165,11 @@ export default function ReviewWorkspace({
   return (
     <div>
       {/* Mode + bulk push */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
-        <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+        <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
           {(['internal', 'client'] as const).map(m => (
             <button key={m} onClick={() => setMode(m)} style={{
-              padding: '7px 16px', fontSize: 12.5, fontWeight: mode === m ? 700 : 500, border: 'none', cursor: 'pointer',
+              padding: '8px 16px', fontSize: 12, fontWeight: mode === m ? 700 : 500, border: 'none', cursor: 'pointer',
               background: mode === m ? 'var(--accent)' : 'transparent', color: mode === m ? '#fff' : 'var(--text-muted)',
             }}>{m === 'internal' ? 'Internal review' : 'Client review'}</button>
           ))}
@@ -197,34 +197,45 @@ export default function ReviewWorkspace({
         )}
       </div>
 
-      {err && <div style={{ marginBottom: 12, padding: '9px 13px', borderRadius: 8, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', color: 'var(--danger)', fontSize: 12.5 }}>{err}</div>}
+      {err && <div style={{ marginBottom: 12, padding: '8px 12px', borderRadius: 10, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', color: 'var(--danger)', fontSize: 12 }}>{err}</div>}
 
-      {/* Counters — units on every number so "27 ads" can't read as "27 comments" */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(118px,1fr))', gap: 9, marginBottom: 12 }}>
-        {([['Pending', counts.pending, 'var(--text-muted)', 'ads'],
-           ['Approved', counts.approved, 'var(--success)', 'ads'],
-           ['Needs changes', counts.needs_revision, '#EF4444', 'ads'],
-           ['Rejected', counts.rejected, '#EF4444', 'ads'],
-           ['Comments', commentTotal, 'var(--accent)', `on ${counts.commented} ads`]] as const).map(([l, n, col, unit]) => (
-          <div key={l} style={{ padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 9, background: 'var(--surface-1)' }}>
-            <div style={{ fontSize: 20, fontWeight: 800, color: col, lineHeight: 1 }}>{n}</div>
-            <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>{l}</div>
-            <div style={{ fontSize: 9.5, color: 'var(--text-muted)', opacity: 0.7 }}>{unit}</div>
-          </div>
-        ))}
-      </div>
+      {/* One row, not two. The counters and the filter chips were separate
+          controls showing the same five numbers in two visual languages — and
+          the counters looked clickable without being clickable. Merging them
+          removes a row, removes the duplication, and makes the tiles do the
+          thing they already looked like they did.
 
-      {/* Filters */}
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
-        {([['all', `All ${assets.length}`], ['pending', `Pending ${counts.pending}`], ['approved', `Approved ${counts.approved}`],
-           ['needs_revision', `Needs changes ${counts.needs_revision}`], ['commented', `Commented ${counts.commented}`]] as const).map(([k, l]) => (
-          <button key={k} onClick={() => setFilter(k as Filter)} style={{
-            padding: '5px 12px', borderRadius: 20, fontSize: 12, cursor: 'pointer',
-            border: `1px solid ${filter === k ? 'var(--accent)' : 'var(--border)'}`,
-            background: filter === k ? 'var(--accent-muted)' : 'transparent',
-            color: filter === k ? 'var(--accent)' : 'var(--text-muted)', fontWeight: filter === k ? 600 : 400,
-          }}>{l}</button>
-        ))}
+          Rejected is omitted unless something is actually rejected: nothing in
+          this workspace can set that status, so an always-zero tile was pure
+          furniture. */}
+      <div role="group" aria-label="Filter creatives" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(116px,1fr))', gap: 8, marginBottom: 16 }}>
+        {([
+          ['all',            'All',           assets.length,        'ads',                     'var(--text-primary)'],
+          ['pending',        'Pending',       counts.pending,       'ads',                     'var(--text-secondary)'],
+          ['approved',       'Approved',      counts.approved,      'ads',                     'var(--success)'],
+          ['needs_revision', 'Needs changes', counts.needs_revision, 'ads',                    'var(--danger)'],
+          ...(counts.rejected > 0 ? [['rejected', 'Rejected', counts.rejected, 'ads', 'var(--danger)'] as const] : []),
+          ['commented',      'Comments',      commentTotal,         `on ${counts.commented} ads`, 'var(--accent)'],
+        ] as const).map(([k, label, n, unit, col]) => {
+          const on = filter === k
+          return (
+            <button
+              key={k}
+              onClick={() => setFilter(k as Filter)}
+              aria-pressed={on}
+              style={{
+                textAlign: 'left', cursor: 'pointer', padding: '8px 12px', borderRadius: 10,
+                border: `1px solid ${on ? 'var(--accent)' : 'var(--border)'}`,
+                background: on ? 'var(--accent-muted)' : 'var(--surface-1)',
+                transition: 'border-color 0.12s, background 0.12s',
+              }}
+            >
+              <div style={{ fontSize: 20, fontWeight: 800, lineHeight: 1, color: on ? 'var(--accent)' : col }}>{n}</div>
+              <div style={{ fontSize: 11, marginTop: 4, color: on ? 'var(--accent)' : 'var(--text-secondary)', fontWeight: on ? 600 : 400 }}>{label}</div>
+              <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{unit}</div>
+            </button>
+          )
+        })}
       </div>
 
       {/* Batch revisions. Internal only — a client reviewer has nothing to upload. */}
@@ -236,9 +247,9 @@ export default function ReviewWorkspace({
         />
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(320px,1fr)', gap: 18 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(320px,1fr)', gap: 16 }}>
         {/* Grid */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(128px,1fr))', gap: 9, alignContent: 'start' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(128px,1fr))', gap: 8, alignContent: 'start' }}>
           {shown.map(a => {
             const n = commentsFor[a.id]?.length ?? 0
             const on = a.id === selected
@@ -249,17 +260,30 @@ export default function ReviewWorkspace({
               }}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={thumb(a)} alt="" loading="lazy" style={{ width: '100%', aspectRatio: '4/5', objectFit: 'cover', display: 'block' }} />
-                {!a.client_visible && (
-                  <span style={{ position: 'absolute', top: 6, left: 6, fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: 'rgba(0,0,0,0.72)', color: '#fff' }}>
-                    HIDDEN FROM CLIENT
+                {/* Quiet, and only in the mode where it means anything. This was a
+                    solid black caps box across the artwork — but roughly half a
+                    project's creatives are unpublished at any time, so shouting it
+                    on every second tile inverted the emphasis and buried the ad.
+                    In Client review mode nothing hidden is on screen at all, so
+                    the badge would be noise there by definition. */}
+                {mode === 'internal' && !a.client_visible && (
+                  <span
+                    title="Not on the client review link yet"
+                    style={{
+                      position: 'absolute', top: 8, left: 8, display: 'inline-flex', alignItems: 'center', gap: 4,
+                      fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 999,
+                      background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', color: 'rgba(255,255,255,0.72)',
+                    }}
+                  >
+                    <Dot color="rgba(255,255,255,0.55)" size={5} />Hidden
                   </span>
                 )}
-                <div style={{ padding: '7px 8px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                <div style={{ padding: '8px 8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                     <StatusChip status={statusOf(a)} />
                     {n > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)' }}>💬 {n}</span>}
                   </div>
-                  <div style={{ fontSize: 9.5, color: 'var(--text-muted)', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {(a.name ?? 'untitled').replace(/\.(png|jpg|jpeg)$/i, '')}
                   </div>
                 </div>
@@ -272,8 +296,8 @@ export default function ReviewWorkspace({
         {/* Detail */}
         <div ref={detailRef} style={{ position: 'sticky', top: 16, alignSelf: 'start', scrollMarginTop: 16 }}>
           {active ? (
-            <div style={{ border: '1px solid var(--border)', borderRadius: 11, padding: 14, background: 'var(--surface-1)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 9, flexWrap: 'wrap' }}>
+            <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 16, background: 'var(--surface-1)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
                 <StatusChip status={statusOf(active)} size="md" />
                 <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)' }}>
                   {mode === 'internal' ? 'internal' : 'client'} status
@@ -282,21 +306,21 @@ export default function ReviewWorkspace({
 
               {/* Click to expand — inline for flow, full size for scrutiny */}
               {viewLabel && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', marginBottom: 7, borderRadius: 7, background: 'rgba(234,179,8,0.10)', border: '1px solid rgba(234,179,8,0.28)' }}>
-                  <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--warning)' }}>Viewing {viewLabel}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 8px', marginBottom: 8, borderRadius: 6, background: 'rgba(234,179,8,0.10)', border: '1px solid rgba(234,179,8,0.28)' }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--warning)' }}>Viewing {viewLabel}</span>
                   <button onClick={() => { setViewUrl(null); setViewLabel(null); setViewFull(null) }} style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 600, background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer' }}>
                     Back to latest
                   </button>
                 </div>
               )}
-              <button onClick={() => setZoom(true)} title="Click to view full size" style={{ display: 'block', width: '100%', padding: 0, border: 'none', background: 'none', cursor: 'zoom-in', marginBottom: 10 }}>
+              <button onClick={() => setZoom(true)} title="Click to view full size" style={{ display: 'block', width: '100%', padding: 0, border: 'none', background: 'none', cursor: 'zoom-in', marginBottom: 8 }}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={viewUrl ?? thumb(active)} alt="" style={{ width: '100%', borderRadius: 8, display: 'block' }} />
+                <img src={viewUrl ?? thumb(active)} alt="" style={{ width: '100%', borderRadius: 10, display: 'block' }} />
               </button>
 
               {/* The three actions */}
               {mode === 'internal' && (
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
                   {/* A verdict is a toggle. Clicking the one already set puts the
                       ad back to pending — a mis-click used to be unrecoverable
                       from this screen. */}
@@ -319,9 +343,8 @@ export default function ReviewWorkspace({
               )}
 
               {/* Where a fixed file goes — straight onto this asset, not a Drive subfolder */}
-              <label style={{
-                display: 'flex', alignItems: 'center', gap: 9, padding: '9px 11px', marginBottom: 10,
-                border: '1px dashed var(--border-strong)', borderRadius: 8,
+              <label style={{ textTransform: 'none', letterSpacing: 0, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', marginBottom: 8,
+                border: '1px dashed var(--border-strong)', borderRadius: 10,
                 cursor: uploading || pending ? 'wait' : 'pointer',
               }}>
                 <input
@@ -345,15 +368,15 @@ export default function ReviewWorkspace({
                 />
                 <span style={{ fontSize: 15 }}>⬆</span>
                 <div>
-                  <div style={{ fontSize: 12.5, fontWeight: 600 }}>{uploading ? 'Uploading…' : 'Upload revised version'}</div>
-                  <div style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>
+                  <div style={{ fontSize: 12, fontWeight: 600 }}>{uploading ? 'Uploading…' : 'Upload revised version'}</div>
+                  <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
                     Becomes Edit {activeRevs.length + 1}. The client keeps seeing the published version until you send it.
                   </div>
                 </div>
               </label>
 
               {/* Visible-to-client switch */}
-              <label style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '8px 11px', border: '1px solid var(--border)', borderRadius: 8, marginBottom: 12, cursor: pending ? 'wait' : 'pointer' }}>
+              <label style={{ textTransform: 'none', letterSpacing: 0, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 12, cursor: pending ? 'wait' : 'pointer' }}>
                 <input
                   type="checkbox"
                   checked={!!active.client_visible}
@@ -361,7 +384,7 @@ export default function ReviewWorkspace({
                   onChange={e => run(() => setAssetClientVisible(active.id, e.target.checked, projectId, brandId))}
                   style={{ width: 'auto', margin: 0 }}
                 />
-                <span style={{ fontSize: 12.5, fontWeight: 600 }}>Visible to client</span>
+                <span style={{ fontSize: 12, fontWeight: 600 }}>Visible to client</span>
                 <span style={{ marginLeft: 'auto', fontSize: 11, color: active.client_visible ? 'var(--success)' : 'var(--text-muted)' }}>
                   {active.client_visible ? 'on the review link' : 'hidden'}
                 </span>
@@ -391,8 +414,8 @@ export default function ReviewWorkspace({
 
                 return (
                   <div style={{ marginBottom: 12 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 7 }}>
-                      <span style={{ fontSize: 10.5, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Versions</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                      <span style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Versions</span>
                       {stale && (
                         <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--warning)' }}>
                           client is on an older version
@@ -403,12 +426,12 @@ export default function ReviewWorkspace({
                       )}
                     </div>
 
-                    <div style={{ border: '1px solid var(--border)', borderRadius: 9, overflow: 'hidden' }}>
+                    <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
                       {rows.map((r, i) => {
                         const live = isLive(r.url)
                         return (
                           <div key={r.key} style={{
-                            display: 'flex', alignItems: 'center', gap: 10, padding: '7px 10px',
+                            display: 'flex', alignItems: 'center', gap: 8, padding: '8px 8px',
                             borderTop: i === 0 ? 'none' : '1px solid var(--border)',
                             background: live ? 'color-mix(in srgb, var(--success) 9%, transparent)' : 'transparent',
                             outline: viewLabel === r.label ? '2px solid var(--accent)' : 'none', outlineOffset: -2,
@@ -417,26 +440,26 @@ export default function ReviewWorkspace({
                             <button
                               onClick={() => { setViewUrl(r.thumb); setViewFull(r.fullUrl); setViewLabel(r.label) }}
                               title={`View ${r.label}`}
-                              style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0, padding: 0, border: 'none', background: 'none', cursor: 'pointer', textAlign: 'left' }}
+                              style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0, padding: 0, border: 'none', background: 'none', cursor: 'pointer', textAlign: 'left' }}
                             >
                               {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src={r.thumb} alt="" loading="lazy" style={{ width: 26, height: 33, objectFit: 'cover', borderRadius: 4, flexShrink: 0, border: '1px solid var(--border)' }} />
+                              <img src={r.thumb} alt="" loading="lazy" style={{ width: 26, height: 33, objectFit: 'cover', borderRadius: 6, flexShrink: 0, border: '1px solid var(--border)' }} />
                               <div style={{ minWidth: 0, flex: 1 }}>
                                 <div style={{ fontSize: 12, fontWeight: live ? 700 : 500 }}>
                                   {r.label}{i === rows.length - 1 && rows.length > 1 ? ' · latest' : ''}
                                 </div>
-                                {r.at && <div style={{ fontSize: 9.5, color: 'var(--text-muted)' }}>{new Date(r.at).toLocaleDateString()}</div>}
+                                {r.at && <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{new Date(r.at).toLocaleDateString()}</div>}
                               </div>
                             </button>
                             {live ? (
-                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 700, color: 'var(--success)', whiteSpace: 'nowrap' }}>
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 700, color: 'var(--success)', whiteSpace: 'nowrap' }}>
                                 <Dot color="var(--success)" />CLIENT SEES THIS
                               </span>
                             ) : (
                               <button
                                 disabled={pending}
                                 onClick={() => run(() => setClientVersion(active.id, r.url, projectId, brandId))}
-                                style={{ ...btn('transparent', 'var(--accent)'), fontSize: 11, padding: '4px 10px', borderColor: 'var(--accent)', whiteSpace: 'nowrap' }}
+                                style={{ ...btn('transparent', 'var(--accent)'), fontSize: 11, padding: '4px 8px', borderColor: 'var(--accent)', whiteSpace: 'nowrap' }}
                               >
                                 Show client this
                               </button>
@@ -459,11 +482,11 @@ export default function ReviewWorkspace({
                 // came from changes what you do about it, so it should never take
                 // a second read to work out.
                 const group = (title: string, list: typeof all, accent: string) => list.length === 0 ? null : (
-                  <div key={title} style={{ marginBottom: 14 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 7 }}>
+                  <div key={title} style={{ marginBottom: 16 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                       <Dot color={accent} />
-                      <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase', color: accent }}>{title}</span>
-                      <span style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>
+                      <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase', color: accent }}>{title}</span>
+                      <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
                         {list.filter(c => !c.resolved_at).length} open of {list.length}
                       </span>
                       <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
@@ -472,7 +495,7 @@ export default function ReviewWorkspace({
                       const done = !!c.resolved_at
                       return (
                         <div key={c.id} style={{
-                          padding: '9px 11px', borderRadius: 8, marginBottom: 6,
+                          padding: '8px 12px', borderRadius: 10, marginBottom: 8,
                           border: `1px solid ${done ? 'var(--border)' : `color-mix(in srgb, ${accent} 30%, var(--border))`}`,
                           background: done ? 'transparent' : `color-mix(in srgb, ${accent} 5%, var(--surface-1))`,
                           opacity: done ? 0.6 : 1,
@@ -488,12 +511,12 @@ export default function ReviewWorkspace({
                               style={{ width: 'auto', margin: '2px 0 0', flexShrink: 0, cursor: pending ? 'wait' : 'pointer' }}
                             />
                             <div style={{ minWidth: 0, flex: 1 }}>
-                              <div style={{ display: 'flex', gap: 7, alignItems: 'center', marginBottom: 3, flexWrap: 'wrap' }}>
-                                <strong style={{ fontSize: 11.5 }}>{c.author_name}</strong>
+                              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4, flexWrap: 'wrap' }}>
+                                <strong style={{ fontSize: 11 }}>{c.author_name}</strong>
                                 <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{new Date(c.created_at).toLocaleDateString()}</span>
-                                {done && <span style={{ fontSize: 9.5, fontWeight: 700, color: 'var(--success)' }}>✓ ADDRESSED</span>}
+                                {done && <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--success)' }}>✓ ADDRESSED</span>}
                               </div>
-                              <div style={{ fontSize: 12.5, lineHeight: 1.5, textDecoration: done ? 'line-through' : 'none' }}>{c.content}</div>
+                              <div style={{ fontSize: 12, lineHeight: 1.5, textDecoration: done ? 'line-through' : 'none' }}>{c.content}</div>
                             </div>
                           </div>
                         </div>
@@ -511,19 +534,19 @@ export default function ReviewWorkspace({
       {/* Comment activity → jump to the creative */}
       {feedComments.length > 0 && (
         <div style={{ marginTop: 24 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 10 }}>Comment activity</div>
+          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>Comment activity</div>
           {feedComments.slice(0, 15).map(c => {
             const a = assets.find(x => x.id === c.asset_id)
             return (
-              <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '8px 11px', border: '1px solid var(--border)', borderRadius: 9, marginBottom: 6 }}>
+              <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 8 }}>
                 {a && /* eslint-disable-next-line @next/next/no-img-element */ (
-                  <img src={thumb(a)} alt="" loading="lazy" style={{ width: 34, height: 42, objectFit: 'cover', borderRadius: 5, flexShrink: 0 }} />
+                  <img src={thumb(a)} alt="" loading="lazy" style={{ width: 34, height: 42, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }} />
                 )}
                 <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>{c.author_name} · {new Date(c.created_at).toLocaleDateString()}</div>
-                  <div style={{ fontSize: 12.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.content}</div>
+                  <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{c.author_name} · {new Date(c.created_at).toLocaleDateString()}</div>
+                  <div style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.content}</div>
                 </div>
-                {a && <button onClick={() => pickAsset(a.id, true)} style={{ flexShrink: 0, fontSize: 11.5, fontWeight: 600, padding: '5px 11px', borderRadius: 7, border: '1px solid var(--accent)', background: 'var(--accent-muted)', color: 'var(--accent)', cursor: 'pointer' }}>Open creative →</button>}
+                {a && <button onClick={() => pickAsset(a.id, true)} style={{ flexShrink: 0, fontSize: 11, fontWeight: 600, padding: '4px 12px', borderRadius: 6, border: '1px solid var(--accent)', background: 'var(--accent-muted)', color: 'var(--accent)', cursor: 'pointer' }}>Open creative →</button>}
               </div>
             )
           })}
@@ -544,7 +567,7 @@ export default function ReviewWorkspace({
             <div style={{ position: 'fixed', top: 22, left: 24, fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.85)' }}>{viewLabel}</div>
           )}
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={viewFull ?? full(active)} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: 8 }} />
+          <img src={viewFull ?? full(active)} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: 10 }} />
         </div>
       )}
     </div>

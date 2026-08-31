@@ -23,7 +23,7 @@ const box: React.CSSProperties = {
   border: '1px solid var(--border)', borderRadius: 10, padding: 12, marginBottom: 12,
 }
 const rowStyle: React.CSSProperties = {
-  display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, padding: '4px 0',
+  display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, padding: '4px 0',
   borderBottom: '1px solid var(--border)',
 }
 
@@ -90,27 +90,30 @@ export default function BulkRevisionUpload({
 
   return (
     <div style={box}>
-      <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 2 }}>Upload a batch of revisions</div>
-      <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginBottom: 10 }}>
-        Re-export the fixed files under their original names and drop them all in.
-        Each one is matched to the creative it replaces — you approve the plan before anything uploads.
-      </div>
-
+      {/* One compact row when idle. This is an occasional action, and as a
+          full-width dashed panel it pushed the creatives themselves below the
+          fold on every visit. The explanation moves to the point of use — it is
+          only useful once you are looking at a plan. */}
       {!plan && (
-        <label style={{
-          display: 'block', padding: '14px 12px', textAlign: 'center', cursor: busy ? 'wait' : 'pointer',
-          border: '1px dashed var(--border-strong)', borderRadius: 8, fontSize: 12, fontWeight: 600,
+        <label style={{ textTransform: 'none', letterSpacing: 0, display: 'flex', alignItems: 'center', gap: 8, cursor: busy ? 'wait' : 'pointer',
         }}>
           <input
             type="file" accept="image/*" multiple disabled={busy} style={{ display: 'none' }}
             onChange={e => { const f = Array.from(e.target.files ?? []); e.target.value = ''; if (f.length) buildPlan(f) }}
           />
-          ⬆ Choose revised files
+          <span style={{ fontSize: 12, fontWeight: 600 }}>Upload a batch of revisions</span>
+          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+            Re-export under the original filenames — each is matched to the creative it replaces.
+          </span>
+          <span style={{
+            marginLeft: 'auto', flexShrink: 0, fontSize: 11, fontWeight: 600, padding: '4px 12px',
+            borderRadius: 6, border: '1px solid var(--border-strong)', color: 'var(--text-secondary)',
+          }}>Choose files</span>
         </label>
       )}
 
       {done !== null && (
-        <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--success)', marginTop: 8 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--success)', marginTop: 8 }}>
           {done} revision{done === 1 ? '' : 's'} uploaded. Each is now the latest edit — the client keeps
           seeing the published version until you send it.
         </div>
@@ -118,8 +121,11 @@ export default function BulkRevisionUpload({
 
       {plan && (
         <div>
+          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>
+            Check the plan before uploading — nothing has been sent yet
+          </div>
           {plan.matched.length > 0 && (
-            <div style={{ marginBottom: 10 }}>
+            <div style={{ marginBottom: 8 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--success)', marginBottom: 4 }}>
                 {plan.matched.length} matched
               </div>
@@ -134,7 +140,7 @@ export default function BulkRevisionUpload({
           )}
 
           {plan.ambiguous.length > 0 && (
-            <div style={{ marginBottom: 10 }}>
+            <div style={{ marginBottom: 8 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--warning)', marginBottom: 4 }}>
                 {plan.ambiguous.length} need a choice
               </div>
@@ -158,11 +164,11 @@ export default function BulkRevisionUpload({
           )}
 
           {plan.unmatched.length > 0 && (
-            <div style={{ marginBottom: 10 }}>
+            <div style={{ marginBottom: 8 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 4 }}>
                 {plan.unmatched.length} unmatched — these will be skipped
               </div>
-              <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginBottom: 4 }}>
+              <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 4 }}>
                 No creative in this project has that filename. If it is a brand-new ad rather than a fix,
                 add it with the normal upload instead.
               </div>
@@ -172,12 +178,12 @@ export default function BulkRevisionUpload({
             </div>
           )}
 
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
             <button
               onClick={upload}
               disabled={busy || queue.length === 0}
               style={{
-                padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: busy || !queue.length ? 'not-allowed' : 'pointer',
+                padding: '8px 16px', borderRadius: 10, fontSize: 12, fontWeight: 700, cursor: busy || !queue.length ? 'not-allowed' : 'pointer',
                 border: '1px solid var(--accent)', background: queue.length ? 'var(--accent-muted)' : 'transparent',
                 color: queue.length ? 'var(--accent)' : 'var(--text-muted)',
               }}
@@ -186,7 +192,7 @@ export default function BulkRevisionUpload({
                 ? `Uploading ${progress.done} of ${progress.total}…`
                 : `Upload ${queue.length} revision${queue.length === 1 ? '' : 's'}`}
             </button>
-            <button onClick={() => setPlan(null)} disabled={busy} style={{ padding: '8px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: 'none', border: '1px solid var(--border)', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+            <button onClick={() => setPlan(null)} disabled={busy} style={{ padding: '8px 12px', borderRadius: 10, fontSize: 12, fontWeight: 600, background: 'none', border: '1px solid var(--border)', color: 'var(--text-secondary)', cursor: 'pointer' }}>
               Cancel
             </button>
           </div>
@@ -194,8 +200,8 @@ export default function BulkRevisionUpload({
       )}
 
       {failures.length > 0 && (
-        <div style={{ marginTop: 10, fontSize: 11, color: '#EF4444' }}>
-          <div style={{ fontWeight: 700, marginBottom: 3 }}>{failures.length} failed</div>
+        <div style={{ marginTop: 8, fontSize: 11, color: '#EF4444' }}>
+          <div style={{ fontWeight: 700, marginBottom: 4 }}>{failures.length} failed</div>
           {failures.map(f => <div key={f}>{f}</div>)}
         </div>
       )}
