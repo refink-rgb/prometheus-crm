@@ -6,11 +6,11 @@ import type { CreativeAsset, ProjectComment } from '@/lib/types'
 import type { AssetRevision } from '@/lib/revisions'
 import {
   updateAssetStatusInternal,
-  approveAndPublishRevision,
   setAssetClientVisible,
   publishAssets,
   toggleCommentResolved,
   uploadAssetRevision,
+  setClientVersion,
 } from '@/lib/actions'
 
 // Review, inline in the Creatives tab. Replaces the separate /internal-review
@@ -232,7 +232,6 @@ export default function ReviewWorkspace({
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
                   <button disabled={pending} onClick={() => run(() => updateAssetStatusInternal(active.id, projectId, brandId, 'approved'))} style={btn('var(--success)')}>✓ Approved internally</button>
                   <button disabled={pending} onClick={() => run(() => updateAssetStatusInternal(active.id, projectId, brandId, 'needs_revision'))} style={btn('#EF4444')}>Needs revision</button>
-                  <button disabled={pending} onClick={() => run(() => approveAndPublishRevision(active.id, projectId, brandId))} style={btn('transparent', 'var(--text-secondary)')}>Push to client</button>
                 </div>
               )}
 
@@ -285,20 +284,74 @@ export default function ReviewWorkspace({
                 </span>
               </label>
 
-              {/* Versions */}
-              <div style={{ fontSize: 10.5, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Versions</div>
-              <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 12 }}>
-                <span style={{ fontSize: 11, padding: '3px 9px', borderRadius: 6, border: '1px solid var(--border)', color: 'var(--text-muted)' }}>Original</span>
-                {activeRevs.map(r => (
-                  <span key={r.id} title={new Date(r.created_at).toLocaleString()} style={{
-                    fontSize: 11, padding: '3px 9px', borderRadius: 6,
-                    border: `1px solid ${r.revision_number === activeRevs.length ? 'var(--accent)' : 'var(--border)'}`,
-                    color: r.revision_number === activeRevs.length ? 'var(--accent)' : 'var(--text-muted)',
-                    fontWeight: r.revision_number === activeRevs.length ? 700 : 400,
-                  }}>Edit {r.revision_number}</span>
-                ))}
-                {activeRevs.length === 0 && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>no edits yet</span>}
-              </div>
+              {/* Versions — the stack IS the control. Exactly one row is what the
+                  client sees, so "which version are they looking at" is answered
+                  by looking, not by remembering which button was pressed last. */}
+              {(() => {
+                const originalUrl = `https://drive.google.com/thumbnail?id=${active.drive_file_id}&sz=w600`
+                const rows = [
+                  { key: 'original', label: 'Original', url: null as string | null, thumb: originalUrl, at: null as string | null },
+                  ...activeRevs.map(r => ({ key: r.id, label: `Edit ${r.revision_number}`, url: r.image_url, thumb: r.image_url, at: r.created_at })),
+                ]
+                const publishedUrl = active.published_url
+                // null published_url + never published = nothing sent yet
+                const isLive = (url: string | null) =>
+                  publishedUrl ? url === publishedUrl : false
+                const anyLive = rows.some(r => isLive(r.url))
+                const latest = rows[rows.length - 1]
+                const stale = anyLive && !isLive(latest.url)
+
+                return (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 7 }}>
+                      <span style={{ fontSize: 10.5, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Versions</span>
+                      {stale && (
+                        <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--warning)' }}>
+                          client is on an older version
+                        </span>
+                      )}
+                      {!anyLive && (
+                        <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)' }}>nothing sent yet</span>
+                      )}
+                    </div>
+
+                    <div style={{ border: '1px solid var(--border)', borderRadius: 9, overflow: 'hidden' }}>
+                      {rows.map((r, i) => {
+                        const live = isLive(r.url)
+                        return (
+                          <div key={r.key} style={{
+                            display: 'flex', alignItems: 'center', gap: 10, padding: '7px 10px',
+                            borderTop: i === 0 ? 'none' : '1px solid var(--border)',
+                            background: live ? 'color-mix(in srgb, var(--success) 9%, transparent)' : 'transparent',
+                          }}>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={r.thumb} alt="" loading="lazy" style={{ width: 26, height: 33, objectFit: 'cover', borderRadius: 4, flexShrink: 0, border: '1px solid var(--border)' }} />
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <div style={{ fontSize: 12, fontWeight: live ? 700 : 500 }}>
+                                {r.label}{i === rows.length - 1 && rows.length > 1 ? ' · latest' : ''}
+                              </div>
+                              {r.at && <div style={{ fontSize: 9.5, color: 'var(--text-muted)' }}>{new Date(r.at).toLocaleDateString()}</div>}
+                            </div>
+                            {live ? (
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 700, color: 'var(--success)', whiteSpace: 'nowrap' }}>
+                                <Dot color="var(--success)" />CLIENT SEES THIS
+                              </span>
+                            ) : (
+                              <button
+                                disabled={pending}
+                                onClick={() => run(() => setClientVersion(active.id, r.url, projectId, brandId))}
+                                style={{ ...btn('transparent', 'var(--accent)'), fontSize: 11, padding: '4px 10px', borderColor: 'var(--accent)', whiteSpace: 'nowrap' }}
+                              >
+                                Show client this
+                              </button>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })()}
 
               {(() => {
                 const all = commentsFor[active.id] ?? []

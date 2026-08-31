@@ -1111,6 +1111,38 @@ export async function publishAssets(
 // Uploading here writes the same fields an AI edit writes, so the revision
 // attaches to the existing asset and shows up as the next Edit in its history.
 // Drive stays the pristine v1 source and nothing has to move inside it.
+// Make ONE specific version the thing the client sees.
+//
+// Replaces the old "Push to client" button, which always published whatever the
+// latest internal edit happened to be and showed you neither what you were
+// replacing nor what they had been looking at. Selecting a version directly is
+// unambiguous, and it also buys rollback for free: if Edit 3 was worse, point
+// the client back at Edit 1 without deleting anything.
+//
+// Pass null for imageUrl to publish the ORIGINAL Drive image.
+export async function setClientVersion(
+  assetId: string,
+  imageUrl: string | null,
+  projectId: string,
+  brandId: string,
+): Promise<void> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
+
+  // Choosing a version implies the client should be able to see it. The
+  // separate visibility switch stays the way to take it back off the link.
+  const { error } = await supabase
+    .from('creative_assets')
+    .update({ published_url: imageUrl, client_visible: true })
+    .eq('id', assetId)
+  if (error) throw new Error(`Failed to publish that version: ${error.message}`)
+
+  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+  revalidatePath(`/preview/project/${projectId}`)
+}
+
 export async function uploadAssetRevision(
   formData: FormData,
 ): Promise<{ ok: true; revisionNumber: number | null } | { ok: false; error: string }> {
