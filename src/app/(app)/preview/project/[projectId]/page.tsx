@@ -10,7 +10,11 @@ import PreviewProjectView from '@/components/preview/PreviewProjectView'
 //
 // This renders the editors' proposed tabbed layout against REAL data so the
 // structure can be judged before anything is changed on the live project page.
-// Nothing here writes: every control is inert (see the banner in the view).
+//
+// It is NOT read-only any more. The review workspace writes for real — statuses,
+// client visibility, published versions, revision uploads all hit the same rows
+// the live app reads. The banner in the view says which controls are live and
+// which are still inert; keep it accurate.
 // Deleting this folder + src/components/preview removes the whole experiment.
 export default async function PreviewProjectPage({
   params,
@@ -34,6 +38,7 @@ export default async function PreviewProjectPage({
     { data: commentsRaw },
     { data: imagesRaw },
     { data: dnaRaw },
+    { data: journey },
     profiles,
   ] = await Promise.all([
     supabase.from('brands').select('id, name').eq('id', p.brand_id).single(),
@@ -41,6 +46,11 @@ export default async function PreviewProjectPage({
     supabase.from('project_comments').select('*').eq('project_id', projectId).order('created_at', { ascending: false }),
     supabase.from('project_images').select('id, storage_url').eq('project_id', projectId),
     supabase.from('brand_dna').select('*').eq('brand_id', p.brand_id).eq('is_active', true).maybeSingle(),
+    // Only for the brief export — the live page names the journey, so the
+    // preview's copy has to as well or the two briefs differ.
+    p.journey_id
+      ? supabase.from('journeys').select('name').eq('id', p.journey_id).maybeSingle()
+      : Promise.resolve({ data: null }),
     getCachedProfiles(),
   ])
 
@@ -58,6 +68,7 @@ export default async function PreviewProjectPage({
       revisionsByAsset={revisionsByAsset}
       lpEditorName={profiles.find(x => x.id === p.lp_editor_id)?.full_name ?? null}
       creativeEditorName={profiles.find(x => x.id === p.creative_editor_id)?.full_name ?? null}
+      journeyName={(journey as { name: string } | null)?.name ?? null}
     />
   )
 }

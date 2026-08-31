@@ -5,6 +5,8 @@ import type { Project, Brand, CreativeAsset, ProjectComment, BrandDna, ProjectIm
 import type { AssetRevision } from '@/lib/revisions'
 import ReviewWorkspace from '@/components/preview/ReviewWorkspace'
 import StageTracker from '@/components/StageTracker'
+import CopyMarkdownButton from '@/components/CopyMarkdownButton'
+import { projectBriefMarkdown } from '@/lib/markdown-export'
 
 type Tab = 'overview' | 'lp' | 'creatives'
 
@@ -70,12 +72,12 @@ function CommentList({ comments, empty }: { comments: ProjectComment[]; empty: s
 }
 
 export default function PreviewProjectView({
-  project: p, brand, assets, comments, images, dna, revisionsByAsset, lpEditorName, creativeEditorName,
+  project: p, brand, assets, comments, images, dna, revisionsByAsset, lpEditorName, creativeEditorName, journeyName,
 }: {
   project: Project; brand: Brand; assets: CreativeAsset[]; comments: ProjectComment[]
   images: ProjectImage[]; dna: BrandDna | null
   revisionsByAsset: Record<string, AssetRevision[]>
-  lpEditorName: string | null; creativeEditorName: string | null
+  lpEditorName: string | null; creativeEditorName: string | null; journeyName: string | null
 }) {
   const [tab, setTab] = useState<Tab>('overview')
 
@@ -97,13 +99,14 @@ export default function PreviewProjectView({
 
   return (
     <div style={{ padding: '20px 32px 60px', maxWidth: 1280, margin: '0 auto' }}>
-      {/* Preview banner — this route never writes */}
+      {/* Preview banner. Keep this list honest — it is the only thing telling an
+          editor which controls on this page reach the real project. */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', marginBottom: 18, borderRadius: 8, background: 'rgba(234,179,8,0.10)', border: '1px solid rgba(234,179,8,0.30)' }}>
         <span style={{ fontSize: 14 }}>👁</span>
         <span style={{ fontSize: 12.5, color: 'var(--warning)', fontWeight: 600 }}>Preview of the proposed layout</span>
         <span style={{ fontSize: 12.5, color: 'var(--text-secondary)' }}>
           Real data. The review controls are <strong>live</strong> — approving, pushing to client
-          and the visibility switch change the real project. Stage rails and Copy brief are still inert.
+          the visibility switch and revision uploads all change the real project. Stage rails are still inert.
         </span>
       </div>
 
@@ -133,7 +136,19 @@ export default function PreviewProjectView({
                 </span>
               )}
             </div>
-            <button disabled title="Preview — actions are disabled" style={{ marginTop: 8, fontSize: 12, padding: '5px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface-raised)', color: 'var(--text-muted)', cursor: 'not-allowed' }}>Copy brief</button>
+            {/* Same exporter the live page uses, so an editor copying from
+                either screen pastes byte-identical markdown. */}
+            <CopyMarkdownButton
+              markdown={() => projectBriefMarkdown(p, {
+                brandName: brand?.name ?? null,
+                journeyName,
+                lpEditor: lpEditorName,
+                creativeEditor: creativeEditorName,
+              })}
+              label="Copy brief"
+              title="Copy every filled-in brief field as markdown"
+              style={{ marginTop: 8 }}
+            />
           </div>
         </div>
         <div style={{ borderTop: '1px solid var(--border)', paddingTop: 4 }}>
