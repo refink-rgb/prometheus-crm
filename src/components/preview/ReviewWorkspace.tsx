@@ -60,6 +60,11 @@ export default function ReviewWorkspace({
   const [selected, setSelected] = useState<string | null>(assets[0]?.id ?? null)
   const [zoom, setZoom] = useState(false)
   const [uploading, setUploading] = useState(false)
+  // Which version is being LOOKED AT. Deliberately separate from which one the
+  // client sees — previously the only interactive thing on a version row was
+  // "publish it", so inspecting Edit 1 meant sending it to the client first.
+  const [viewUrl, setViewUrl] = useState<string | null>(null)
+  const [viewLabel, setViewLabel] = useState<string | null>(null)
   const [err, setErr] = useState('')
 
   // Internal and client approval are separate columns. One set of counts for
@@ -99,6 +104,7 @@ export default function ReviewWorkspace({
   }), [assets, filter, commentsFor, mode]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const active = assets.find(a => a.id === selected) ?? null
+  const pickAsset = (id: string) => { setSelected(id); setViewUrl(null); setViewLabel(null) }
   const activeRevs = active ? (revisionsByAsset[active.id] ?? []) : []
   const thumb = (a: CreativeAsset) =>
     a.revision_url ?? a.thumbnail_url ?? `https://drive.google.com/thumbnail?id=${a.drive_file_id}&sz=w600`
@@ -184,7 +190,7 @@ export default function ReviewWorkspace({
             const n = commentsFor[a.id]?.length ?? 0
             const on = a.id === selected
             return (
-              <button key={a.id} onClick={() => setSelected(a.id)} style={{
+              <button key={a.id} onClick={() => pickAsset(a.id)} style={{
                 padding: 0, border: `2px solid ${on ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 10,
                 overflow: 'hidden', cursor: 'pointer', background: 'var(--surface-1)', textAlign: 'left', position: 'relative',
               }}>
@@ -222,9 +228,17 @@ export default function ReviewWorkspace({
               </div>
 
               {/* Click to expand — inline for flow, full size for scrutiny */}
+              {viewLabel && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', marginBottom: 7, borderRadius: 7, background: 'rgba(234,179,8,0.10)', border: '1px solid rgba(234,179,8,0.28)' }}>
+                  <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--warning)' }}>Viewing {viewLabel}</span>
+                  <button onClick={() => { setViewUrl(null); setViewLabel(null) }} style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 600, background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer' }}>
+                    Back to latest
+                  </button>
+                </div>
+              )}
               <button onClick={() => setZoom(true)} title="Click to view full size" style={{ display: 'block', width: '100%', padding: 0, border: 'none', background: 'none', cursor: 'zoom-in', marginBottom: 10 }}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={thumb(active)} alt="" style={{ width: '100%', borderRadius: 8, display: 'block' }} />
+                <img src={viewUrl ?? thumb(active)} alt="" style={{ width: '100%', borderRadius: 8, display: 'block' }} />
               </button>
 
               {/* The three actions */}
@@ -323,15 +337,23 @@ export default function ReviewWorkspace({
                             display: 'flex', alignItems: 'center', gap: 10, padding: '7px 10px',
                             borderTop: i === 0 ? 'none' : '1px solid var(--border)',
                             background: live ? 'color-mix(in srgb, var(--success) 9%, transparent)' : 'transparent',
+                            outline: viewLabel === r.label ? '2px solid var(--accent)' : 'none', outlineOffset: -2,
                           }}>
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={r.thumb} alt="" loading="lazy" style={{ width: 26, height: 33, objectFit: 'cover', borderRadius: 4, flexShrink: 0, border: '1px solid var(--border)' }} />
-                            <div style={{ minWidth: 0, flex: 1 }}>
-                              <div style={{ fontSize: 12, fontWeight: live ? 700 : 500 }}>
-                                {r.label}{i === rows.length - 1 && rows.length > 1 ? ' · latest' : ''}
+                            {/* Clicking the row VIEWS this version. Publishing is the button. */}
+                            <button
+                              onClick={() => { setViewUrl(r.thumb); setViewLabel(r.label) }}
+                              title={`View ${r.label}`}
+                              style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0, padding: 0, border: 'none', background: 'none', cursor: 'pointer', textAlign: 'left' }}
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={r.thumb} alt="" loading="lazy" style={{ width: 26, height: 33, objectFit: 'cover', borderRadius: 4, flexShrink: 0, border: '1px solid var(--border)' }} />
+                              <div style={{ minWidth: 0, flex: 1 }}>
+                                <div style={{ fontSize: 12, fontWeight: live ? 700 : 500 }}>
+                                  {r.label}{i === rows.length - 1 && rows.length > 1 ? ' · latest' : ''}
+                                </div>
+                                {r.at && <div style={{ fontSize: 9.5, color: 'var(--text-muted)' }}>{new Date(r.at).toLocaleDateString()}</div>}
                               </div>
-                              {r.at && <div style={{ fontSize: 9.5, color: 'var(--text-muted)' }}>{new Date(r.at).toLocaleDateString()}</div>}
-                            </div>
+                            </button>
                             {live ? (
                               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 700, color: 'var(--success)', whiteSpace: 'nowrap' }}>
                                 <Dot color="var(--success)" />CLIENT SEES THIS
@@ -427,7 +449,7 @@ export default function ReviewWorkspace({
                   <div style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>{c.author_name} · {new Date(c.created_at).toLocaleDateString()}</div>
                   <div style={{ fontSize: 12.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.content}</div>
                 </div>
-                {a && <button onClick={() => setSelected(a.id)} style={{ flexShrink: 0, fontSize: 11.5, fontWeight: 600, padding: '5px 11px', borderRadius: 7, border: '1px solid var(--accent)', background: 'var(--accent-muted)', color: 'var(--accent)', cursor: 'pointer' }}>Open creative →</button>}
+                {a && <button onClick={() => pickAsset(a.id)} style={{ flexShrink: 0, fontSize: 11.5, fontWeight: 600, padding: '5px 11px', borderRadius: 7, border: '1px solid var(--accent)', background: 'var(--accent-muted)', color: 'var(--accent)', cursor: 'pointer' }}>Open creative →</button>}
               </div>
             )
           })}
@@ -438,7 +460,7 @@ export default function ReviewWorkspace({
       {zoom && active && (
         <div onClick={() => setZoom(false)} style={{ position: 'fixed', inset: 0, zIndex: 900, background: 'rgba(0,0,0,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 28, cursor: 'zoom-out' }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={full(active)} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: 8 }} />
+          <img src={viewUrl ?? full(active)} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: 8 }} />
         </div>
       )}
     </div>
