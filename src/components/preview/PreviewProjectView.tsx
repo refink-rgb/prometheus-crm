@@ -3,8 +3,8 @@
 import { useMemo, useState } from 'react'
 import type { Project, Brand, CreativeAsset, ProjectComment, BrandDna, ProjectImage } from '@/lib/types'
 import type { AssetRevision } from '@/lib/revisions'
-import { STAGE_ORDER, STAGE_LABELS, type Stage } from '@/lib/types'
 import ReviewWorkspace from '@/components/preview/ReviewWorkspace'
+import StageTracker from '@/components/StageTracker'
 
 type Tab = 'overview' | 'lp' | 'creatives'
 
@@ -12,38 +12,6 @@ const SUB_NAV: Record<Tab, string[]> = {
   overview: ['Timeline', 'Project Info', 'Copy and Offer', 'Brand DNA', 'Featured Product List', 'Links / HD Photos'],
   lp: ['Project Info', 'Offer Description', 'Copy & Offer', 'Deliverables', 'Client Feedback', 'Notes'],
   creatives: ['Creative Brief', 'Copy Deck', 'Drive Folder', 'Review'],
-}
-
-function StageRail({ label, code, stage }: { label: string; code: string; stage: Stage }) {
-  const idx = STAGE_ORDER.indexOf(stage)
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0' }}>
-      <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.06em', padding: '3px 7px', borderRadius: 5, background: 'var(--surface-raised)', border: '1px solid var(--border)', color: 'var(--text-secondary)', flexShrink: 0, width: 42, textAlign: 'center' }}>{code}</span>
-      <span style={{ fontSize: 13, fontWeight: 600, width: 92, flexShrink: 0 }}>{label}</span>
-      <div style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: 0 }}>
-        {STAGE_ORDER.map((s, i) => {
-          const done = i < idx, here = i === idx
-          return (
-            <div key={s} style={{ display: 'flex', alignItems: 'center', flex: i === 0 ? '0 0 auto' : 1, minWidth: 0 }}>
-              {i > 0 && <div style={{ height: 2, flex: 1, background: done || here ? 'var(--accent)' : 'var(--border)' }} />}
-              <div title={STAGE_LABELS[s]} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-                <span style={{
-                  width: here ? 13 : 9, height: here ? 13 : 9, borderRadius: '50%', flexShrink: 0,
-                  background: done ? 'var(--accent)' : here ? 'var(--accent)' : 'transparent',
-                  border: `2px solid ${done || here ? 'var(--accent)' : 'var(--border-strong)'}`,
-                  boxShadow: here ? '0 0 0 4px color-mix(in srgb, var(--accent) 20%, transparent)' : 'none',
-                }} />
-                <span style={{ fontSize: 9.5, whiteSpace: 'nowrap', color: here ? 'var(--accent)' : 'var(--text-muted)', fontWeight: here ? 700 : 400 }}>
-                  {STAGE_LABELS[s]}
-                </span>
-              </div>
-            </div>
-          )
-        })}
-      </div>
-      <button disabled title="Preview — actions are disabled" style={{ marginLeft: 12, flexShrink: 0, fontSize: 12, fontWeight: 600, padding: '6px 14px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface-raised)', color: 'var(--text-muted)', cursor: 'not-allowed' }}>Advance</button>
-    </div>
-  )
 }
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
@@ -168,8 +136,22 @@ export default function PreviewProjectView({
           </div>
         </div>
         <div style={{ borderTop: '1px solid var(--border)', paddingTop: 4 }}>
-          <StageRail label="Landing Page" code="LP" stage={p.lp_stage} />
-          <StageRail label="Creatives" code="CRE" stage={p.creatives_stage} />
+          <StageTracker
+            projectId={p.id}
+            brandId={p.brand_id}
+            track="lp_stage"
+            currentStage={p.lp_stage}
+            label="Landing Page"
+            disabled
+          />
+          <StageTracker
+            projectId={p.id}
+            brandId={p.brand_id}
+            track="creatives_stage"
+            currentStage={p.creatives_stage}
+            label="Creatives / Statics"
+            disabled
+          />
         </div>
       </div>
 
