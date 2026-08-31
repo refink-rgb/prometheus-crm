@@ -892,15 +892,19 @@ export async function applyAiEdits(
     .single()
   if (!asset) throw new Error('Asset not found.')
 
-  // Fetch comments for this asset
+  // Open feedback only. Resolved comments were being fed back into the prompt,
+  // so ticking something off did not stop the next revision from redoing it —
+  // and on an ad reviewed more than once, old handled notes kept re-applying
+  // over the newer ones.
   const { data: comments } = await supabase
     .from('project_comments')
     .select('author_name, content, pin_x, pin_y')
     .eq('asset_id', assetId)
+    .is('resolved_at', null)
     .order('created_at')
 
   if (!comments || comments.length === 0) {
-    throw new Error('No comments found for this image. Add reviewer feedback before generating a revision.')
+    throw new Error('No open feedback on this image. Add reviewer feedback — or un-resolve a comment — before generating a revision.')
   }
 
   // Only feed actionable change requests to the model — skip pure questions /
@@ -912,10 +916,23 @@ export async function applyAiEdits(
 
   const prompt = buildRevisionPrompt(actionable)
 
-  // Download image from Drive
-  const driveUrl = `https://drive.google.com/uc?export=download&id=${asset.drive_file_id}`
-  const imageRes = await fetch(driveUrl, { redirect: 'follow' })
-  if (!imageRes.ok) throw new Error(`Failed to download image from Drive (HTTP ${imageRes.status}). Make sure the file is publicly shared.`)
+  // Edit the version that is actually current, not always the Drive original.
+  //
+  // This used to fetch the Drive file unconditionally. If an editor had fixed
+  // the ad by hand and uploaded it, generating an AI revision silently threw
+  // that fix away and edited the untouched original instead — no error, and
+  // nothing on screen said the hand-edit had been discarded.
+  const editingRevision = !!asset.revision_url
+  const sourceUrl = asset.revision_url
+    ?? `https://drive.google.com/uc?export=download&id=${asset.drive_file_id}`
+  const imageRes = await fetch(sourceUrl, { redirect: 'follow' })
+  if (!imageRes.ok) {
+    throw new Error(
+      editingRevision
+        ? `Failed to download the current revision (HTTP ${imageRes.status}).`
+        : `Failed to download image from Drive (HTTP ${imageRes.status}). Make sure the file is publicly shared.`,
+    )
+  }
 
   const imageBuffer = Buffer.from(await imageRes.arrayBuffer())
 

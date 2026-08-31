@@ -460,7 +460,12 @@ function AssetView({
     ? revisions.length
     : (asset.revision_url ? null : 0)
 
-  const isLive = !!asset.client_visible && !!asset.published_url
+  // client_visible IS the client-facing test — it is exactly what the review
+  // link filters on (review/[token]/page.tsx). published_url only records WHICH
+  // version was sent, and publishAssets leaves it null for an unedited ad, so
+  // requiring it here labelled creatives the client was already reviewing as
+  // "Internal only".
+  const isLive = !!asset.client_visible && !asset.is_hidden
 
   const handleImageClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (!pinMode) return
