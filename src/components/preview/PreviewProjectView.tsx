@@ -563,7 +563,8 @@ export default function PreviewProjectView({
                   <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: 12 }}>On the ad</div>
                   {hasAdCopy ? (
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 16 }}>
-                      {([['Eyebrows', p.ad_eyebrows], ['Headlines', p.ad_headlines], ['Subheadlines', p.ad_subcopies]] as const)
+                      {/* Headlines first — it's the line an editor picks before anything else. */}
+                      {([['Headlines', p.ad_headlines], ['Subheadlines', p.ad_subcopies], ['Eyebrows', p.ad_eyebrows]] as const)
                         .filter(([, arr]) => arr && arr.length)
                         .map(([label, arr], col) => (
                           <div key={label}>
