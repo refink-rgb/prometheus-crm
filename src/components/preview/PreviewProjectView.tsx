@@ -1,0 +1,347 @@
+'use client'
+
+import { useMemo, useState } from 'react'
+import type { Project, Brand, CreativeAsset, ProjectComment, BrandDna, ProjectImage } from '@/lib/types'
+import type { AssetRevision } from '@/lib/revisions'
+import { STAGE_ORDER, STAGE_LABELS, type Stage } from '@/lib/types'
+import ReviewWorkspace from '@/components/preview/ReviewWorkspace'
+
+type Tab = 'overview' | 'lp' | 'creatives'
+
+const SUB_NAV: Record<Tab, string[]> = {
+  overview: ['Timeline', 'Project Info', 'Copy and Offer', 'Brand DNA', 'Featured Product List', 'Links / HD Photos'],
+  lp: ['Project Info', 'Offer Description', 'Copy & Offer', 'Deliverables', 'Client Feedback', 'Notes'],
+  creatives: ['Creative Brief', 'Copy Deck', 'Drive Folder', 'Review'],
+}
+
+function StageRail({ label, code, stage }: { label: string; code: string; stage: Stage }) {
+  const idx = STAGE_ORDER.indexOf(stage)
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0' }}>
+      <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.06em', padding: '3px 7px', borderRadius: 5, background: 'var(--surface-raised)', border: '1px solid var(--border)', color: 'var(--text-secondary)', flexShrink: 0, width: 42, textAlign: 'center' }}>{code}</span>
+      <span style={{ fontSize: 13, fontWeight: 600, width: 92, flexShrink: 0 }}>{label}</span>
+      <div style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: 0 }}>
+        {STAGE_ORDER.map((s, i) => {
+          const done = i < idx, here = i === idx
+          return (
+            <div key={s} style={{ display: 'flex', alignItems: 'center', flex: i === 0 ? '0 0 auto' : 1, minWidth: 0 }}>
+              {i > 0 && <div style={{ height: 2, flex: 1, background: done || here ? 'var(--accent)' : 'var(--border)' }} />}
+              <div title={STAGE_LABELS[s]} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                <span style={{
+                  width: here ? 13 : 9, height: here ? 13 : 9, borderRadius: '50%', flexShrink: 0,
+                  background: done ? 'var(--accent)' : here ? 'var(--accent)' : 'transparent',
+                  border: `2px solid ${done || here ? 'var(--accent)' : 'var(--border-strong)'}`,
+                  boxShadow: here ? '0 0 0 4px color-mix(in srgb, var(--accent) 20%, transparent)' : 'none',
+                }} />
+                <span style={{ fontSize: 9.5, whiteSpace: 'nowrap', color: here ? 'var(--accent)' : 'var(--text-muted)', fontWeight: here ? 700 : 400 }}>
+                  {STAGE_LABELS[s]}
+                </span>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      <button disabled title="Preview — actions are disabled" style={{ marginLeft: 12, flexShrink: 0, fontSize: 12, fontWeight: 600, padding: '6px 14px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface-raised)', color: 'var(--text-muted)', cursor: 'not-allowed' }}>Advance</button>
+    </div>
+  )
+}
+
+function Row({ label, value }: { label: string; value: React.ReactNode }) {
+  if (value === null || value === undefined || value === '') return null
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '190px 1fr', gap: 16, padding: '9px 0', borderBottom: '1px solid var(--border)' }}>
+      <div style={{ fontSize: 11.5, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</div>
+      <div style={{ fontSize: 13.5, color: 'var(--text-primary)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{value}</div>
+    </div>
+  )
+}
+
+function Section({ id, title, children }: { id: string; title: string; children: React.ReactNode }) {
+  return (
+    <section id={id} style={{ marginBottom: 34, scrollMarginTop: 20 }}>
+      <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12, color: 'var(--text-primary)' }}>{title}</h3>
+      {children}
+    </section>
+  )
+}
+
+
+// Dot AND label, always together. Roberto's note on J36: keep the dot, but the
+// word has to sit next to it so the colour never has to be decoded from memory.
+function Dot({ color }: { color: string }) {
+  return <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0, display: 'inline-block' }} />
+}
+
+function CommentList({ comments, empty }: { comments: ProjectComment[]; empty: string }) {
+  if (comments.length === 0) return <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>{empty}</p>
+  return (
+    <>
+      {comments.map(c => {
+        const done = !!c.resolved_at
+        return (
+          <div key={c.id} style={{ padding: '11px 14px', border: '1px solid var(--border)', borderRadius: 9, marginBottom: 8, background: 'var(--surface-1)' }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 5, flexWrap: 'wrap' }}>
+              <strong style={{ fontSize: 12.5 }}>{c.author_name}</strong>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 700, color: c.audience === 'internal' ? 'var(--text-muted)' : '#60a5fa' }}>
+                <Dot color={c.audience === 'internal' ? 'var(--text-muted)' : '#60a5fa'} />
+                {c.audience === 'internal' ? 'Internal' : 'Client'}
+              </span>
+              {c.section_tag && <span style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>§ {c.section_tag}</span>}
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 700, color: done ? 'var(--success)' : 'var(--text-muted)' }}>
+                <Dot color={done ? 'var(--success)' : 'var(--border-strong)'} />
+                {done ? 'Resolved' : 'Open'}
+              </span>
+              <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)' }}>{new Date(c.created_at).toLocaleDateString()}</span>
+            </div>
+            <div style={{ fontSize: 13, lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>{c.content}</div>
+          </div>
+        )
+      })}
+    </>
+  )
+}
+
+export default function PreviewProjectView({
+  project: p, brand, assets, comments, images, dna, revisionsByAsset, lpEditorName, creativeEditorName,
+}: {
+  project: Project; brand: Brand; assets: CreativeAsset[]; comments: ProjectComment[]
+  images: ProjectImage[]; dna: BrandDna | null
+  revisionsByAsset: Record<string, AssetRevision[]>
+  lpEditorName: string | null; creativeEditorName: string | null
+}) {
+  const [tab, setTab] = useState<Tab>('overview')
+
+  const creativeComments = useMemo(() => comments.filter(c => c.track === 'image'), [comments])
+  const lpComments = useMemo(() => comments.filter(c => c.track === 'lp' || c.track === 'general'), [comments])
+  const noteComments = useMemo(() => comments.filter(c => c.track === 'note'), [comments])
+
+  const due = p.due_date ? new Date(p.due_date + 'T00:00:00') : null
+  const daysLeft = due ? Math.ceil((due.getTime() - Date.now()) / 86400000) : null
+
+  const chip = (text: string, tone: 'muted' | 'lp' | 'cre' = 'muted') => (
+    <span key={text} style={{
+      fontSize: 11.5, fontWeight: 600, padding: '3px 10px', borderRadius: 20, whiteSpace: 'nowrap',
+      background: tone === 'muted' ? 'var(--surface-raised)' : tone === 'lp' ? 'rgba(96,165,250,0.14)' : 'rgba(168,85,247,0.14)',
+      color: tone === 'muted' ? 'var(--text-secondary)' : tone === 'lp' ? '#60a5fa' : '#a855f7',
+      border: `1px solid ${tone === 'muted' ? 'var(--border)' : 'transparent'}`,
+    }}>{text}</span>
+  )
+
+  return (
+    <div style={{ padding: '20px 32px 60px', maxWidth: 1280, margin: '0 auto' }}>
+      {/* Preview banner — this route never writes */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', marginBottom: 18, borderRadius: 8, background: 'rgba(234,179,8,0.10)', border: '1px solid rgba(234,179,8,0.30)' }}>
+        <span style={{ fontSize: 14 }}>👁</span>
+        <span style={{ fontSize: 12.5, color: 'var(--warning)', fontWeight: 600 }}>Preview of the proposed layout</span>
+        <span style={{ fontSize: 12.5, color: 'var(--text-secondary)' }}>
+          Real data, read-only. Every button is inert — nothing here can change the project.
+        </span>
+      </div>
+
+      <div style={{ fontSize: 12.5, color: 'var(--text-muted)', marginBottom: 10 }}>
+        Brands / {brand?.name} / <span style={{ color: 'var(--text-primary)' }}>{p.name}</span>
+      </div>
+
+      {/* Header */}
+      <div className="card" style={{ marginBottom: 18 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20, flexWrap: 'wrap', marginBottom: 12 }}>
+          <div style={{ minWidth: 0 }}>
+            <h1 style={{ fontSize: 23, fontWeight: 800, letterSpacing: '-0.02em', marginBottom: 8 }}>{p.name}</h1>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {p.marketing_moment && chip(`Moment ${p.marketing_moment}`)}
+              {p.page_type && chip(p.page_type)}
+              {chip(`LP · ${lpEditorName ?? 'unassigned'}`, 'lp')}
+              {chip(`CR · ${creativeEditorName ?? 'unassigned'}`, 'cre')}
+            </div>
+          </div>
+          <div style={{ textAlign: 'right', flexShrink: 0 }}>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Due</div>
+            <div style={{ fontSize: 14, fontWeight: 700 }}>
+              {due ? due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}
+              {daysLeft !== null && (
+                <span style={{ marginLeft: 8, fontWeight: 600, color: daysLeft < 0 ? 'var(--danger)' : daysLeft <= 3 ? 'var(--warning)' : 'var(--text-muted)' }}>
+                  {daysLeft < 0 ? `${Math.abs(daysLeft)}d over` : `${daysLeft}d`}
+                </span>
+              )}
+            </div>
+            <button disabled title="Preview — actions are disabled" style={{ marginTop: 8, fontSize: 12, padding: '5px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface-raised)', color: 'var(--text-muted)', cursor: 'not-allowed' }}>Copy brief</button>
+          </div>
+        </div>
+        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 4 }}>
+          <StageRail label="Landing Page" code="LP" stage={p.lp_stage} />
+          <StageRail label="Creatives" code="CRE" stage={p.creatives_stage} />
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div style={{ display: 'flex', gap: 26, borderBottom: '1px solid var(--border)', marginBottom: 20 }}>
+        {([['overview', 'Project Overview', null], ['lp', 'Landing Page', lpComments.length || null], ['creatives', 'Creatives', assets.length]] as const).map(([k, label, count]) => (
+          <button key={k} onClick={() => setTab(k as Tab)} style={{
+            background: 'none', border: 'none', cursor: 'pointer', padding: '10px 0 12px',
+            fontSize: 14, fontWeight: tab === k ? 700 : 500,
+            color: tab === k ? 'var(--text-primary)' : 'var(--text-muted)',
+            borderBottom: `2px solid ${tab === k ? 'var(--accent)' : 'transparent'}`,
+            marginBottom: -1, display: 'inline-flex', alignItems: 'center', gap: 8,
+          }}>
+            {label}
+            {count ? <span style={{ fontSize: 11, fontWeight: 700, padding: '1px 7px', borderRadius: 10, background: 'var(--surface-raised)', color: 'var(--text-secondary)' }}>{count}</span> : null}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '210px minmax(0,1fr)', gap: 30 }}>
+        {/* Sub-nav */}
+        <nav style={{ position: 'sticky', top: 16, alignSelf: 'start' }}>
+          {SUB_NAV[tab].map(s => (
+            <a key={s} href={`#${s.replace(/[^a-z]/gi, '').toLowerCase()}`} style={{
+              display: 'block', padding: '7px 11px', marginBottom: 2, borderRadius: 7,
+              fontSize: 13, color: 'var(--text-muted)', textDecoration: 'none',
+            }}>{s}</a>
+          ))}
+        </nav>
+
+        <div style={{ minWidth: 0 }}>
+          {tab === 'overview' && (
+            <>
+              <Section id="timeline" title="Timeline">
+                <div style={{ display: 'flex', gap: 0, flexWrap: 'wrap' }}>
+                  {[['Brief', p.stage_brief_due_date], ['In Progress', p.stage_in_progress_due_date], ['Internal', p.stage_internal_review_due_date], ['Client', p.stage_client_review_due_date], ['Live', p.due_date]].map(([l, v]) => (
+                    <div key={l as string} style={{ flex: 1, minWidth: 110, padding: '10px 12px', borderLeft: '2px solid var(--border)' }}>
+                      <div style={{ fontSize: 10.5, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{l}</div>
+                      <div style={{ fontSize: 13, fontWeight: 600, marginTop: 3 }}>{v ? new Date((v as string) + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}</div>
+                    </div>
+                  ))}
+                </div>
+              </Section>
+              <Section id="projectinfo" title="Project Info">
+                <Row label="Journey" value={p.journey_id ? 'Assigned' : null} />
+                <Row label="Marketing moment" value={p.marketing_moment ? `Moment ${p.marketing_moment}` : null} />
+                <Row label="Page type" value={p.page_type} />
+                <Row label="LP editor" value={lpEditorName} />
+                <Row label="Creative editor" value={creativeEditorName} />
+              </Section>
+              <Section id="copyandoffer" title="Copy and Offer">
+                <Row label="Offer" value={p.offer} />
+                <Row label="Offer description" value={p.offer_description} />
+                <Row label="Headline" value={p.headline} />
+                <Row label="Body copy" value={p.body_copy} />
+                <Row label="Supporting message" value={p.supporting_message} />
+                <Row label="CTA" value={p.cta} />
+              </Section>
+              <Section id="branddna" title="Brand DNA">
+                {dna ? (
+                  <>
+                    <Row label="Tagline" value={dna.tagline} />
+                    <Row label="Primary font" value={dna.primary_font} />
+                    <Row label="Secondary font" value={dna.secondary_font} />
+                    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', paddingTop: 12 }}>
+                      {([['Primary', dna.primary_color], ['Secondary', dna.secondary_color], ['Accent', dna.accent_color], ['Contrast', dna.contrast_color]] as const)
+                        .filter(([, v]) => !!v)
+                        .map(([l, v]) => (
+                          <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px 6px 8px', border: '1px solid var(--border)', borderRadius: 8 }}>
+                            <span style={{ width: 22, height: 22, borderRadius: 5, background: v as string, border: '1px solid var(--border)' }} />
+                            <div>
+                              <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase' }}>{l}</div>
+                              <div style={{ fontSize: 12, fontWeight: 600, fontFamily: 'ui-monospace, monospace' }}>{v}</div>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  </>
+                ) : <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>No Brand DNA built for {brand?.name} yet.</p>}
+              </Section>
+              <Section id="featuredproductlist" title="Featured Product List">
+                <Row label="Product" value={p.product_featured} />
+                <Row label="Description" value={p.product_description} />
+                <Row label="Retail price" value={p.retail_price} />
+                {images.length > 0 && (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(110px,1fr))', gap: 10, paddingTop: 14 }}>
+                    {images.slice(0, 12).map(im => (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img key={im.id} src={im.storage_url} alt="" loading="lazy" style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: 8, border: '1px solid var(--border)' }} />
+                    ))}
+                  </div>
+                )}
+              </Section>
+              <Section id="linkshdphotos" title="Links / HD Photos">
+                <Row label="Landing page" value={p.lp_url ? <a href={p.lp_url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>{p.lp_url}</a> : null} />
+                <Row label="Drive folder" value={p.drive_folder_url ? <a href={p.drive_folder_url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>Open Drive folder ↗</a> : null} />
+                <Row label="Product assets" value={p.product_images_link ? <a href={p.product_images_link} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>Open ↗</a> : null} />
+                <Row label="Motion" value={p.motion_link ? <a href={p.motion_link} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>Open videos ↗</a> : null} />
+              </Section>
+            </>
+          )}
+
+          {tab === 'lp' && (
+            <>
+              <Section id="projectinfo" title="Project Info">
+                <Row label="Page type" value={p.page_type} />
+                <Row label="Marketing moment" value={p.marketing_moment ? `Moment ${p.marketing_moment}` : null} />
+                <Row label="LP editor" value={lpEditorName} />
+                <Row label="Due" value={p.due_date} />
+              </Section>
+              <Section id="offerdescription" title="Offer Description">
+                <Row label="Offer" value={p.offer} />
+                <Row label="Description" value={p.offer_description} />
+              </Section>
+              <Section id="copyoffer" title="Copy & Offer">
+                <Row label="Headline" value={p.headline} />
+                <Row label="Body copy" value={p.body_copy} />
+                <Row label="Supporting" value={p.supporting_message} />
+                <Row label="CTA" value={p.cta} />
+                <Row label="Retail price" value={p.retail_price} />
+              </Section>
+              <Section id="deliverables" title="Deliverables">
+                <Row label="Landing page URL" value={p.lp_url
+                  ? <a href={p.lp_url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>{p.lp_url}</a>
+                  : <span style={{ color: 'var(--text-muted)' }}>Not set</span>} />
+                <Row label="Coupon code" value={p.shopify_coupon_code} />
+              </Section>
+              <Section id="clientfeedback" title="Client Feedback">
+                <CommentList comments={lpComments} empty="No landing-page feedback yet." />
+              </Section>
+              <Section id="notes" title="Notes">
+                <CommentList comments={noteComments} empty="No internal notes on this project." />
+              </Section>
+            </>
+          )}
+
+          {tab === 'creatives' && (
+            <>
+              <Section id="creativebrief" title="Creative Brief">
+                <Row label="Product" value={p.product_featured} />
+                <Row label="Offer" value={p.offer} />
+                <Row label="Retail price" value={p.retail_price} />
+                <Row label="Competitor reference" value={p.competitor_reference} />
+                <Row label="Client inspiration" value={p.client_ad_inspiration} />
+                <Row label="Editor" value={creativeEditorName} />
+              </Section>
+              <Section id="copydeck" title="Copy Deck">
+                {(['ad_headlines', 'ad_eyebrows', 'ad_subcopies'] as const).map(k => {
+                  const v = p[k] as string[] | null
+                  if (!v?.length) return null
+                  return (
+                    <div key={k} style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+                        {k.replace('ad_', '').replace('subcopies', 'subheadlines')} ({v.length})
+                      </div>
+                      {v.map((line, i) => (
+                        <div key={i} style={{ fontSize: 13, padding: '5px 0', borderBottom: '1px solid var(--border)' }}>{line}</div>
+                      ))}
+                    </div>
+                  )
+                })}
+              </Section>
+              <Section id="drivefolder" title="Drive Folder">
+                <Row label="Folder" value={p.drive_folder_url ? <a href={p.drive_folder_url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>Open Drive folder ↗</a> : <span style={{ color: 'var(--text-muted)' }}>Not linked</span>} />
+              </Section>
+              <Section id="review" title="Review">
+                <ReviewWorkspace assets={assets} comments={creativeComments} revisionsByAsset={revisionsByAsset} />
+              </Section>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
