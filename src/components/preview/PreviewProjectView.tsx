@@ -102,7 +102,8 @@ export default function PreviewProjectView({
         <span style={{ fontSize: 14 }}>👁</span>
         <span style={{ fontSize: 12.5, color: 'var(--warning)', fontWeight: 600 }}>Preview of the proposed layout</span>
         <span style={{ fontSize: 12.5, color: 'var(--text-secondary)' }}>
-          Real data, read-only. Every button is inert — nothing here can change the project.
+          Real data. The review controls are <strong>live</strong> — approving, pushing to client
+          and the visibility switch change the real project. Stage rails and Copy brief are still inert.
         </span>
       </div>
 
@@ -318,7 +319,7 @@ export default function PreviewProjectView({
                 <Row label="Folder" value={p.drive_folder_url ? <a href={p.drive_folder_url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>Open Drive folder ↗</a> : <span style={{ color: 'var(--text-muted)' }}>Not linked</span>} />
               </Section>
               <Section id="review" title="Review">
-                <ReviewWorkspace assets={assets} comments={creativeComments} revisionsByAsset={revisionsByAsset} />
+                <ReviewWorkspace projectId={p.id} brandId={p.brand_id} assets={assets} comments={creativeComments} revisionsByAsset={revisionsByAsset} />
               </Section>
             </>
           )}

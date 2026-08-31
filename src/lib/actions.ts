@@ -1093,6 +1093,44 @@ export async function publishAssets(
 // comments all stay put, and publishing again restores them. Only the
 // client_visible flag moves, so `published_url` is left alone as the record of
 // what the client last saw.
+// Per-asset client visibility. The bulk unpublish already existed; this is the
+// missing single-asset OFF switch.
+//
+// Deliberately NOT is_hidden: that flag is owned by the Drive sync (it soft-hides
+// anything that leaves the root folder), so a value set by hand there can be
+// flipped back by a routine sync — and it also hides the asset from our own
+// editors. client_visible is the client-facing flag and nothing else writes it.
+export async function setAssetClientVisible(
+  assetId: string,
+  visible: boolean,
+  projectId: string,
+  brandId: string,
+): Promise<void> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
+
+  // Turning it ON freezes what the client sees to the current internal revision,
+  // matching approveAndPublishRevision. Turning it OFF leaves published_url alone
+  // so switching back on doesn't silently show a different image than before.
+  const update: { client_visible: boolean; published_url?: string } = { client_visible: visible }
+  if (visible) {
+    const { data: asset } = await supabase
+      .from('creative_assets')
+      .select('revision_url, published_url')
+      .eq('id', assetId)
+      .single()
+    if (asset?.revision_url && !asset.published_url) update.published_url = asset.revision_url
+  }
+
+  const { error } = await supabase.from('creative_assets').update(update).eq('id', assetId)
+  if (error) throw new Error(`Failed to update visibility: ${error.message}`)
+
+  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+  revalidatePath(`/preview/project/${projectId}`)
+}
+
 export async function unpublishAllAssets(
   projectId: string,
   brandId: string
