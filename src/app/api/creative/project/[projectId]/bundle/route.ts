@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { bearerToken, validateEditorToken } from '@/lib/editor-auth'
+import { readProducts, readCompetitors } from '@/lib/products'
 
 export const runtime = 'nodejs'
 
@@ -13,6 +14,8 @@ interface ProjectRow {
   discount: string | null
   cta: string | null
   product_featured: string | null
+  products: unknown
+  competitors: unknown
   product_description: string | null
   product_images_link: string | null
   retail_price: string | null
@@ -25,7 +28,7 @@ interface ProjectRow {
 }
 
 const PROJECT_COLS =
-  'id, name, brand_id, offer, offer_description, discount, cta, product_featured, product_description, product_images_link, retail_price, ad_headlines, ad_subcopies, ad_eyebrows, competitor_reference, client_ad_inspiration, marketing_moment'
+  'id, name, brand_id, offer, offer_description, discount, cta, product_featured, product_description, product_images_link, retail_price, ad_headlines, ad_subcopies, ad_eyebrows, competitor_reference, client_ad_inspiration, marketing_moment, products, competitors'
 
 /**
  * GET /api/creative/project/[projectId]/bundle
@@ -97,6 +100,10 @@ export async function GET(
       discount: project.discount,
       cta: project.cta,
       product_featured: project.product_featured,
+      // Structured lists, normalised server-side. product_featured stays for
+      // existing consumers; these are additive.
+      products: readProducts(project),
+      competitors: readCompetitors(project),
       product_description: project.product_description,
       product_images_link: project.product_images_link,
       retail_price: project.retail_price,

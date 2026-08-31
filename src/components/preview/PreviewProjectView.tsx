@@ -6,16 +6,12 @@ import type { AssetRevision } from '@/lib/revisions'
 import ReviewWorkspace from '@/components/preview/ReviewWorkspace'
 import Link from 'next/link'
 import CopyMarkdownButton from '@/components/CopyMarkdownButton'
+import ListEditor, { type ListRow } from '@/components/preview/ListEditor'
+import { readProducts, readCompetitors, productsDrifted, offerSource, splitSkus } from '@/lib/products'
+import { summariseProjectOffer } from '@/lib/actions'
 import { projectBriefMarkdown } from '@/lib/markdown-export'
 import { STAGE_COLORS } from '@/lib/stageColors'
 import { STAGE_LABELS, normalizeStage } from '@/lib/types'
-
-// product_featured is a semicolon-delimited SKU list in 23 of 59 populated
-// projects. Rendered as one string, a four-SKU brief reads as one product —
-// which is the shape of the single most common revision (23% of client
-// comments are "wrong product shown").
-const splitSkus = (raw: string | null | undefined): string[] =>
-  raw ? raw.split(';').map(x => x.trim()).filter(Boolean) : []
 
 const isUrl = (v: string) => /^https?:\/\//i.test(v.trim())
 const hostOf = (u: string) => { try { return new URL(u).host } catch { return u } }
@@ -72,6 +68,28 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     <div style={{ marginBottom: 12 }}>
       <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>{label}</div>
       <div style={{ fontSize: 13, color: 'var(--text-primary)', lineHeight: 1.6, whiteSpace: 'pre-wrap', maxWidth: '68ch' }}>{children}</div>
+    </div>
+  )
+}
+
+// Collapsed by default. Used where the content is reference material an editor
+// consults rather than reads every time.
+function Disclosure({ title, meta, open: initial = false, children }: {
+  title: string; meta?: string; open?: boolean; children: React.ReactNode
+}) {
+  const [open, setOpen] = useState(initial)
+  return (
+    <div style={{ border: '1px solid var(--border)', borderRadius: 10, marginBottom: 12 }}>
+      <button
+        onClick={() => setOpen(v => !v)}
+        aria-expanded={open}
+        style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '10px 12px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-primary)' }}
+      >
+        <span style={{ fontSize: 11, color: 'var(--text-muted)', width: 10 }}>{open ? '▾' : '▸'}</span>
+        <span style={{ fontSize: 12, fontWeight: 700 }}>{title}</span>
+        {meta && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{meta}</span>}
+      </button>
+      {open && <div style={{ padding: '0 12px 12px 30px' }}>{children}</div>}
     </div>
   )
 }
@@ -182,7 +200,23 @@ export default function PreviewProjectView({
     return () => mq.removeEventListener('change', sync)
   }, [])
 
-  const skus = useMemo(() => splitSkus(p.product_featured), [p.product_featured])
+  const products = useMemo(() => readProducts(p), [p])
+  const competitors = useMemo(() => readCompetitors(p), [p])
+  const drifted = productsDrifted(p)
+  const skus = useMemo(() => products.map(x => x.name), [products])
+
+  const [editing, setEditing] = useState<null | 'products' | 'competitors'>(null)
+  const [summary, setSummary] = useState<string[] | null>(null)
+  const [summarising, setSummarising] = useState(false)
+  const [summaryErr, setSummaryErr] = useState('')
+
+  // Cached bullets are only shown while they still describe the CURRENT offer.
+  // Editing the offer must not leave a confident summary of the previous one.
+  const cachedSummary = p.offer_summary && p.offer_summary_source === offerSource(p)
+    ? p.offer_summary
+    : null
+  const shownSummary = summary ?? cachedSummary
+  const summaryStale = !!p.offer_summary && !cachedSummary
 
   // Escalating fallback when no image is stored, so the loud "don't guess" state
   // is reserved for a genuine dead end.
@@ -257,11 +291,15 @@ export default function PreviewProjectView({
     { id: 'notes', label: 'Internal notes', show: noteComments.length > 0 },
   ]).filter(n => n.show), [hasProduct, lpOpen.length, lpComments.length, noteComments.length])
 
+  // Products and Motion reports are always shown, even empty: an empty list is
+  // the prompt to fill it, and hiding it hides the only place the work happens.
   const creativesNav = useMemo(() => ([
     { id: 'brief', label: 'Brief', show: true },
+    { id: 'products', label: products.length ? `Products · ${products.length}` : 'Products', show: true },
+    { id: 'motion', label: competitors.length ? `Motion reports · ${competitors.length}` : 'Motion reports', show: true },
     { id: 'copy', label: 'Copy deck', show: hasAdCopy },
     { id: 'review', label: 'Review', show: true },
-  ]).filter(n => n.show), [hasAdCopy])
+  ]).filter(n => n.show), [hasAdCopy, products.length, competitors.length])
 
   const activeNav = tab === 'overview' ? overviewNav : tab === 'lp' ? lpNav : creativesNav
 
@@ -1080,23 +1118,55 @@ export default function PreviewProjectView({
                   )}
 
                   <div>
-                    {skus.length === 0 ? (
-                      <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-muted)' }}>Product not specified</div>
-                    ) : skus.length === 1 ? (
-                      <div style={{ fontSize: 15, fontWeight: 700 }}>{skus[0]}</div>
-                    ) : (
-                      <>
-                        <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: 4 }}>{skus.length} SKUs in this ad</div>
-                        {skus.map((sku, i) => (
-                          <div key={sku} style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 2 }}>
-                            <span style={{ flexShrink: 0, width: 16, height: 16, borderRadius: 4, background: 'var(--surface-raised)', color: 'var(--text-secondary)', fontSize: 10, display: 'grid', placeItems: 'center' }}>{i + 1}</span>
-                            <span style={{ fontSize: 13, fontWeight: 600 }}>{sku}</span>
-                          </div>
-                        ))}
-                      </>
-                    )}
+                    {/* Names live in the Products card below — one place per fact,
+                        or the two lists drift apart. */}
+                    {p.offer && <div style={{ fontSize: 13, fontWeight: 600 }}>{p.offer}</div>}
 
-                    {p.offer && <div style={{ fontSize: 13, marginTop: 10, color: 'var(--text-secondary)' }}>{p.offer}</div>}
+                    {/* The full offer is an average of 985 characters and runs to
+                        2,512 — a wall of text between an editor and the one thing
+                        they need. Collapsed, with bullets on demand. */}
+                    {p.offer_description && (
+                      <div style={{ marginTop: 10 }}>
+                        {shownSummary && (
+                          <div style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px', marginBottom: 8 }}>
+                            <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: 6 }}>
+                              Summary — not ad copy
+                            </div>
+                            <ul style={{ margin: 0, paddingLeft: 16 }}>
+                              {shownSummary.map((b, i) => (
+                                <li key={i} style={{ fontSize: 12.5, lineHeight: 1.55, marginBottom: 3 }}>{b}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+
+                        <Disclosure title="Full offer" meta={`${p.offer_description.length.toLocaleString()} characters`}>
+                          <div style={{ fontSize: 13, lineHeight: 1.6, maxWidth: '80ch', whiteSpace: 'pre-wrap' }}>{p.offer_description}</div>
+                        </Disclosure>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                          <button
+                            disabled={summarising}
+                            onClick={async () => {
+                              setSummarising(true); setSummaryErr('')
+                              try {
+                                const r = await summariseProjectOffer(p.id, p.brand_id)
+                                if (r.ok) setSummary(r.bullets); else setSummaryErr(r.error)
+                              } catch (e) {
+                                setSummaryErr(e instanceof Error ? e.message : 'Could not summarise.')
+                              } finally { setSummarising(false) }
+                            }}
+                            style={{ fontSize: 11.5, fontWeight: 600, padding: '6px 11px', borderRadius: 6, border: '1px solid var(--border-strong)', background: 'none', color: 'var(--text-secondary)', cursor: summarising ? 'wait' : 'pointer' }}
+                          >
+                            {summarising ? 'Summarising…' : shownSummary ? 'Re-summarise' : '✦ Simplify with AI'}
+                          </button>
+                          {summaryStale && !summary && (
+                            <span style={{ fontSize: 11, color: 'var(--urgent-soon)' }}>The offer changed since the last summary.</span>
+                          )}
+                          {summaryErr && <span style={{ fontSize: 11, color: 'var(--danger)' }}>{summaryErr}</span>}
+                        </div>
+                      </div>
+                    )}
 
                     {p.retail_price
                       ? <div style={{ marginTop: 10 }}><Field label="Price / anchor — verbatim"><Clamp text={p.retail_price} lines={2} /></Field></div>
@@ -1131,6 +1201,190 @@ export default function PreviewProjectView({
                     <a href={p.drive_folder_url} target="_blank" rel="noreferrer"
                       style={{ fontSize: 12, fontWeight: 600, padding: '8px 12px', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', textDecoration: 'none' }}>Drive folder ↗</a>
                   </div>
+                )}
+              </Card>
+
+              {/* Brand DNA, collapsed. It is reference material an editor consults
+                  rather than reads every visit, and the Overview already renders
+                  it open. Only the fields that are actually populated — the DNA
+                  table's fonts run 4-6 of 13 while composition, mood and
+                  subject_matter are filled on all 13. */}
+              {showLook && dna && (
+                <Disclosure title="Brand DNA" meta={`${LOOK_FIELDS.length} field${LOOK_FIELDS.length === 1 ? '' : 's'}`}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: 12 }}>
+                    {LOOK_FIELDS.map(([label, v]) => (
+                      <div key={label} style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '12px 12px' }}>
+                        <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: 4 }}>{label}</div>
+                        <div style={{ fontSize: 13, lineHeight: 1.55 }}><Clamp text={String(v)} lines={4} /></div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+                    {([['Primary', dna.primary_color], ['Secondary', dna.secondary_color], ['Accent', dna.accent_color], ['Contrast', dna.contrast_color]] as const)
+                      .filter(([, v]) => !!v)
+                      .map(([l, v]) => (
+                        <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px 6px 8px', border: '1px solid var(--border)', borderRadius: 10 }}>
+                          <span style={{ width: 22, height: 22, borderRadius: 6, background: v as string, border: '1px solid var(--border)' }} />
+                          <div>
+                            <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase' }}>{l}</div>
+                            <div style={{ fontSize: 12, fontWeight: 600, fontFamily: 'ui-monospace, monospace' }}>{v}</div>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+
+                  {hooks.length > 0 && (
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+                      {hooks.slice(0, 5).map(h => (
+                        <span key={h} style={{ fontSize: 11, padding: '4px 10px', borderRadius: 999, background: 'var(--surface-raised)', border: '1px solid var(--border)' }}>{h}</span>
+                      ))}
+                      {hooks.length > 5 && <span style={{ fontSize: 10, color: 'var(--text-muted)', alignSelf: 'center' }}>+{hooks.length - 5} more</span>}
+                    </div>
+                  )}
+
+                  {(dna.primary_font || dna.secondary_font) && (
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 12 }}>
+                      Fonts · {dna.primary_font ?? '—'} / {dna.secondary_font ?? '—'}
+                    </div>
+                  )}
+                </Disclosure>
+              )}
+
+              {/* Every product, its page, and where the hi-res photography lives.
+                  This is the answer to the most common revision on the system:
+                  23% of client comments are "wrong product shown", and until now
+                  an editor working on the third of eight SKUs had nowhere to read
+                  its link. */}
+              <Card id="products" title="Products in this ad" purpose="Every product, its page, and where the high-res photography lives.">
+                {editing === 'products' ? (
+                  <ListEditor
+                    projectId={p.id} brandId={p.brand_id} kind="products"
+                    rows={products.map(x => ({ id: x.id, name: x.name, a: x.url ?? '', b: x.assets_url ?? '' })) as ListRow[]}
+                    labels={{ name: 'Product name', a: 'Product link', b: 'HQ assets link', add: 'Add product' }}
+                    onDone={() => setEditing(null)}
+                  />
+                ) : (
+                  <>
+                    {drifted && (
+                      <div style={{ fontSize: 11, color: 'var(--urgent-soon)', marginBottom: 12 }}>
+                        The brief&rsquo;s product text was edited elsewhere and no longer matches this list. Saving here overwrites it.
+                      </div>
+                    )}
+
+                    {products.length === 0 ? (
+                      <Missing tone="warn">No products named — the ad has nothing to show. Add them here.</Missing>
+                    ) : (
+                      products.map((prod, i) => (
+                        <div key={prod.id} style={{ display: 'flex', alignItems: 'baseline', gap: 10, padding: '10px 0', borderBottom: i < products.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                          <span style={{ flexShrink: 0, width: 16, height: 16, borderRadius: 4, background: 'var(--surface-raised)', color: 'var(--text-secondary)', fontSize: 10, display: 'grid', placeItems: 'center' }}>{i + 1}</span>
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={{ fontSize: 13, fontWeight: 600 }}>{isUrl(prod.name) ? hostOf(prod.name) : prod.name}</div>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 3 }}>
+                              {prod.url && (
+                                <a href={prod.url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--accent)' }}>
+                                  {hostOf(prod.url)}<span style={{ color: 'var(--text-muted)' }}>{pathOf(prod.url)}</span> ↗
+                                </a>
+                              )}
+                              {prod.assets_url && (
+                                <a href={prod.assets_url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--accent)' }}>HQ assets ↗</a>
+                              )}
+                              {/* Quiet, not loud. Every one of the 59 backfilled
+                                  projects starts here — 179 warning blocks on day
+                                  one would train everyone to ignore the colour the
+                                  price warning depends on. */}
+                              {!prod.url && !prod.assets_url && (
+                                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                                  No link yet ·{' '}
+                                  <button onClick={() => setEditing('products')} style={{ fontSize: 12, color: 'var(--accent)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}>Add link</button>
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+
+                    <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+                      <button onClick={() => setEditing('products')} style={editBtn}>{products.length ? 'Edit products' : 'Add products'}</button>
+                    </div>
+
+                    {(p.product_images_link || p.drive_folder_url) && (
+                      <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+                        <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: 6 }}>
+                          Fallback — the whole project, not one product
+                        </div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+                          {p.product_images_link && <a href={p.product_images_link} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--accent)' }}>Project product photos ↗</a>}
+                          {p.drive_folder_url && <a href={p.drive_folder_url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--accent)' }}>Drive folder ↗</a>}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </Card>
+
+              {/* Who we benchmark, and the Motion report for each. */}
+              <Card id="motion" title="Motion reports" purpose="Who we're benchmarking, and the Motion report for each.">
+                {/* Ours, pinned and labelled, so nobody files it as a competitor's. */}
+                {p.motion_link && (
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, padding: '10px 12px', marginBottom: 12, borderRadius: 8, background: 'var(--surface-2)' }}>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600 }}>This project&rsquo;s own Motion board</div>
+                      <a href={p.motion_link} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--accent)' }}>Open board ↗</a>
+                    </div>
+                  </div>
+                )}
+
+                {editing === 'competitors' ? (
+                  <ListEditor
+                    projectId={p.id} brandId={p.brand_id} kind="competitors"
+                    rows={competitors.map(x => ({ id: x.id, name: x.name, a: x.site_url ?? '', b: x.motion_url ?? '' })) as ListRow[]}
+                    labels={{ name: 'Competitor', a: 'Their site', b: 'Motion report link', add: 'Add competitor' }}
+                    onDone={() => setEditing(null)}
+                  />
+                ) : (
+                  <>
+                    {competitors.length === 0 ? (
+                      <Missing tone="muted">No competitors yet. Add one, then paste its Motion report link.</Missing>
+                    ) : (
+                      competitors.map((c, i) => (
+                        <div key={c.id} style={{ display: 'flex', alignItems: 'baseline', gap: 10, padding: '10px 0', borderBottom: i < competitors.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={{ fontSize: 13, fontWeight: 600 }}>{c.name}</div>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 3 }}>
+                              {c.site_url && <a href={c.site_url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--accent)' }}>{hostOf(c.site_url)} ↗</a>}
+                              {c.motion_url
+                                ? <a href={c.motion_url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--accent)' }}>Motion report ↗</a>
+                                : <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                                    No Motion report yet ·{' '}
+                                    <button onClick={() => setEditing('competitors')} style={{ fontSize: 12, color: 'var(--accent)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}>Add report</button>
+                                  </span>}
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+
+                    <div style={{ marginTop: 16 }}>
+                      <button onClick={() => setEditing('competitors')} style={editBtn}>{competitors.length ? 'Edit competitors' : 'Add competitor'}</button>
+                    </div>
+
+                    {/* The prose an editor reads WHILE typing the rows above, which
+                        is why it sits next to the form that replaces it. Nothing
+                        parses it automatically — any regex would invent names and
+                        break the link between a competitor and its reasoning. */}
+                    {p.competitor_reference && (
+                      <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+                        <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: 6 }}>
+                          From the brief — not yet split into rows
+                        </div>
+                        <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, maxWidth: '80ch' }}>
+                          <Clamp text={p.competitor_reference} lines={3} />
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
               </Card>
 
@@ -1176,4 +1430,9 @@ export default function PreviewProjectView({
       </div>
     </div>
   )
+}
+
+const editBtn: React.CSSProperties = {
+  fontSize: 12, fontWeight: 600, padding: '7px 12px', borderRadius: 8,
+  border: '1px solid var(--border)', background: 'none', color: 'var(--text-secondary)', cursor: 'pointer',
 }

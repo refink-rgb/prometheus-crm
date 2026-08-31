@@ -2622,3 +2622,104 @@ export async function uploadBrandLogo(
     return { ok: false, error: msg }
   }
 }
+
+
+// ── The Creatives tab's repeating lists ─────────────────────────────────────
+//
+// Kept OUT of updateProjectDetails on purpose. That action copies values
+// verbatim into its patch and has nowhere to put validation, and these two
+// columns need real shape work on the way in: the payload arrives from the
+// browser, so a stored "javascript:..." would otherwise be handed straight to an
+// href. Keeping them out of EDITABLE_PROJECT_FIELDS also means the live page's
+// edit form structurally cannot touch them — one writer per column.
+const MAX_LIST_ROWS = 40
+
+export async function updateProjectLists(
+  projectId: string,
+  brandId: string,
+  values: {
+    products?: { id?: string; name: string; url?: string | null; assets_url?: string | null }[]
+    competitors?: { id?: string; name: string; site_url?: string | null; motion_url?: string | null }[]
+  },
+) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
+
+  const text = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
+  const link = (v: unknown) => (typeof v === 'string' && /^https?:\/\//i.test(v.trim()) ? v.trim() : null)
+  const newId = () => globalThis.crypto?.randomUUID?.() ?? `p-${Math.random().toString(36).slice(2)}`
+
+  const patch: Record<string, unknown> = {}
+
+  if (Array.isArray(values.products)) {
+    const rows = values.products.slice(0, MAX_LIST_ROWS)
+      .map(r => ({ id: text(r.id) || newId(), name: text(r.name), url: link(r.url), assets_url: link(r.assets_url) }))
+      .filter(r => r.name.length > 0)  // an unnamed row is worse than no row
+    patch.products = rows
+    // The mirror. Several surfaces still read product_featured, including the
+    // no-login client review page and the token-authed creative bundle API, so
+    // it has to stay true or those go blank.
+    const { productNamesLine } = await import('@/lib/products')
+    patch.product_featured = productNamesLine(rows)
+  }
+
+  if (Array.isArray(values.competitors)) {
+    patch.competitors = values.competitors.slice(0, MAX_LIST_ROWS)
+      .map(r => ({ id: text(r.id) || newId(), name: text(r.name), site_url: link(r.site_url), motion_url: link(r.motion_url) }))
+      .filter(r => r.name.length > 0)
+    // competitor_reference is NOT mirrored — it is prose, and overwriting it
+    // with a name list destroys the reasoning it exists to hold. motion_link is
+    // never touched here either: it is our own Motion board, not a competitor's.
+  }
+
+  if (Object.keys(patch).length === 0) return
+
+  const { error } = await supabase.from('projects').update(patch).eq('id', projectId)
+  if (error) throw new Error(`Failed to save: ${error.message}`)
+
+  revalidatePath(`/preview/project/${projectId}`)
+  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+}
+
+// Bullet summary of the offer, cached on the row. A reading aid, never ad copy —
+// see src/lib/ai/offer-summary.ts. Cached because the model costs money and two
+// editors opening the same project should read the same summary; the source text
+// is stored alongside so an edited offer marks the bullets stale instead of
+// silently describing the previous offer.
+export async function summariseProjectOffer(
+  projectId: string,
+  brandId: string,
+): Promise<{ ok: true; bullets: string[] } | { ok: false; error: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
+
+  const { data: project } = await supabase
+    .from('projects')
+    .select('offer, offer_description')
+    .eq('id', projectId)
+    .single()
+  if (!project) return { ok: false, error: 'Project not found.' }
+
+  const source = [project.offer, project.offer_description].filter(Boolean).join('\n').trim()
+  if (!source) return { ok: false, error: 'There is no offer to summarise yet.' }
+
+  try {
+    const { summariseOffer } = await import('@/lib/ai/offer-summary')
+    const bullets = await summariseOffer(source)
+    const { error } = await supabase
+      .from('projects')
+      .update({ offer_summary: bullets, offer_summary_source: source })
+      .eq('id', projectId)
+    if (error) return { ok: false, error: `Summary generated but could not be saved: ${error.message}` }
+
+    revalidatePath(`/preview/project/${projectId}`)
+    revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+    return { ok: true, bullets }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Could not summarise the offer.' }
+  }
+}

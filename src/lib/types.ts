@@ -187,6 +187,13 @@ export interface Project {
   ad_headlines: string[] | null
   ad_subcopies: string[] | null
   ad_eyebrows: string[] | null
+  // JSONB. Read through lib/products.ts, never used raw — NULL means "never
+  // structured" (fall back to product_featured) while [] means "a human emptied
+  // it", and the normaliser is what keeps those apart.
+  products: ProjectProduct[] | null
+  competitors: ProjectCompetitor[] | null
+  offer_summary: string[] | null
+  offer_summary_source: string | null
   product_images_link: string | null
   needs_revisions: boolean
   // offer lock
@@ -212,6 +219,27 @@ export interface Project {
   brand?: Brand
   images?: ProjectImage[]
   journey?: Journey
+}
+
+// The Creatives tab's two repeating lists, stored as JSONB arrays on projects.
+//
+// These types describe the SHAPE WE WRITE. They are not a guarantee about what
+// comes back: Supabase hands over whatever the JSONB column holds, so every read
+// goes through the normalisers in lib/products.ts rather than a cast.
+export interface ProjectProduct {
+  id: string
+  name: string
+  url: string | null
+  /** "High quality product links" — the hi-res photography for THIS product. */
+  assets_url: string | null
+}
+
+export interface ProjectCompetitor {
+  id: string
+  name: string
+  site_url: string | null
+  /** e.g. https://projects.motionapp.com/snapshot/<uuid> */
+  motion_url: string | null
 }
 
 export interface ProjectImage {
