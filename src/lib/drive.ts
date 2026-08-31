@@ -273,3 +273,100 @@ export async function moveDriveFile(
     )
   }
 }
+
+/**
+ * Find — or create — a named subfolder under the given parent folder.
+ * Generalised from ensureDeleteSubfolder. Requires SA auth (creation is a write).
+ */
+export async function ensureSubfolder(
+  parentFolderId: string,
+  name: string
+): Promise<string> {
+  const token = await getDriveAccessToken()
+  const escaped = name.replace(/'/g, "\\'")
+
+  const searchParams = new URLSearchParams({
+    q: `'${parentFolderId}' in parents and name='${escaped}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+    fields: 'files(id,name)',
+    pageSize: '1',
+  })
+  const searchRes = await fetch(
+    `https://www.googleapis.com/drive/v3/files?${searchParams.toString()}`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  )
+  if (!searchRes.ok) {
+    const err = (await searchRes.json().catch(() => ({}))) as { error?: { message?: string } }
+    throw new Error(`Drive API error (looking up "${name}" folder): ${err.error?.message ?? searchRes.statusText}`)
+  }
+  const searchData = (await searchRes.json()) as { files?: Array<{ id: string }> }
+  const existing = searchData.files?.[0]
+  if (existing) return existing.id
+
+  const createRes = await fetch('https://www.googleapis.com/drive/v3/files?fields=id', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, mimeType: 'application/vnd.google-apps.folder', parents: [parentFolderId] }),
+  })
+  if (!createRes.ok) {
+    const err = (await createRes.json().catch(() => ({}))) as { error?: { message?: string } }
+    throw new Error(`Drive API error (creating "${name}" folder): ${err.error?.message ?? createRes.statusText}`)
+  }
+  const created = (await createRes.json()) as { id: string }
+  return created.id
+}
+
+/**
+ * Upload bytes into a Drive folder, replacing any file already there with the
+ * same name. Overwrite-by-name is deliberate: pushing approved creatives twice
+ * should refresh the folder, not fill it with "file (1).png" duplicates.
+ */
+export async function uploadFileToDriveFolder(
+  folderId: string,
+  fileName: string,
+  bytes: Buffer,
+  mimeType = 'image/png'
+): Promise<{ id: string; replaced: boolean }> {
+  const token = await getDriveAccessToken()
+  const escaped = fileName.replace(/'/g, "\\'")
+
+  const findParams = new URLSearchParams({
+    q: `'${folderId}' in parents and name='${escaped}' and trashed=false`,
+    fields: 'files(id)',
+    pageSize: '1',
+  })
+  const findRes = await fetch(`https://www.googleapis.com/drive/v3/files?${findParams.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  const findData = findRes.ok ? ((await findRes.json()) as { files?: Array<{ id: string }> }) : { files: [] }
+  const existingId = findData.files?.[0]?.id ?? null
+
+  // Multipart: metadata part + binary part in one request.
+  const boundary = `pcrm${Date.now().toString(36)}`
+  const metadata = existingId ? {} : { name: fileName, parents: [folderId] }
+  const head = Buffer.from(
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n` +
+    `${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`
+  )
+  const tail = Buffer.from(`\r\n--${boundary}--`)
+  const body = Buffer.concat([head, bytes, tail])
+
+  const url = existingId
+    ? `https://www.googleapis.com/upload/drive/v3/files/${existingId}?uploadType=multipart&fields=id`
+    : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id'
+
+  const res = await fetch(url, {
+    method: existingId ? 'PATCH' : 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': `multipart/related; boundary=${boundary}`,
+      'Content-Length': String(body.length),
+    },
+    body: body as unknown as BodyInit,
+  })
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: { message?: string } }
+    throw new Error(`Drive upload failed for "${fileName}": ${err.error?.message ?? res.statusText}`)
+  }
+  const out = (await res.json()) as { id: string }
+  return { id: out.id, replaced: !!existingId }
+}

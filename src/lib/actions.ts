@@ -1120,6 +1120,84 @@ export async function publishAssets(
 // the client back at Edit 1 without deleting anything.
 //
 // Pass null for imageUrl to publish the ORIGINAL Drive image.
+// Push every client-approved creative into an "Approved" subfolder of the
+// project's Drive folder, so media buyers have one link with only the finals.
+//
+// Manual, not automatic on approval: approvals get reversed and clients change
+// their minds, and a folder that rewrites itself on every status flip is one
+// nobody can trust. One deliberate action, and the folder means "considered
+// handoff" rather than "live feed".
+//
+// Safe against the sync: listDriveFolder is non-recursive ('folderId' in
+// parents), so files placed in this subfolder are never pulled back in as new
+// assets. Uploads overwrite by filename, so pushing twice refreshes rather than
+// accumulating "file (1).png".
+export async function pushApprovedToDrive(
+  projectId: string,
+  brandId: string,
+): Promise<{ ok: true; pushed: number; replaced: number; folderId: string } | { ok: false; error: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
+
+  const { hasDriveServiceAccount, extractDriveFolderId, ensureSubfolder, uploadFileToDriveFolder } =
+    await import('@/lib/drive')
+
+  // Creating a folder and uploading are writes — the API-key fallback can't do either.
+  if (!hasDriveServiceAccount()) {
+    return { ok: false, error: 'Pushing to Drive needs the service account (GOOGLE_DRIVE_SA_KEY). An API key can only read.' }
+  }
+
+  const { data: project } = await supabase
+    .from('projects')
+    .select('drive_folder_url')
+    .eq('id', projectId)
+    .single()
+  if (!project?.drive_folder_url) {
+    return { ok: false, error: 'This project has no Drive folder linked yet.' }
+  }
+
+  const { data: assets } = await supabase
+    .from('creative_assets')
+    .select('id, name, drive_file_id, published_url, status, is_hidden')
+    .eq('project_id', projectId)
+    .eq('is_hidden', false)
+    .eq('status', 'approved')
+
+  const approved = assets ?? []
+  if (approved.length === 0) return { ok: false, error: 'Nothing is client-approved on this project yet.' }
+
+  try {
+    const parentId = extractDriveFolderId(project.drive_folder_url)
+    const folderId = await ensureSubfolder(parentId, 'Approved')
+
+    let pushed = 0, replaced = 0
+    for (const a of approved) {
+      // The approved file is the PUBLISHED version — what the client actually
+      // signed off. Falls back to the Drive original when nothing was published.
+      const src = a.published_url
+        ?? `https://drive.google.com/uc?export=download&id=${a.drive_file_id}`
+      const res = await fetch(src, { redirect: 'follow' })
+      if (!res.ok) continue
+      const bytes = Buffer.from(await res.arrayBuffer())
+      const name = a.name ?? `${a.id}.png`
+      const mime = res.headers.get('content-type')?.startsWith('image/')
+        ? res.headers.get('content-type')!
+        : 'image/png'
+      const out = await uploadFileToDriveFolder(folderId, name, bytes, mime)
+      pushed++
+      if (out.replaced) replaced++
+    }
+
+    revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+    revalidatePath(`/preview/project/${projectId}`)
+    return { ok: true, pushed, replaced, folderId }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Drive push failed.' }
+  }
+}
+
 export async function setClientVersion(
   assetId: string,
   imageUrl: string | null,
