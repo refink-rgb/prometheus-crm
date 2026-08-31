@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, useTransition } from 'react'
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import type { CreativeAsset, ProjectComment } from '@/lib/types'
 import type { AssetRevision } from '@/lib/revisions'
@@ -64,12 +64,15 @@ export default function ReviewWorkspace({
   const [filter, setFilter] = useState<Filter>('all')
   const [selected, setSelected] = useState<string | null>(assets[0]?.id ?? null)
   const [zoom, setZoom] = useState(false)
+
   const [uploading, setUploading] = useState(false)
   // Which version is being LOOKED AT. Deliberately separate from which one the
   // client sees — previously the only interactive thing on a version row was
   // "publish it", so inspecting Edit 1 meant sending it to the client first.
   const [viewUrl, setViewUrl] = useState<string | null>(null)
   const [viewLabel, setViewLabel] = useState<string | null>(null)
+  // Separate from viewUrl: the list shows a small image, the overlay a large one.
+  const [viewFull, setViewFull] = useState<string | null>(null)
   const [err, setErr] = useState('')
 
   // Internal and client approval are separate columns. One set of counts for
@@ -85,6 +88,13 @@ export default function ReviewWorkspace({
     }
     return m
   }, [comments, mode])
+
+  // Same audience rule the panel uses, so the feed can never advertise a comment
+  // the panel will refuse to show.
+  const feedComments = useMemo(
+    () => (mode === 'internal' ? comments : comments.filter(c => c.audience !== 'internal')),
+    [comments, mode],
+  )
 
   const counts = useMemo(() => {
     const c = { pending: 0, approved: 0, needs_revision: 0, rejected: 0, commented: 0, visible: 0 }
@@ -108,8 +118,27 @@ export default function ReviewWorkspace({
     return statusOf(a) === filter
   }), [assets, filter, commentsFor, mode]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Escape closes the overlay, and the page behind it stops scrolling — without
+  // the lock a trackpad flick scrolls the review list under the image.
+  useEffect(() => {
+    if (!zoom) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setZoom(false) }
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    window.addEventListener('keydown', onKey)
+    return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = prev }
+  }, [zoom])
+
   const active = assets.find(a => a.id === selected) ?? null
-  const pickAsset = (id: string) => { setSelected(id); setViewUrl(null); setViewLabel(null) }
+  // Selecting from the comment feed has to move the viewport too. The feed sits
+  // below the grid, the filters and the bulk uploader, so a click that only
+  // changed state left the reviewer looking at an unchanged screen and reading
+  // the button as broken.
+  const detailRef = useRef<HTMLDivElement>(null)
+  const pickAsset = (id: string, scroll = false) => {
+    setSelected(id); setViewUrl(null); setViewLabel(null); setViewFull(null)
+    if (scroll) requestAnimationFrame(() => detailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+  }
   const activeRevs = active ? (revisionsByAsset[active.id] ?? []) : []
   const thumb = (a: CreativeAsset) =>
     a.revision_url ?? a.thumbnail_url ?? `https://drive.google.com/thumbnail?id=${a.drive_file_id}&sz=w600`
@@ -241,7 +270,7 @@ export default function ReviewWorkspace({
         </div>
 
         {/* Detail */}
-        <div style={{ position: 'sticky', top: 16, alignSelf: 'start' }}>
+        <div ref={detailRef} style={{ position: 'sticky', top: 16, alignSelf: 'start', scrollMarginTop: 16 }}>
           {active ? (
             <div style={{ border: '1px solid var(--border)', borderRadius: 11, padding: 14, background: 'var(--surface-1)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 9, flexWrap: 'wrap' }}>
@@ -255,7 +284,7 @@ export default function ReviewWorkspace({
               {viewLabel && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', marginBottom: 7, borderRadius: 7, background: 'rgba(234,179,8,0.10)', border: '1px solid rgba(234,179,8,0.28)' }}>
                   <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--warning)' }}>Viewing {viewLabel}</span>
-                  <button onClick={() => { setViewUrl(null); setViewLabel(null) }} style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 600, background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer' }}>
+                  <button onClick={() => { setViewUrl(null); setViewLabel(null); setViewFull(null) }} style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 600, background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer' }}>
                     Back to latest
                   </button>
                 </div>
@@ -268,8 +297,24 @@ export default function ReviewWorkspace({
               {/* The three actions */}
               {mode === 'internal' && (
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
-                  <button disabled={pending} onClick={() => run(() => updateAssetStatusInternal(active.id, projectId, brandId, 'approved'))} style={btn('var(--success)')}>✓ Approved internally</button>
-                  <button disabled={pending} onClick={() => run(() => updateAssetStatusInternal(active.id, projectId, brandId, 'needs_revision'))} style={btn('#EF4444')}>Needs revision</button>
+                  {/* A verdict is a toggle. Clicking the one already set puts the
+                      ad back to pending — a mis-click used to be unrecoverable
+                      from this screen. */}
+                  {(['approved', 'needs_revision'] as const).map(v => {
+                    const on = (active.internal_status ?? 'pending') === v
+                    const colour = v === 'approved' ? 'var(--success)' : '#EF4444'
+                    return (
+                      <button
+                        key={v}
+                        disabled={pending}
+                        title={on ? 'Click again to clear this verdict' : undefined}
+                        onClick={() => run(() => updateAssetStatusInternal(active.id, projectId, brandId, on ? 'pending' : v))}
+                        style={{ ...btn(colour), ...(on ? { background: colour, color: '#fff', borderColor: colour } : null) }}
+                      >
+                        {v === 'approved' ? (on ? '✓ Approved internally' : 'Approve internally') : (on ? '✓ Needs revision' : 'Needs revision')}
+                      </button>
+                    )
+                  })}
                 </div>
               )}
 
@@ -326,10 +371,15 @@ export default function ReviewWorkspace({
                   client sees, so "which version are they looking at" is answered
                   by looking, not by remembering which button was pressed last. */}
               {(() => {
+                // `thumb` feeds the 26px list image, `fullUrl` feeds the zoom
+                // overlay. They differ for the Original: Drive is asked for w600
+                // for the list and w2048 for the expand, so clicking a version
+                // and then expanding no longer hands the reviewer a thumbnail
+                // to scrutinise. Revisions are already stored full-size.
                 const originalUrl = `https://drive.google.com/thumbnail?id=${active.drive_file_id}&sz=w600`
                 const rows = [
-                  { key: 'original', label: 'Original', url: null as string | null, thumb: originalUrl, at: null as string | null },
-                  ...activeRevs.map(r => ({ key: r.id, label: `Edit ${r.revision_number}`, url: r.image_url, thumb: r.image_url, at: r.created_at })),
+                  { key: 'original', label: 'Original', url: null as string | null, thumb: originalUrl, fullUrl: full(active), at: null as string | null },
+                  ...activeRevs.map(r => ({ key: r.id, label: `Edit ${r.revision_number}`, url: r.image_url, thumb: r.image_url, fullUrl: r.image_url, at: r.created_at })),
                 ]
                 const publishedUrl = active.published_url
                 // null published_url + never published = nothing sent yet
@@ -365,7 +415,7 @@ export default function ReviewWorkspace({
                           }}>
                             {/* Clicking the row VIEWS this version. Publishing is the button. */}
                             <button
-                              onClick={() => { setViewUrl(r.thumb); setViewLabel(r.label) }}
+                              onClick={() => { setViewUrl(r.thumb); setViewFull(r.fullUrl); setViewLabel(r.label) }}
                               title={`View ${r.label}`}
                               style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0, padding: 0, border: 'none', background: 'none', cursor: 'pointer', textAlign: 'left' }}
                             >
@@ -459,10 +509,10 @@ export default function ReviewWorkspace({
       </div>
 
       {/* Comment activity → jump to the creative */}
-      {comments.length > 0 && (
+      {feedComments.length > 0 && (
         <div style={{ marginTop: 24 }}>
           <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 10 }}>Comment activity</div>
-          {comments.slice(0, 15).map(c => {
+          {feedComments.slice(0, 15).map(c => {
             const a = assets.find(x => x.id === c.asset_id)
             return (
               <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '8px 11px', border: '1px solid var(--border)', borderRadius: 9, marginBottom: 6 }}>
@@ -473,18 +523,28 @@ export default function ReviewWorkspace({
                   <div style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>{c.author_name} · {new Date(c.created_at).toLocaleDateString()}</div>
                   <div style={{ fontSize: 12.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.content}</div>
                 </div>
-                {a && <button onClick={() => pickAsset(a.id)} style={{ flexShrink: 0, fontSize: 11.5, fontWeight: 600, padding: '5px 11px', borderRadius: 7, border: '1px solid var(--accent)', background: 'var(--accent-muted)', color: 'var(--accent)', cursor: 'pointer' }}>Open creative →</button>}
+                {a && <button onClick={() => pickAsset(a.id, true)} style={{ flexShrink: 0, fontSize: 11.5, fontWeight: 600, padding: '5px 11px', borderRadius: 7, border: '1px solid var(--accent)', background: 'var(--accent-muted)', color: 'var(--accent)', cursor: 'pointer' }}>Open creative →</button>}
               </div>
             )
           })}
         </div>
       )}
 
-      {/* Full-size viewer */}
+      {/* Full-size viewer. Escape and a visible ✕ as well as the backdrop —
+          clicking the dark edge is not discoverable, and this is the one view
+          a reviewer is asked to study rather than skim. */}
       {zoom && active && (
         <div onClick={() => setZoom(false)} style={{ position: 'fixed', inset: 0, zIndex: 900, background: 'rgba(0,0,0,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 28, cursor: 'zoom-out' }}>
+          <button
+            onClick={e => { e.stopPropagation(); setZoom(false) }}
+            aria-label="Close full-size view"
+            style={{ position: 'fixed', top: 18, right: 22, width: 34, height: 34, borderRadius: '50%', border: '1px solid rgba(255,255,255,0.35)', background: 'rgba(0,0,0,0.55)', color: '#fff', fontSize: 17, lineHeight: 1, cursor: 'pointer' }}
+          >✕</button>
+          {viewLabel && (
+            <div style={{ position: 'fixed', top: 22, left: 24, fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.85)' }}>{viewLabel}</div>
+          )}
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={viewUrl ?? full(active)} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: 8 }} />
+          <img src={viewFull ?? full(active)} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: 8 }} />
         </div>
       )}
     </div>

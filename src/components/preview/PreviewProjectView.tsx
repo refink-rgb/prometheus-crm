@@ -5,6 +5,7 @@ import type { Project, Brand, CreativeAsset, ProjectComment, BrandDna, ProjectIm
 import type { AssetRevision } from '@/lib/revisions'
 import ReviewWorkspace from '@/components/preview/ReviewWorkspace'
 import StageTracker from '@/components/StageTracker'
+import Link from 'next/link'
 import CopyMarkdownButton from '@/components/CopyMarkdownButton'
 import { projectBriefMarkdown } from '@/lib/markdown-export'
 
@@ -111,7 +112,13 @@ export default function PreviewProjectView({
       </div>
 
       <div style={{ fontSize: 12.5, color: 'var(--text-muted)', marginBottom: 10 }}>
-        Brands / {brand?.name} / <span style={{ color: 'var(--text-primary)' }}>{p.name}</span>
+        <Link href="/brands" style={{ color: 'var(--text-muted)' }}>Brands</Link>
+        {' / '}
+        {brand?.id
+          ? <Link href={`/brands/${brand.id}`} style={{ color: 'var(--text-muted)' }}>{brand.name}</Link>
+          : brand?.name}
+        {' / '}
+        <span style={{ color: 'var(--text-primary)' }}>{p.name}</span>
       </div>
 
       {/* Header */}
@@ -212,7 +219,7 @@ export default function PreviewProjectView({
                 </div>
               </Section>
               <Section id="projectinfo" title="Project Info">
-                <Row label="Journey" value={p.journey_id ? 'Assigned' : null} />
+                <Row label="Journey" value={journeyName} />
                 <Row label="Marketing moment" value={p.marketing_moment ? `Moment ${p.marketing_moment}` : null} />
                 <Row label="Page type" value={p.page_type} />
                 <Row label="LP editor" value={lpEditorName} />
@@ -334,6 +341,21 @@ export default function PreviewProjectView({
                 <Row label="Folder" value={p.drive_folder_url ? <a href={p.drive_folder_url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>Open Drive folder ↗</a> : <span style={{ color: 'var(--text-muted)' }}>Not linked</span>} />
               </Section>
               <Section id="review" title="Review">
+                {/* /internal-review is staying. This inline workspace is for the
+                    routine pass; the dedicated screen is still where you work a
+                    batch at full width, so say so and link it rather than
+                    leaving editors to remember the URL. */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, padding: '8px 11px', border: '1px solid var(--border)', borderRadius: 8 }}>
+                  <span style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
+                    Reviewing a whole batch? The full-width screen has keyboard nav and the annotation pins.
+                  </span>
+                  <Link
+                    href={`/brands/${p.brand_id}/projects/${p.id}/internal-review`}
+                    style={{ marginLeft: 'auto', flexShrink: 0, fontSize: 11.5, fontWeight: 600, color: 'var(--accent)' }}
+                  >
+                    Open internal review →
+                  </Link>
+                </div>
                 <ReviewWorkspace projectId={p.id} brandId={p.brand_id} assets={assets} comments={creativeComments} revisionsByAsset={revisionsByAsset} />
               </Section>
             </>
