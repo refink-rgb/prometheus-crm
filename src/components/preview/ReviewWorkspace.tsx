@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import type { CreativeAsset, ProjectComment } from '@/lib/types'
 import type { AssetRevision } from '@/lib/revisions'
+import BulkRevisionUpload from './BulkRevisionUpload'
 import {
   updateAssetStatusInternal,
   setAssetClientVisible,
@@ -13,10 +14,14 @@ import {
   setClientVersion,
 } from '@/lib/actions'
 
-// Review, inline in the Creatives tab. Replaces the separate /internal-review
-// route: the context switch was costing an editor on every single review, and
-// the extra screen width it bought only matters when inspecting one image —
-// which the expand-to-full-size handles instead.
+// Review, inline in the Creatives tab. Saves the context switch out to
+// /internal-review on the routine pass — most reviews are a glance and a verdict,
+// and bouncing to another screen for each one was the cost.
+//
+// /internal-review STAYS. It is the dedicated screen for working through a batch
+// at width, and both surfaces read and write the same columns
+// (internal_status, client_visible, published_url) and the same revision rows,
+// so a verdict given in one is already true in the other.
 type Mode = 'internal' | 'client'
 type Filter = 'all' | 'pending' | 'approved' | 'needs_revision' | 'commented'
 
@@ -192,6 +197,15 @@ export default function ReviewWorkspace({
           }}>{l}</button>
         ))}
       </div>
+
+      {/* Batch revisions. Internal only — a client reviewer has nothing to upload. */}
+      {mode === 'internal' && (
+        <BulkRevisionUpload
+          projectId={projectId}
+          brandId={brandId}
+          assets={assets.map(a => ({ id: a.id, name: a.name }))}
+        />
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(320px,1fr)', gap: 18 }}>
         {/* Grid */}
