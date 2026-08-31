@@ -45,7 +45,7 @@ function Clamp({ text, lines }: { text: string; lines: number }) {
 }
 
 // Copy is meant to be lifted, not retyped.
-function CopyLine({ text }: { text: string }) {
+function CopyLine({ text, lead = false }: { text: string; lead?: boolean }) {
   const [copied, setCopied] = useState(false)
   return (
     <button
@@ -53,7 +53,8 @@ function CopyLine({ text }: { text: string }) {
         try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1000) } catch { /* clipboard blocked — say nothing */ }
       }}
       style={{
-        textAlign: 'left', width: '100%', fontSize: 13, padding: '6px 12px', marginBottom: 4,
+        textAlign: 'left', width: '100%', fontSize: lead ? 15 : 13, fontWeight: lead ? 700 : 400,
+        padding: lead ? '10px 12px' : '6px 12px', marginBottom: 4,
         border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface-2)',
         color: copied ? 'var(--success)' : 'var(--text-primary)', cursor: 'pointer',
         whiteSpace: 'normal', lineHeight: 1.45,
@@ -72,6 +73,23 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>{label}</div>
       <div style={{ fontSize: 13, color: 'var(--text-primary)', lineHeight: 1.6, whiteSpace: 'pre-wrap', maxWidth: '68ch' }}>{children}</div>
     </div>
+  )
+}
+
+function CtaPill({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <button
+      title="Click to copy the button label"
+      onClick={async () => {
+        try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1000) } catch { /* clipboard blocked */ }
+      }}
+      style={{
+        display: 'inline-block', border: `1px solid ${copied ? 'var(--success)' : 'var(--accent)'}`,
+        color: copied ? 'var(--success)' : 'var(--accent)', background: 'none',
+        borderRadius: 8, padding: '6px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+      }}
+    >{copied ? 'Copied' : text}</button>
   )
 }
 
@@ -104,7 +122,8 @@ const SUB_NAV: Record<Tab, string[]> = {
   // The overview tab computes its own nav (see overviewNav) — its ids can't be
   // derived from labels like "Product & offer".
   overview: [],
-  lp: ['Project Info', 'Offer Description', 'Copy & Offer', 'Deliverables', 'Client Feedback', 'Notes'],
+  // lp computes its own nav (lpNav) for the same reason overview does.
+  lp: [],
   creatives: ['Creative Brief', 'Copy Deck', 'Drive Folder', 'Review'],
 }
 
@@ -177,7 +196,7 @@ export default function PreviewProjectView({
   const [activeSection, setActiveSection] = useState<string | null>(null)
 
   const creativeComments = useMemo(() => comments.filter(c => c.track === 'image'), [comments])
-  const lpComments = useMemo(() => comments.filter(c => c.track === 'lp' || c.track === 'general'), [comments])
+  const lpComments = useMemo(() => comments.filter(c => c.track === 'lp'), [comments])
   const noteComments = useMemo(() => comments.filter(c => c.track === 'note'), [comments])
 
   // One media query, used in exactly one place (section 1's split).
@@ -234,6 +253,59 @@ export default function PreviewProjectView({
     { id: 'look', label: 'Look', show: showLook },
     { id: 'destination', label: 'Destination', show: true },
   ]).filter(n => n.show), [hasAdCopy, hasLpCopy, showLook])
+
+  const lpCopyMissing = useMemo(() => ([
+    [p.headline, 'a headline'], [p.body_copy, 'body copy'],
+    [p.supporting_message, 'a supporting line'], [p.cta, 'a button label'],
+  ] as const).filter(([v]) => !v).map(([, label]) => label), [p.headline, p.body_copy, p.supporting_message, p.cta])
+
+  const lpOpen = useMemo(() => lpComments.filter(c => !c.resolved_at), [lpComments])
+  const lpResolved = useMemo(() => lpComments.filter(c => !!c.resolved_at), [lpComments])
+  const hasProduct = !!(p.product_featured || p.product_description || images.length)
+  const lockedAt = p.offer_locked_at
+    ? new Date(p.offer_locked_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    : null
+
+  // Length-based, not content-based, and deliberately blunt. One Noble row holds
+  // 52,723 characters — a pasted meeting call transcript, not page copy. 2,000 is
+  // 4x the longest legitimate value on file (486) and 10x p90 (196), so it fires
+  // on that row alone. Clamp is not enough here: it still mounts 52KB and leaves
+  // a "Show all" trapdoor one click from the editor's clipboard.
+  const SUPPORT_CAP = 2000
+  const supportPoisoned = !!p.supporting_message && p.supporting_message.length > SUPPORT_CAP
+
+  const lpNav = useMemo(() => ([
+    { id: 'page', label: 'The page', show: true },
+    { id: 'offer', label: 'The offer', show: true },
+    { id: 'copy', label: 'Page copy', show: true },
+    { id: 'product', label: 'Product', show: hasProduct },
+    { id: 'feedback', label: lpOpen.length ? `Client feedback · ${lpOpen.length} open` : 'Client feedback', show: lpComments.length > 0 },
+    { id: 'notes', label: 'Internal notes', show: noteComments.length > 0 },
+  ]).filter(n => n.show), [hasProduct, lpOpen.length, lpComments.length, noteComments.length])
+
+  const activeNav = tab === 'overview' ? overviewNav : tab === 'lp' ? lpNav : null
+
+  // Scroll-spy. This was written once before and silently did nothing — the edit
+  // anchored on a line that had already changed, so activeSection stayed null and
+  // the sub-nav's active state never fired on any tab.
+  useEffect(() => {
+    if (!activeNav) { setActiveSection(null); return }
+    const els = activeNav.map(n => document.getElementById(n.id)).filter(Boolean) as HTMLElement[]
+    if (!els.length) return
+    setActiveSection(activeNav[0].id)
+    const io = new IntersectionObserver(
+      entries => {
+        const hit = entries.filter(e => e.isIntersecting)
+          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0]
+        if (hit) setActiveSection(hit.target.id)
+      },
+      // Biased to the upper third: the section being read is the one under the
+      // header, not whichever happens to fill the most screen.
+      { rootMargin: '-20% 0px -70% 0px', threshold: 0 },
+    )
+    els.forEach(el => io.observe(el))
+    return () => io.disconnect()
+  }, [activeNav])
 
   // No 'Live' entry: the Due block above is the live date, and printing it twice
   // is what let the old Timeline disagree with the header.
@@ -361,7 +433,7 @@ export default function PreviewProjectView({
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 24, borderBottom: '1px solid var(--border)', marginBottom: 20 }}>
-        {([['overview', 'Project Overview', null], ['lp', 'Landing Page', lpComments.length || null], ['creatives', 'Creatives', assets.length]] as const).map(([k, label, count]) => (
+        {([['overview', 'Project Overview', null], ['lp', 'Landing Page', lpOpen.length || null], ['creatives', 'Creatives', assets.length]] as const).map(([k, label, count]) => (
           <button key={k} onClick={() => setTab(k as Tab)} style={{
             background: 'none', border: 'none', cursor: 'pointer', padding: '10px 0 12px',
             fontSize: 13, fontWeight: tab === k ? 700 : 500,
@@ -378,7 +450,7 @@ export default function PreviewProjectView({
       <div style={{ display: 'grid', gridTemplateColumns: '210px minmax(0,1fr)', gap: 32 }}>
         {/* Sub-nav */}
         <nav style={{ position: 'sticky', top: 16, alignSelf: 'start' }}>
-          {(tab === 'overview' ? overviewNav : SUB_NAV[tab].map(x => ({ id: x.replace(/[^a-z]/gi, '').toLowerCase(), label: x }))).map(({ id, label: s }) => {
+          {(activeNav ?? SUB_NAV[tab].map(x => ({ id: x.replace(/[^a-z]/gi, '').toLowerCase(), label: x }))).map(({ id, label: s }) => {
             const on = activeSection === id
             return (
               <a
@@ -691,35 +763,315 @@ export default function PreviewProjectView({
 
           {tab === 'lp' && (
             <>
-              <Section id="projectinfo" title="Project Info">
-                <Row label="Page type" value={p.page_type} />
-                <Row label="Marketing moment" value={p.marketing_moment ? `Moment ${p.marketing_moment}` : null} />
-                <Row label="LP editor" value={lpEditorName} />
-                <Row label="Due" value={p.due_date} />
-              </Section>
-              <Section id="offerdescription" title="Offer Description">
-                <Row label="Offer" value={p.offer} />
-                <Row label="Description" value={p.offer_description} />
-              </Section>
-              <Section id="copyoffer" title="Copy & Offer">
-                <Row label="Headline" value={p.headline} />
-                <Row label="Body copy" value={p.body_copy} />
-                <Row label="Supporting" value={p.supporting_message} />
-                <Row label="CTA" value={p.cta} />
-                <Row label="Retail price" value={p.retail_price} />
-              </Section>
-              <Section id="deliverables" title="Deliverables">
-                <Row label="Landing page URL" value={p.lp_url
-                  ? <a href={p.lp_url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>{p.lp_url}</a>
-                  : <span style={{ color: 'var(--text-muted)' }}>Not set</span>} />
-                <Row label="Coupon code" value={p.shopify_coupon_code} />
-              </Section>
-              <Section id="clientfeedback" title="Client Feedback">
-                <CommentList comments={lpComments} empty="No landing-page feedback yet." />
-              </Section>
-              <Section id="notes" title="Notes">
-                <CommentList comments={noteComments} empty="No internal notes on this project." />
-              </Section>
+              {/* Build-state, above the first card and deliberately not a card:
+                  it must never become a nav destination. Three lock states, not
+                  one alarm — 50 of 66 built pages sit on an unlocked offer, and
+                  if every one of those shouted the shout stops meaning anything. */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 20 }}>
+                {p.page_type
+                  ? chip(p.page_type)
+                  : <span style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, background: 'var(--urgent-soon-bg)', color: 'var(--urgent-soon)' }}>No page type — the layout depends on it</span>}
+
+                {p.offer_locked ? (
+                  <span style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, background: 'var(--complete-bg)', color: 'var(--complete-text)' }}>
+                    Offer locked{lockedAt ? ` · ${lockedAt}` : ''}
+                  </span>
+                ) : p.lp_url ? (
+                  <span style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, background: 'var(--urgent-soon-bg)', color: 'var(--urgent-soon)' }}>
+                    Offer not locked — this page is already built
+                  </span>
+                ) : (
+                  <span style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, background: 'var(--surface-2)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
+                    Offer not locked — copy can still change
+                  </span>
+                )}
+
+                {p.lp_approved && !p.offer_locked && (
+                  <span style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, background: 'var(--urgent-soon-bg)', color: 'var(--urgent-soon)' }}>
+                    Approved on an unlocked offer
+                  </span>
+                )}
+
+                {lpOpen.length > 0 && (
+                  <a
+                    href="#feedback"
+                    onClick={e => { e.preventDefault(); document.getElementById('feedback')?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }}
+                    style={{ fontSize: 11, fontWeight: 600, padding: '4px 8px', borderRadius: 999, background: 'var(--surface-2)', color: 'var(--text-secondary)', border: '1px dashed var(--border-strong)', textDecoration: 'none' }}
+                  >{lpOpen.length} open client note{lpOpen.length === 1 ? '' : 's'} ↓</a>
+                )}
+              </div>
+
+              {/* 1 — the page, first: 60 of 66 already have one, so this is a
+                  revision job far more often than a build. */}
+              <Card id="page" title="The page" purpose="The page as it stands, and whether anything is open on it.">
+                {p.lp_url ? (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>
+                    <a href={p.lp_url} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: 'var(--accent)' }}>
+                      {hostOf(p.lp_url)}<span style={{ color: 'var(--text-muted)' }}>{pathOf(p.lp_url)}</span> ↗
+                    </a>
+                    <span style={{
+                      fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999,
+                      background: p.lp_approved ? 'var(--complete-bg)' : 'var(--surface-2)',
+                      color: p.lp_approved ? 'var(--complete-text)' : 'var(--text-secondary)',
+                      border: p.lp_approved ? 'none' : '1px solid var(--border)',
+                    }}>{p.lp_approved ? 'Client approved' : 'Not yet approved'}</span>
+                  </div>
+                ) : (
+                  <Missing tone="muted">No page built yet — this brief is a build, not a revision.</Missing>
+                )}
+
+                {p.lp_url && (
+                  <div style={{ fontSize: 12, marginTop: 12 }}>
+                    {lpComments.length === 0 ? (
+                      <span style={{ color: 'var(--text-muted)' }}>
+                        The page is built and the client hasn&rsquo;t commented on it. Nothing to reconcile — work from the brief below.
+                      </span>
+                    ) : (
+                      <a
+                        href="#feedback"
+                        onClick={e => { e.preventDefault(); document.getElementById('feedback')?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }}
+                        style={{ color: lpOpen.length ? 'var(--accent)' : 'var(--success)', textDecoration: 'none' }}
+                      >
+                        {lpOpen.length
+                          ? `${lpOpen.length} open · ${lpResolved.length} resolved →`
+                          : `All ${lpResolved.length} resolved →`}
+                      </a>
+                    )}
+                  </div>
+                )}
+
+                {p.lp_approved && !p.offer_locked && (
+                  <div style={{ marginTop: 16 }}>
+                    <Missing tone="warn">
+                      The client approved this page against an offer that can still change. Confirm the offer before anything ships.
+                    </Missing>
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 16 }}>
+                  {([['Drive folder ↗', p.drive_folder_url], ['Ad copy doc ↗', p.ad_copy_url]] as const)
+                    .filter(([, href]) => !!href)
+                    .map(([label, href]) => (
+                      <a key={label} href={href as string} target="_blank" rel="noreferrer"
+                        style={{ fontSize: 12, fontWeight: 600, padding: '8px 12px', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', textDecoration: 'none' }}>{label}</a>
+                    ))}
+                </div>
+
+                {/* Self-hiding, which is all 66 rows today. It appears the day one
+                    is entered rather than holding a permanent empty slot. */}
+                <div style={{ marginTop: 12 }}><Field label="Coupon code">{p.shopify_coupon_code}</Field></div>
+              </Card>
+
+              {/* 2 — the offer */}
+              <Card id="offer" title="The offer" purpose="What this page sells, and whether it can still change under you.">
+                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+                  {p.offer_dynamics_type ? (
+                    <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', padding: '4px 10px', borderRadius: 6, background: 'var(--accent-muted)', color: 'var(--accent)', border: '1px solid var(--accent)' }}>
+                      {p.offer_dynamics_type.trim().toUpperCase()}
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Mechanic not set — read it out of the description below.</span>
+                  )}
+                  <span style={{
+                    fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999,
+                    background: p.offer_locked ? 'var(--complete-bg)' : 'var(--stage-brief-bg)',
+                    color: p.offer_locked ? 'var(--complete-text)' : 'var(--stage-brief-text)',
+                  }}>
+                    {p.offer_locked
+                      ? `Offer locked${lockedAt ? ` · ${lockedAt}` : ''}`
+                      : 'Not locked — this offer can still change under a page that\u2019s already built'}
+                  </span>
+                </div>
+
+                {p.offer ? (
+                  <div style={{ marginTop: 12 }}>
+                    <CopyLine text={p.offer} lead />
+                  </div>
+                ) : p.offer_description ? (
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 12 }}>
+                    No one-line offer on file — the description below is the offer.
+                  </div>
+                ) : (
+                  <div style={{ marginTop: 12 }}>
+                    <Missing tone="warn">No offer on this project. Don&rsquo;t infer one from the copy.</Missing>
+                  </div>
+                )}
+
+                <div style={{ marginTop: 16 }}>
+                  {p.retail_price
+                    ? <Field label="Price / anchor — verbatim, don't reformat"><Clamp text={p.retail_price} lines={2} /></Field>
+                    : <Missing tone="muted">No price anchor given — don&rsquo;t put a price on the page.</Missing>}
+                </div>
+
+                {p.offer_description && (
+                  <div style={{ marginTop: 16 }}>
+                    <Field label="How the offer works"><Clamp text={p.offer_description} lines={4} /></Field>
+                  </div>
+                )}
+                {p.discount && <div style={{ marginTop: 8 }}><Field label="Discount">{p.discount}</Field></div>}
+              </Card>
+
+              {/* 3 — the words, in the order they land on the page */}
+              <Card id="copy" title="Page copy" purpose="The approved words, in the order they appear on the page.">
+                {!hasLpCopy ? (
+                  // Bimodal in the data: 49 of 66 have all four blocks and 6 have
+                  // none, so absence is written once rather than as four blanks.
+                  <Missing tone="warn">
+                    No page copy written yet. Don&rsquo;t write your own — copy is where 33% of client revisions come back.
+                  </Missing>
+                ) : (
+                  <>
+                    {p.headline && (
+                      <div style={{ marginBottom: 16 }}>
+                        <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: 4 }}>Headline — first line on the page</div>
+                        <CopyLine text={p.headline} />
+                      </div>
+                    )}
+
+                    {p.body_copy && (
+                      <div style={{ marginBottom: 16 }}>
+                        <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: 4 }}>Body — under the hero</div>
+                        {/* CopyMarkdownButton, not CopyLine: 14 of 50 body values are
+                            multi-paragraph and CopyLine's whiteSpace:normal would
+                            collapse them into one run. */}
+                        <div style={{ fontSize: 13, lineHeight: 1.6, maxWidth: '68ch' }}><Clamp text={p.body_copy} lines={8} /></div>
+                        <CopyMarkdownButton markdown={() => p.body_copy ?? ''} label="Copy body copy" style={{ marginTop: 8 }} />
+                      </div>
+                    )}
+
+                    {p.supporting_message && (
+                      <div style={{ marginBottom: 16 }}>
+                        <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: 4 }}>Supporting line</div>
+                        {supportPoisoned ? (
+                          <>
+                            <Missing tone="warn">
+                              This field holds {p.supporting_message.length.toLocaleString()} characters — a pasted
+                              meeting transcript, not page copy. Treat the supporting line as not written and ask for the real one.
+                            </Missing>
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6, maxWidth: '68ch' }}>
+                              {p.supporting_message.slice(0, 200)}…
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div style={{ fontSize: 13, lineHeight: 1.6, maxWidth: '68ch' }}><Clamp text={p.supporting_message} lines={4} /></div>
+                            <CopyMarkdownButton markdown={() => p.supporting_message ?? ''} label="Copy supporting line" style={{ marginTop: 8 }} />
+                          </>
+                        )}
+                      </div>
+                    )}
+
+                    {p.cta && (
+                      <div>
+                        <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: 4 }}>Button label</div>
+                        {p.cta.length > 40 ? (
+                          <>
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>This field holds alternates, not one button label — pick one and confirm it.</div>
+                            <CopyLine text={p.cta} />
+                          </>
+                        ) : (
+                          // The pill is what the button will look like, and it is
+                          // also the control — printing the label twice to make it
+                          // copyable was the same string in two shapes.
+                          <CtaPill text={p.cta} />
+                        )}
+                      </div>
+                    )}
+
+                    {lpCopyMissing.length > 0 && (
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 16 }}>
+                        No {lpCopyMissing.join(' or ')} on file yet.
+                      </div>
+                    )}
+                  </>
+                )}
+              </Card>
+
+              {/* 4 — product. No hero image: that belongs to Overview, and firing
+                  the loud "don't guess" state twice per project makes it wallpaper. */}
+              {hasProduct && (
+                <Card id="product" title="Product on the page" purpose="Confirm the right thing is being sold before you build.">
+                  {skus.length === 1 && isUrl(skus[0]) ? (
+                    <>
+                      <a href={skus[0]} target="_blank" rel="noreferrer" style={{ fontSize: 15, fontWeight: 600, color: 'var(--accent)' }}>Product page ↗</a>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>This field holds a link, not a product name.</div>
+                    </>
+                  ) : skus.length === 1 ? (
+                    <div style={{ fontSize: 15, fontWeight: 700 }}>{skus[0]}</div>
+                  ) : skus.length > 1 ? (
+                    <>
+                      <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: 6 }}>{skus.length} SKUs on this page</div>
+                      {skus.map((sku, i) => (
+                        <div key={sku} style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 4 }}>
+                          <span style={{ flexShrink: 0, width: 16, height: 16, borderRadius: 4, background: 'var(--surface-raised)', color: 'var(--text-secondary)', fontSize: 10, display: 'grid', placeItems: 'center' }}>{i + 1}</span>
+                          <span style={{ fontSize: 13, fontWeight: 600 }}>{sku}</span>
+                        </div>
+                      ))}
+                    </>
+                  ) : null}
+
+                  {p.product_description && (
+                    <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 12, lineHeight: 1.6, maxWidth: '68ch' }}>
+                      <Clamp text={p.product_description} lines={3} />
+                    </div>
+                  )}
+
+                  {images.length > 0 ? (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 16 }}>
+                      {images.map((im, i) => (
+                        <a key={im.id} href={im.storage_url} target="_blank" rel="noreferrer">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={im.storage_url} alt={`Reference ${i + 1}`} loading="lazy"
+                            style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--border)', display: 'block' }} />
+                        </a>
+                      ))}
+                    </div>
+                  ) : imageFallback ? (
+                    <div style={{ fontSize: 12, marginTop: 16 }}>
+                      <a href={imageFallback.href} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>{imageFallback.label}</a>
+                    </div>
+                  ) : null}
+                </Card>
+              )}
+
+              {/* 5 — feedback */}
+              {lpComments.length > 0 && (
+                <Card id="feedback" title="Client feedback" purpose="What the client said about the page you already built — open items first.">
+                  <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: 8 }}>
+                    Open ({lpOpen.length})
+                  </div>
+                  <CommentList comments={lpOpen} empty="Nothing open — everything the client raised has been handled." />
+
+                  {lpResolved.length > 0 && (
+                    <div style={{ marginTop: 20 }}>
+                      {/* A resolved backlog is history, not work: 127 of 168 lp
+                          comments are resolved, and one project's 28 are all done. */}
+                      {lpResolved.length > 5 ? (
+                        <details>
+                          <summary style={{ fontSize: 11, color: 'var(--text-secondary)', cursor: 'pointer' }}>Show {lpResolved.length} resolved</summary>
+                          <div style={{ marginTop: 12 }}><CommentList comments={lpResolved} empty="" /></div>
+                        </details>
+                      ) : (
+                        <>
+                          <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: 8 }}>
+                            Resolved ({lpResolved.length})
+                          </div>
+                          <CommentList comments={lpResolved} empty="" />
+                        </>
+                      )}
+                    </div>
+                  )}
+                </Card>
+              )}
+
+              {/* 6 — notes. The one place on this tab where CommentList's
+                  Internal/Client dot carries information; above here every
+                  comment is from the client. */}
+              {noteComments.length > 0 && (
+                <Card id="notes" title="Internal notes" purpose="Team context that never went to the client.">
+                  <CommentList comments={noteComments} empty="" />
+                </Card>
+              )}
             </>
           )}
 
