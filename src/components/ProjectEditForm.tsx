@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, memo, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { updateProjectDetails } from '@/lib/actions'
+import { updateProjectDetails, type EditableProjectValues } from '@/lib/actions'
 import Spinner from '@/components/Spinner'
 import EditorPicker from '@/components/EditorPicker'
 import { PAGE_TYPE_OPTIONS, editorsFor } from '@/lib/types'
@@ -96,34 +96,35 @@ function cleanBank(values: string[]): string[] | null {
 // Memoized copy-bank: its own state lives here so typing in one row only
 // re-renders this component (not the whole 400-line form). The parent reads
 // the current values via ref when saving.
+// Every slot carries the same `name`, so FormData.getAll(name) returns the bank
+// in DOM order. That matters beyond convenience: it puts the bank inside the
+// form, so save() can tell whether it rendered at all. A ref would survive an
+// unmounted tab still holding mount-time values and write them back as if the
+// user had typed them.
+// The subset of columns whose value is `string | null`, so putText/putRaw can
+// stay one-liners without widening the payload type.
+type KeysOfType<T> = {
+  [K in keyof EditableProjectValues]: EditableProjectValues[K] extends T ? K : never
+}[keyof EditableProjectValues]
+
 const CopyBank = memo(function CopyBank({
+  name,
   placeholderPrefix,
   initial,
-  onChange,
 }: {
+  name: string
   count: number
   placeholderPrefix: string
   initial: string[]
-  onChange: (next: string[]) => void
 }) {
-  const [values, setValues] = useState<string[]>(initial)
-  const update = useCallback((i: number, v: string) => {
-    setValues(prev => {
-      const next = [...prev]
-      next[i] = v
-      onChange(next)
-      return next
-    })
-  }, [onChange])
-
   return (
     <>
-      {values.map((v, i) => (
+      {initial.map((v, i) => (
         <input
           key={i}
           type="text"
+          name={name}
           defaultValue={v}
-          onChange={e => update(i, e.target.value)}
           placeholder={`${placeholderPrefix} ${i + 1}`}
           style={{ marginBottom: 8 }}
         />
@@ -135,20 +136,23 @@ const CopyBank = memo(function CopyBank({
 // Marketing Moment picker isolated into its own memoized component so the
 // tri-state button rerender doesn't touch the rest of the form.
 const MomentPicker = memo(function MomentPicker({
+  name,
   initial,
-  onChange,
 }: {
+  name: string
   initial: '' | '1' | '2'
-  onChange: (v: '' | '1' | '2') => void
 }) {
   const [value, setValue] = useState<'' | '1' | '2'>(initial)
   return (
     <div style={{ display: 'flex', gap: 8 }}>
+      {/* Same reason as CopyBank: the value belongs in the form, not a ref, so
+          save() can distinguish "set to None" from "not on this tab". */}
+      <input type="hidden" name={name} value={value} readOnly />
       {(['', '1', '2'] as const).map(m => (
         <button
           key={m}
           type="button"
-          onClick={() => { setValue(m); onChange(m) }}
+          onClick={() => setValue(m)}
           style={{
             padding: '7px 14px', borderRadius: 8, fontSize: 13, cursor: 'pointer', fontWeight: 500,
             border: `1px solid ${value === m ? 'var(--accent)' : 'var(--border)'}`,
@@ -185,26 +189,11 @@ export default function ProjectEditForm({ projectId, brandId, journeys, profiles
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
-  // Only the field types that (a) can't be uncontrolled or (b) submit an
-  // array/derived value still need refs. All other inputs are uncontrolled
-  // defaultValue + read from FormData at save time.
-  const momentRef = useRef<'' | '1' | '2'>(
-    initial.marketing_moment ? String(initial.marketing_moment) as '1' | '2' : ''
-  )
-  const headlinesRef = useRef<string[]>(padArray(initial.ad_headlines, 5))
-  const subcopiesRef = useRef<string[]>(padArray(initial.ad_subcopies, 5))
-  const eyebrowsRef = useRef<string[]>(padArray(initial.ad_eyebrows, 3))
-
-  const onMomentChange = useCallback((v: '' | '1' | '2') => { momentRef.current = v }, [])
-  const onHeadlinesChange = useCallback((v: string[]) => { headlinesRef.current = v }, [])
-  const onSubcopiesChange = useCallback((v: string[]) => { subcopiesRef.current = v }, [])
-  const onEyebrowsChange = useCallback((v: string[]) => { eyebrowsRef.current = v }, [])
-
+  // Every input is uncontrolled (defaultValue) and read from FormData at save
+  // time, including the copy banks and the moment picker. Nothing about the
+  // pending edit lives outside the form, which is what lets save() treat
+  // "absent from FormData" as "not on screen".
   function cancel() {
-    momentRef.current = initial.marketing_moment ? String(initial.marketing_moment) as '1' | '2' : ''
-    headlinesRef.current = padArray(initial.ad_headlines, 5)
-    subcopiesRef.current = padArray(initial.ad_subcopies, 5)
-    eyebrowsRef.current = padArray(initial.ad_eyebrows, 3)
     setError('')
     setFormKey(k => k + 1) // remount to reset defaultValue inputs
     setEditing(false)
@@ -215,52 +204,73 @@ export default function ProjectEditForm({ projectId, brandId, journeys, profiles
     if (!form) return
     const fd = new FormData(form)
     const s = (k: string): string => (fd.get(k) as string ?? '').toString()
-    const trimmed = (k: string): string | null => s(k).trim() || null
 
-    const nameVal = s('name').trim()
-    if (!nameVal) {
-      setError('Project name is required.')
-      return
+    // A column only enters the payload when its input actually rendered.
+    // updateProjectDetails writes exactly the keys it is handed, so a field
+    // that isn't on screen is left alone rather than blanked. Today every
+    // field renders at once and this is a no-op; under the tabbed layout it is
+    // the thing that stops an LP editor's save from nulling product_featured,
+    // retail_price and product_images_link on the tab they can't see.
+    const patch: Partial<EditableProjectValues> = {}
+    const put = <K extends keyof EditableProjectValues>(k: K, v: EditableProjectValues[K]) => {
+      if (fd.has(k)) patch[k] = v
     }
+    // Blank-to-null, for the fields where empty means "unset".
+    const putText = (k: KeysOfType<string | null>) => put(k, s(k).trim() || null)
+    const putRaw = (k: KeysOfType<string | null>) => put(k, s(k) || null)
+    const putBank = (k: 'ad_headlines' | 'ad_subcopies' | 'ad_eyebrows') =>
+      put(k, cleanBank(fd.getAll(k).map(String)))
+
+    if (fd.has('name')) {
+      const nameVal = s('name').trim()
+      if (!nameVal) {
+        setError('Project name is required.')
+        return
+      }
+      patch.name = nameVal
+    }
+
+    putRaw('due_date')
+    putRaw('stage_brief_due_date')
+    putRaw('stage_in_progress_due_date')
+    putRaw('stage_internal_review_due_date')
+    putRaw('stage_client_review_due_date')
+    putRaw('journey_id')
+    putRaw('page_type')
+    putRaw('offer_dynamics_type')
+    putRaw('lp_editor_id')
+    putRaw('creative_editor_id')
+
+    putText('offer_description')
+    putText('offer')
+    putText('cta')
+    putText('headline')
+    putText('body_copy')
+    putText('supporting_message')
+    putText('product_featured')
+    putText('product_description')
+    putText('retail_price')
+    putText('competitor_reference')
+    putText('client_ad_inspiration')
+    putText('ad_copy_primary_text')
+    putText('ad_copy_description')
+    putText('ad_copy_url')
+    putText('product_images_link')
+    putText('lp_url')
+    putText('creatives_notes')
+    putText('shopify_coupon_code')
+
+    putBank('ad_headlines')
+    putBank('ad_subcopies')
+    putBank('ad_eyebrows')
+
+    const moment = s('marketing_moment')
+    put('marketing_moment', moment === '1' ? 1 : moment === '2' ? 2 : null)
+
     setSaving(true)
     setError('')
     try {
-      const moment = momentRef.current
-      await updateProjectDetails(projectId, brandId, {
-        name: nameVal,
-        due_date: s('due_date') || null,
-        stage_brief_due_date: s('stage_brief_due_date') || null,
-        stage_in_progress_due_date: s('stage_in_progress_due_date') || null,
-        stage_internal_review_due_date: s('stage_internal_review_due_date') || null,
-        stage_client_review_due_date: s('stage_client_review_due_date') || null,
-        offer_description: trimmed('offer_description'),
-        offer: trimmed('offer'),
-        cta: trimmed('cta'),
-        headline: trimmed('headline'),
-        body_copy: trimmed('body_copy'),
-        supporting_message: trimmed('supporting_message'),
-        journey_id: s('journey_id') || null,
-        marketing_moment: moment === '1' ? 1 : moment === '2' ? 2 : null,
-        page_type: s('page_type') || null,
-        product_featured: trimmed('product_featured'),
-        product_description: trimmed('product_description'),
-        retail_price: trimmed('retail_price'),
-        offer_dynamics_type: s('offer_dynamics_type') || null,
-        competitor_reference: trimmed('competitor_reference'),
-        client_ad_inspiration: trimmed('client_ad_inspiration'),
-        ad_copy_primary_text: trimmed('ad_copy_primary_text'),
-        ad_copy_description: trimmed('ad_copy_description'),
-        ad_copy_url: trimmed('ad_copy_url'),
-        ad_headlines: cleanBank(headlinesRef.current),
-        ad_subcopies: cleanBank(subcopiesRef.current),
-        ad_eyebrows: cleanBank(eyebrowsRef.current),
-        product_images_link: trimmed('product_images_link'),
-        lp_url: trimmed('lp_url'),
-        creatives_notes: trimmed('creatives_notes'),
-        shopify_coupon_code: trimmed('shopify_coupon_code'),
-        lp_editor_id: s('lp_editor_id') || null,
-        creative_editor_id: s('creative_editor_id') || null,
-      })
+      await updateProjectDetails(projectId, brandId, patch)
       setEditing(false)
       router.refresh()
     } catch (err: unknown) {
@@ -363,7 +373,7 @@ export default function ProjectEditForm({ projectId, brandId, journeys, profiles
           </Field>
 
           <Field label="Marketing Moment" optional>
-            <MomentPicker initial={momentInitial} onChange={onMomentChange} />
+            <MomentPicker name="marketing_moment" initial={momentInitial} />
           </Field>
         </Section>
 
@@ -436,13 +446,13 @@ export default function ProjectEditForm({ projectId, brandId, journeys, profiles
         {/* ── Creatives-only ── */}
         <Section title="Creatives-only">
           <Field label="Headlines (5 variations)" optional>
-            <CopyBank count={5} placeholderPrefix="Headline" initial={padArray(initial.ad_headlines, 5)} onChange={onHeadlinesChange} />
+            <CopyBank name="ad_headlines" count={5} placeholderPrefix="Headline" initial={padArray(initial.ad_headlines, 5)} />
           </Field>
           <Field label="Subcopy (5 variations)" optional>
-            <CopyBank count={5} placeholderPrefix="Subcopy" initial={padArray(initial.ad_subcopies, 5)} onChange={onSubcopiesChange} />
+            <CopyBank name="ad_subcopies" count={5} placeholderPrefix="Subcopy" initial={padArray(initial.ad_subcopies, 5)} />
           </Field>
           <Field label="Eyebrows (3 variations)" optional>
-            <CopyBank count={3} placeholderPrefix="Eyebrow" initial={padArray(initial.ad_eyebrows, 3)} onChange={onEyebrowsChange} />
+            <CopyBank name="ad_eyebrows" count={3} placeholderPrefix="Eyebrow" initial={padArray(initial.ad_eyebrows, 3)} />
           </Field>
 
           <Field label="Ad Copy — Primary text" optional>

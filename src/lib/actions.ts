@@ -2090,55 +2090,97 @@ export async function deleteJourney(journeyId: string, brandId: string) {
   revalidatePath(`/brands/${brandId}`)
 }
 
+// Columns the project form is allowed to write. This is a RUNTIME whitelist, not
+// just a TypeScript type: this is a server action, so the argument arrives from
+// the browser and the compile-time type guarantees nothing about what actually
+// shows up. Without it, a partial payload would let any column through —
+// is_complete, share_token, the approval flags.
+const EDITABLE_PROJECT_FIELDS = [
+  'name', 'due_date',
+  'stage_brief_due_date', 'stage_in_progress_due_date',
+  'stage_internal_review_due_date', 'stage_client_review_due_date',
+  'offer_description', 'offer', 'cta', 'headline', 'body_copy', 'supporting_message',
+  'journey_id', 'marketing_moment', 'page_type',
+  'product_featured', 'product_description', 'retail_price',
+  'offer_dynamics_type', 'competitor_reference', 'client_ad_inspiration',
+  'ad_copy_primary_text', 'ad_copy_description', 'ad_copy_url',
+  'ad_headlines', 'ad_subcopies', 'ad_eyebrows',
+  'product_images_link', 'lp_url', 'creatives_notes', 'shopify_coupon_code',
+  'motion_link',
+  // FKs to profiles.id. Replaces the old assigned_designer name string, which
+  // this action no longer writes.
+  'lp_editor_id', 'creative_editor_id',
+] as const
+
+export type EditableProjectValues = {
+  name: string
+  due_date: string | null
+  stage_brief_due_date: string | null
+  stage_in_progress_due_date: string | null
+  stage_internal_review_due_date: string | null
+  stage_client_review_due_date: string | null
+  offer_description: string | null
+  offer: string | null
+  cta: string | null
+  headline: string | null
+  body_copy: string | null
+  supporting_message: string | null
+  journey_id: string | null
+  marketing_moment: 1 | 2 | null
+  page_type: string | null
+  product_featured: string | null
+  product_description: string | null
+  retail_price: string | null
+  offer_dynamics_type: string | null
+  competitor_reference: string | null
+  client_ad_inspiration: string | null
+  ad_copy_primary_text: string | null
+  ad_copy_description: string | null
+  ad_copy_url: string | null
+  ad_headlines: string[] | null
+  ad_subcopies: string[] | null
+  ad_eyebrows: string[] | null
+  product_images_link: string | null
+  lp_url: string | null
+  creatives_notes: string | null
+  shopify_coupon_code: string | null
+  motion_link: string | null
+  lp_editor_id: string | null
+  creative_editor_id: string | null
+}
+
+// PARTIAL by design. It previously took all ~34 fields and wrote all ~34 on every
+// save, which is only safe while every field is on screen at once. Under a tabbed
+// layout the fields on the other tab are not rendered, so the form reads them as
+// empty and the save writes empty over real data — an LP editor saving a URL
+// would null product_featured, retail_price and product_images_link, and the
+// creative bundle API would then serve an empty product to the next run.
+//
+// Only keys actually present are written. Anything absent is left alone, which
+// also ends the copy-deck race: the form no longer claims ownership of fields it
+// is not editing, so it cannot write back a stale copy bank it loaded on mount.
 export async function updateProjectDetails(
   projectId: string,
   brandId: string,
-  values: {
-    name: string
-    due_date: string | null
-    stage_brief_due_date: string | null
-    stage_in_progress_due_date: string | null
-    stage_internal_review_due_date: string | null
-    stage_client_review_due_date: string | null
-    offer_description: string | null
-    offer: string | null
-    cta: string | null
-    headline: string | null
-    body_copy: string | null
-    supporting_message: string | null
-    journey_id: string | null
-    marketing_moment: 1 | 2 | null
-    page_type: string | null
-    product_featured: string | null
-    product_description: string | null
-    retail_price: string | null
-    offer_dynamics_type: string | null
-    competitor_reference: string | null
-    client_ad_inspiration: string | null
-    ad_copy_primary_text: string | null
-    ad_copy_description: string | null
-    ad_copy_url: string | null
-    ad_headlines: string[] | null
-    ad_subcopies: string[] | null
-    ad_eyebrows: string[] | null
-    product_images_link: string | null
-    lp_url: string | null
-    creatives_notes: string | null
-    shopify_coupon_code: string | null
-    // FKs to profiles.id. Replaces the old assigned_designer name string, which
-    // this action no longer writes.
-    lp_editor_id: string | null
-    creative_editor_id: string | null
-  }
+  values: Partial<EditableProjectValues>
 ) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
   if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
+  const patch: Record<string, unknown> = {}
+  for (const key of EDITABLE_PROJECT_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(values, key) && values[key] !== undefined) {
+      patch[key] = values[key]
+    }
+  }
+  // Nothing to do beats writing {} and bumping the row for no reason.
+  if (Object.keys(patch).length === 0) return
+
   const { error } = await supabase
     .from('projects')
-    .update(values)
+    .update(patch)
     .eq('id', projectId)
   if (error) throw new Error(`Failed to update project: ${error.message}`)
 
