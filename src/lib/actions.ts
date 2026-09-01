@@ -2871,3 +2871,69 @@ export async function uploadProductImage(
     return { ok: false, error: e instanceof Error ? e.message : 'Upload failed.' }
   }
 }
+
+
+// Save the copy deck's sign-off.
+//
+// Whole-state write: the caller sends every verdict it is showing, and that
+// becomes the new set. Anything absent is treated as unreviewed, which is what
+// unticking a box means.
+//
+// Lines are keyed by TEXT, not index — see the migration. A line that gets
+// edited therefore loses its approval, which is the correct outcome rather than
+// a bug: changed copy has not been signed off.
+export async function saveCopyApprovals(
+  projectId: string,
+  brandId: string,
+  verdicts: { text: string; status: 'approved' | 'rejected' }[],
+): Promise<{ ok: true; by: string; at: string } | { ok: false; error: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
+
+  // Who signed it off, in the form a person reads. Falls back to the email so
+  // there is never an anonymous approval.
+  const { getCachedProfiles } = await import('@/lib/profiles')
+  const profiles = await getCachedProfiles()
+  const me = profiles.find(x => x.email.toLowerCase() === (user.email ?? '').toLowerCase())
+  const by = me?.full_name || user.email || 'Unknown'
+  const at = new Date().toISOString()
+
+  const clean = verdicts
+    .map(v => ({ text: (v.text ?? '').trim(), status: v.status, at, by }))
+    .filter(v => v.text.length > 0 && (v.status === 'approved' || v.status === 'rejected'))
+    .slice(0, 200)
+
+  const { data: existing } = await supabase
+    .from('projects').select('copy_approvals').eq('id', projectId).single()
+
+  const { readCopyApprovals } = await import('@/lib/products')
+  const prev = readCopyApprovals((existing ?? {}) as { copy_approvals?: unknown })
+
+  // Preserve who FIRST gave a verdict that has not changed — re-saving the panel
+  // should not rewrite every line's attribution to whoever pressed the button.
+  const lines = clean.map(v => {
+    const before = prev.lines.find(l => l.text.trim() === v.text && l.status === v.status)
+    return before ?? v
+  })
+
+  const entry = {
+    at, by,
+    approved: lines.filter(l => l.status === 'approved').length,
+    rejected: lines.filter(l => l.status === 'rejected').length,
+  }
+  // Newest first, capped. The log answers "who signed this off" months later;
+  // an unbounded audit trail on a JSONB column is a slow page, not a feature.
+  const log = [entry, ...prev.log].slice(0, 25)
+
+  const { error } = await supabase
+    .from('projects')
+    .update({ copy_approvals: { lines, log } })
+    .eq('id', projectId)
+  if (error) return { ok: false, error: `Could not save: ${error.message}` }
+
+  revalidatePath(`/preview/project/${projectId}`)
+  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+  return { ok: true, by, at }
+}

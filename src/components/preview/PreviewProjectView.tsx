@@ -18,8 +18,9 @@ import ReviewWorkspace from '@/components/preview/ReviewWorkspace'
 import Link from 'next/link'
 import CopyMarkdownButton from '@/components/CopyMarkdownButton'
 import ListEditor, { type ListRow } from '@/components/preview/ListEditor'
-import { readProducts, readCompetitors, readTopPerformers, groupProducts, productsDrifted, offerSource, splitSkus } from '@/lib/products'
+import { readProducts, readCompetitors, readTopPerformers, readCopyApprovals, groupProducts, productsDrifted, offerSource, splitSkus } from '@/lib/products'
 import ProductGroupEditor from '@/components/preview/ProductGroupEditor'
+import CopyApprovalDeck from '@/components/preview/CopyApprovalDeck'
 import { summariseProjectOffer, fetchProductThumbnails } from '@/lib/actions'
 import { projectBriefMarkdown } from '@/lib/markdown-export'
 import { STAGE_COLORS } from '@/lib/stageColors'
@@ -217,6 +218,7 @@ export default function PreviewProjectView({
   const competitors = useMemo(() => readCompetitors(p), [p])
   const topPerformers = useMemo(() => readTopPerformers(p), [p])
   const grouped = useMemo(() => groupProducts(products), [products])
+  const copyApprovals = useMemo(() => readCopyApprovals(p), [p])
   const drifted = productsDrifted(p)
   const skus = useMemo(() => products.map(x => x.name), [products])
 
@@ -1582,17 +1584,17 @@ export default function PreviewProjectView({
                   be a plain list on the one tab where the words actually get
                   used, so every line was retyped by hand. */}
               {hasAdCopy && (
-                <Card id="copy" title="Copy deck" purpose="Click any line to copy it.">
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 16 }}>
-                    {([['Headlines', p.ad_headlines], ['Subheadlines', p.ad_subcopies], ['Eyebrows', p.ad_eyebrows]] as const)
-                      .filter(([, arr]) => arr && arr.length)
-                      .map(([label, arr]) => (
-                        <div key={label}>
-                          <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: 6 }}>{label} ({arr!.length})</div>
-                          {arr!.map((line, i) => <CopyLine key={`${line}-${i}`} text={line} />)}
-                        </div>
-                      ))}
-                  </div>
+                <Card id="copy" title="Copy deck" purpose="Tick what is approved, cross what is not. Click a line to copy it.">
+                  <CopyApprovalDeck
+                    projectId={p.id}
+                    brandId={p.brand_id}
+                    approvals={copyApprovals}
+                    columns={[
+                      { label: 'Headlines', lines: p.ad_headlines ?? [] },
+                      { label: 'Subheadlines', lines: p.ad_subcopies ?? [] },
+                      { label: 'Eyebrows', lines: p.ad_eyebrows ?? [] },
+                    ]}
+                  />
 
                   {/* Editing and generation, behind the read view. The columns
                       above stay because they are what an editor uses 95% of the

@@ -193,6 +193,7 @@ export interface Project {
   products: ProjectProduct[] | null
   competitors: ProjectCompetitor[] | null
   top_performers: ProjectTopPerformer[] | null
+  copy_approvals: CopyApprovals | null
   offer_summary: string[] | null
   offer_summary_source: string | null
   product_images_link: string | null
@@ -262,6 +263,26 @@ export interface ProjectCompetitor {
   site_url: string | null
   /** e.g. https://projects.motionapp.com/snapshot/<uuid> */
   motion_url: string | null
+}
+
+/** Sign-off on one line of ad copy. Keyed by the text, so edited copy resets. */
+export interface CopyApprovalLine {
+  text: string
+  status: 'approved' | 'rejected'
+  by: string | null
+  at: string
+}
+
+export interface CopyApprovalLog {
+  at: string
+  by: string | null
+  approved: number
+  rejected: number
+}
+
+export interface CopyApprovals {
+  lines: CopyApprovalLine[]
+  log: CopyApprovalLog[]
 }
 
 export interface ProjectImage {

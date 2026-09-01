@@ -1,4 +1,4 @@
-import type { ProjectProduct, ProjectCompetitor, ProjectTopPerformer } from './types'
+import type { ProjectProduct, ProjectCompetitor, ProjectTopPerformer, CopyApprovals, CopyApprovalLine, CopyApprovalLog } from './types'
 
 // Reading the Creatives tab's two repeating lists.
 //
@@ -139,3 +139,45 @@ export function productsDrifted(p: ProductSource): boolean {
 /** The exact text an offer summary was generated from, for cache invalidation. */
 export const offerSource = (p: { offer?: string | null; offer_description?: string | null }): string =>
   [p.offer, p.offer_description].filter(Boolean).join('\n').trim()
+
+
+/**
+ * Copy sign-off, normalised.
+ *
+ * Same rule as the product lists: JSONB guarantees only the outer shape, so the
+ * contents are established here rather than cast. An unknown status is dropped
+ * rather than rendered — a line whose verdict cannot be read is an unreviewed
+ * line, not an approved one.
+ */
+export function readCopyApprovals(p: { copy_approvals?: unknown }): CopyApprovals {
+  const raw = p.copy_approvals as Record<string, unknown> | null | undefined
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { lines: [], log: [] }
+
+  const lines: CopyApprovalLine[] = (Array.isArray(raw.lines) ? raw.lines : [])
+    .filter((el): el is Record<string, unknown> => !!el && typeof el === 'object')
+    .map(el => ({
+      text: str(el.text),
+      status: el.status === 'approved' || el.status === 'rejected' ? el.status : null,
+      by: str(el.by) || null,
+      at: str(el.at),
+    }))
+    .filter((x): x is CopyApprovalLine => !!x.status && x.text.length > 0)
+
+  const log: CopyApprovalLog[] = (Array.isArray(raw.log) ? raw.log : [])
+    .filter((el): el is Record<string, unknown> => !!el && typeof el === 'object')
+    .map(el => ({
+      at: str(el.at),
+      by: str(el.by) || null,
+      approved: typeof el.approved === 'number' ? el.approved : 0,
+      rejected: typeof el.rejected === 'number' ? el.rejected : 0,
+    }))
+    .filter(x => x.at.length > 0)
+
+  return { lines, log }
+}
+
+/** Verdict for one line of copy, or null when it has not been reviewed. */
+export function verdictFor(approvals: CopyApprovals, text: string): CopyApprovalLine | null {
+  const key = text.trim()
+  return approvals.lines.find(l => l.text.trim() === key) ?? null
+}
