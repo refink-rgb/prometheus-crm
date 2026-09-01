@@ -36,6 +36,19 @@ export default function BrandBrief({
 
   const level = LEVELS.find(l => l.v === sensitivity) ?? null
 
+  // One click from the unset state, so the common case never opens a form.
+  function quickSet(v: number) {
+    setErr('')
+    startTransition(async () => {
+      try {
+        await updateBrandBrief(brandId, { ai_sensitivity: v }, projectId)
+        router.refresh()
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : 'Could not save.')
+      }
+    })
+  }
+
   function save() {
     setErr('')
     startTransition(async () => {
@@ -102,12 +115,31 @@ export default function BrandBrief({
     )
   }
 
-  // Nothing written yet: one quiet line, not an empty card.
+  // Unset: show the dial itself rather than a line of text about it. Setting it
+  // is a once-per-brand act, and a link saying "add some" hides the very control
+  // an editor needs to see. One click sets it, from here.
   if (!notes && sensitivity === null) {
     return (
-      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 20 }}>
-        No notes on {brandName} yet ·{' '}
-        <button onClick={() => setEditing(true)} style={{ fontSize: 12, color: 'var(--accent)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}>Add some</button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', border: '1px dashed var(--border-strong)', borderRadius: 10, padding: '10px 14px', marginBottom: 20 }}>
+        <span style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)' }}>
+          How much AI does {brandName} accept?
+        </span>
+        {LEVELS.map(l => (
+          <button
+            key={l.v}
+            onClick={() => quickSet(l.v)}
+            disabled={pending}
+            title={l.hint}
+            style={{
+              fontSize: 11.5, fontWeight: 600, padding: '4px 10px', borderRadius: 999, cursor: pending ? 'wait' : 'pointer',
+              border: `1px solid ${l.colour}`, background: 'transparent', color: l.colour,
+            }}
+          >{l.label}</button>
+        ))}
+        <button onClick={() => setEditing(true)} style={{ marginLeft: 'auto', fontSize: 11.5, fontWeight: 600, color: 'var(--accent)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}>
+          + Notes
+        </button>
+        {err && <div style={{ fontSize: 11, color: 'var(--danger)', width: '100%' }}>{err}</div>}
       </div>
     )
   }
