@@ -53,6 +53,7 @@ interface Props {
     product_images_link: string | null
     lp_url: string | null
     creatives_notes: string | null
+    motion_link: string | null
     shopify_coupon_code: string | null
     lp_editor_id: string | null
     creative_editor_id: string | null
@@ -258,6 +259,7 @@ export default function ProjectEditForm({ projectId, brandId, journeys, profiles
     putText('product_images_link')
     putText('lp_url')
     putText('creatives_notes')
+    putText('motion_link')
     putText('shopify_coupon_code')
 
     putBank('ad_headlines')
@@ -497,6 +499,18 @@ export default function ProjectEditForm({ projectId, brandId, journeys, profiles
           </Field>
           <Field label="Creatives link / notes" optional>
             <textarea name="creatives_notes" defaultValue={initial.creatives_notes ?? ''} rows={2} style={{ resize: 'vertical' }} />
+          </Field>
+          {/* motion_link was already whitelisted by updateProjectDetails but had
+              no input here, so its only writer was the Deliverables form on the
+              old project page. It now has one writer that lives with the rest of
+              the project's fields. */}
+          <Field label="Motion link" optional>
+            <input
+              type="url"
+              name="motion_link"
+              defaultValue={initial.motion_link ?? ''}
+              placeholder="https://projects.motionapp.com/…"
+            />
           </Field>
         </Section>
       </form>

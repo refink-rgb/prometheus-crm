@@ -8,6 +8,9 @@ import CopyDeckPanel from '@/components/CopyDeckPanel'
 import CreativeAssetsManager from '@/components/CreativeAssetsManager'
 import ClientFeedbackPanel from '@/components/ClientFeedbackPanel'
 import CampaignTrackingPanel from '@/components/CampaignTrackingPanel'
+import NotesThread from '@/components/NotesThread'
+import ConfirmDeleteForm from '@/components/ConfirmDeleteForm'
+import { profileName } from '@/lib/types'
 import type { TrackedCampaign } from '@/lib/results'
 import { hypercareFor, hypercareCopyMessage } from '@/lib/hypercare'
 import ShareButton from '@/components/ShareButton'
@@ -217,6 +220,12 @@ export default function PreviewProjectView({
   // rather than only offering destinations.
   const [activeSection, setActiveSection] = useState<string | null>(null)
 
+  // `assets` now arrives with hidden rows included, because CreativeAssetsManager
+  // is the only place that can un-hide one and it needs to see them. Everything
+  // else — the grid, the review loop, the counts, the client feedback panel —
+  // works from the visible set.
+  const visibleAssets = useMemo(() => assets.filter(a => !a.is_hidden), [assets])
+
   const creativeComments = useMemo(() => comments.filter(c => c.track === 'image'), [comments])
   const lpComments = useMemo(() => comments.filter(c => c.track === 'lp'), [comments])
   const noteComments = useMemo(() => comments.filter(c => c.track === 'note'), [comments])
@@ -327,7 +336,7 @@ export default function PreviewProjectView({
     { id: 'copy', label: 'Page copy', show: true },
     { id: 'product', label: 'Product', show: hasProduct },
     { id: 'feedback', label: lpOpen.length ? `Client feedback · ${lpOpen.length} open` : 'Client feedback', show: lpComments.length > 0 },
-    { id: 'notes', label: 'Internal notes', show: noteComments.length > 0 },
+    { id: 'notes', label: 'Internal notes', show: true },
   ]).filter(n => n.show), [hasProduct, lpOpen.length, lpComments.length, noteComments.length, brandLandingPages.length])
 
   // Products and Motion reports are always shown, even empty: an empty list is
@@ -551,6 +560,7 @@ export default function PreviewProjectView({
           product_images_link: p.product_images_link,
           lp_url: p.lp_url,
           creatives_notes: p.creatives_notes,
+          motion_link: p.motion_link,
           shopify_coupon_code: p.shopify_coupon_code,
           lp_editor_id: p.lp_editor_id,
           creative_editor_id: p.creative_editor_id,
@@ -559,7 +569,7 @@ export default function PreviewProjectView({
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 24, borderBottom: '1px solid var(--border)', marginBottom: 20 }}>
-        {([['overview', 'Project Overview', null], ['lp', 'Landing Page', lpOpen.length || null], ['creatives', 'Creatives', assets.length]] as const).map(([k, label, count]) => (
+        {([['overview', 'Project Overview', null], ['lp', 'Landing Page', lpOpen.length || null], ['creatives', 'Creatives', visibleAssets.length]] as const).map(([k, label, count]) => (
           <button key={k} onClick={() => setTab(k as Tab)} style={{
             background: 'none', border: 'none', cursor: 'pointer', padding: '10px 0 12px',
             fontSize: 13, fontWeight: tab === k ? 700 : 500,
@@ -1219,7 +1229,7 @@ export default function PreviewProjectView({
                   <ClientFeedbackPanel
                     lpFeedback={lpOpen.concat(lpResolved)}
                     creativeFeedback={[]}
-                    assets={assets}
+                    assets={visibleAssets}
                     lpApproved={p.lp_approved}
                     creativesApproved={p.creatives_approved}
                     projectId={p.id}
@@ -1233,11 +1243,22 @@ export default function PreviewProjectView({
               {/* 6 — notes. The one place on this tab where CommentList's
                   Internal/Client dot carries information; above here every
                   comment is from the client. */}
-              {noteComments.length > 0 && (
-                <Card id="notes" title="Internal notes" purpose="Team context that never went to the client.">
-                  <CommentList comments={noteComments} empty="" />
-                </Card>
-              )}
+              {/* The real thread, not a read-only list. It was rendered as
+                  <CommentList>, which meant nobody could WRITE a note or mention
+                  anyone — and it was gated on there already being notes, so on a
+                  fresh project the section did not exist at all and there was
+                  nowhere to start one. Always rendered now. */}
+              <Card id="notes" title="Internal notes" purpose="Team context that never went to the client.">
+                <NotesThread
+                  notes={noteComments}
+                  mode="internal"
+                  projectId={p.id}
+                  brandId={p.brand_id}
+                  currentUserName={authorName}
+                  canDelete
+                  mentionables={profiles.map(pr => ({ id: pr.id, name: profileName(pr) }))}
+                />
+              </Card>
             </>
           )}
 
@@ -1250,7 +1271,7 @@ export default function PreviewProjectView({
                 projectId={p.id}
                 brandId={p.brand_id}
                 folderUrl={p.drive_folder_url}
-                assetCount={assets.length}
+                assetCount={visibleAssets.length}
               />
 
               {/* One card, not three. Creative Brief, Copy Deck and Drive Folder
@@ -1732,7 +1753,7 @@ export default function PreviewProjectView({
                     Open internal review →
                   </Link>
                 </div>
-                <ReviewWorkspace projectId={p.id} brandId={p.brand_id} assets={assets} comments={creativeComments} revisionsByAsset={revisionsByAsset} authorName={authorName} />
+                <ReviewWorkspace projectId={p.id} brandId={p.brand_id} assets={visibleAssets} comments={creativeComments} revisionsByAsset={revisionsByAsset} authorName={authorName} />
 
                 {/* Bulk publish, purge, archive. Syncing moved to the bar at the
                     top of the tab — this panel carries its own folder input too,
@@ -1785,17 +1806,21 @@ export default function PreviewProjectView({
 
         <details>
           <summary style={{ fontSize: 11, color: 'var(--text-muted)', cursor: 'pointer' }}>Delete this project</summary>
-          <form action={deleteProject.bind(null, p.id, p.brand_id)} style={{ marginTop: 12 }}>
+          <div style={{ marginTop: 12 }}>
             <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, maxWidth: '60ch' }}>
               Permanent. Deletes the project and everything attached to it — creatives, comments, revisions.
             </div>
-            <SubmitButton
-              pendingText="Deleting…"
-              style={{ background: 'none', color: 'var(--danger)', border: '1px solid var(--danger)', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+            {/* The same confirm the live page uses. A disclosure is not a
+                confirmation: it hides the button, it does not ask. */}
+            <ConfirmDeleteForm
+              action={deleteProject.bind(null, p.id, p.brand_id)}
+              message={`Delete "${p.name}"? This cannot be undone.`}
             >
-              Delete permanently
-            </SubmitButton>
-          </form>
+              <button type="submit" style={{ background: 'none', color: 'var(--danger)', border: '1px solid var(--danger)', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                Delete permanently
+              </button>
+            </ConfirmDeleteForm>
+          </div>
         </details>
       </div>
     </div>

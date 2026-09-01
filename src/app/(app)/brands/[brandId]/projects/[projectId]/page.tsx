@@ -422,6 +422,7 @@ export default async function ProjectPage({
               product_images_link: p.product_images_link,
               lp_url: p.lp_url,
               creatives_notes: p.creatives_notes,
+              motion_link: p.motion_link,
               shopify_coupon_code: p.shopify_coupon_code,
               lp_editor_id: p.lp_editor_id,
               creative_editor_id: p.creative_editor_id,

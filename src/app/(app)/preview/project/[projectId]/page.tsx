@@ -18,6 +18,13 @@ import PreviewProjectView, { type BrandLandingPage } from '@/components/preview/
 // the live app reads. The banner in the view says which controls are live and
 // which are still inert; keep it accurate.
 // Deleting this folder + src/components/preview removes the whole experiment.
+// Matches the page this replaces. AI revision actions (gpt-image-2) run 60-90s,
+// fetchProductThumbnails walks a storefront sequentially, and Drive sync can be
+// slow on a big folder — all of them are Server Actions invoked FROM this page,
+// so the page's own limit is what governs them. Without it they are killed at
+// the platform default and the work is lost after being paid for.
+export const maxDuration = 300
+
 export default async function PreviewProjectPage({
   params,
 }: {
@@ -47,7 +54,10 @@ export default async function PreviewProjectPage({
     profiles,
   ] = await Promise.all([
     supabase.from('brands').select('id, name, brand_notes, ai_sensitivity, brand_guidelines').eq('id', p.brand_id).single(),
-    supabase.from('creative_assets').select('*').eq('project_id', projectId).eq('is_hidden', false).order('sort_order'),
+    // ALL assets, hidden included. The page it replaces did the same. Filtering
+    // here removed hidden creatives from the only screen that can un-hide them,
+    // which turned a reversible soft-delete into a permanent one.
+    supabase.from('creative_assets').select('*').eq('project_id', projectId).order('sort_order'),
     supabase.from('project_comments').select('*').eq('project_id', projectId).order('created_at', { ascending: false }),
     supabase.from('project_images').select('id, storage_url').eq('project_id', projectId),
     supabase.from('brand_dna').select('*').eq('brand_id', p.brand_id).eq('is_active', true).maybeSingle(),

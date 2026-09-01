@@ -769,38 +769,58 @@ export async function syncDriveImages(projectId: string, brandId: string, folder
   // Auth is now handled inside listDriveFolder (prefers SA, falls back to API key).
   const folderId = extractDriveFolderId(folderUrl)
 
-  // First, save the folder URL on the project
-  await supabase
-    .from('projects')
-    .update({ drive_folder_url: folderUrl })
-    .eq('id', projectId)
-
+  // ── ORDER MATTERS, and it used to be wrong ────────────────────────────────
+  //
+  // This ran: write drive_folder_url -> list the folder -> HIDE everything not
+  // in the listing -> upsert. Three ways that lost work:
+  //
+  //   1. The URL was saved before we knew it was good, so a typo left the
+  //      project pointing at a folder that does not exist.
+  //   2. The hide ran before the upsert, so a failure or a timeout in between
+  //      left every creative on the project hidden.
+  //   3. An empty listing — wrong link, folder renamed, access revoked — hid
+  //      EVERY asset and returned 0 as if that were a normal result.
+  //
+  // Now: read first, refuse anything that looks like a mistake, and only then
+  // write. Nothing is hidden until the new set is safely in.
   const imageFiles = await listDriveFolder(folderId)
 
-  const driveFileIds = imageFiles.map(f => f.id)
-
-  // Soft-hide assets no longer in the root Drive folder. We DON'T hard-delete:
-  // (1) the file may have been moved into Delete/ via the Drive helper here,
-  // (2) preserving the row keeps comments, revisions, and publish history intact.
   const { data: existing } = await supabase
     .from('creative_assets')
-    .select('id, drive_file_id')
+    .select('id, drive_file_id, is_hidden')
     .eq('project_id', projectId)
+  const live = (existing ?? []).filter(a => !a.is_hidden)
 
-  const toHide = (existing ?? []).filter(a => !driveFileIds.includes(a.drive_file_id))
-  if (toHide.length > 0) {
-    await supabase
-      .from('creative_assets')
-      .update({ is_hidden: true })
-      .in('id', toHide.map(a => a.id))
-  }
-
+  // An empty folder is almost always a bad link rather than a deliberate purge.
+  // Refuse rather than quietly emptying the project.
   if (imageFiles.length === 0) {
+    if (live.length > 0) {
+      throw new Error(
+        `That folder has no images we can see, but this project has ${live.length} creative${live.length === 1 ? '' : 's'}. ` +
+        `Nothing was changed — check the link, and that the folder is shared with us.`,
+      )
+    }
+    // Nothing there and nothing to lose: record the folder and stop.
+    await supabase.from('projects').update({ drive_folder_url: folderUrl }).eq('id', projectId)
     revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+    revalidatePath(`/preview/project/${projectId}`)
     return 0
   }
 
-  // Upsert assets — preserve is_hidden for existing entries
+  const driveFileIds = imageFiles.map(f => f.id)
+  const toHide = live.filter(a => !driveFileIds.includes(a.drive_file_id))
+
+  // Wiping the whole visible set is a legitimate thing to want, but it is never
+  // a thing to do by accident — a folder that shares no files at all with what
+  // is on the project is a different folder, not an updated one.
+  if (live.length > 0 && toHide.length === live.length) {
+    throw new Error(
+      `That folder shares no files with the ${live.length} creative${live.length === 1 ? '' : 's'} already here, ` +
+      `so syncing would hide all of them. Nothing was changed — check you pasted the right folder.`,
+    )
+  }
+
+  // Upsert BEFORE hiding. If this fails the project still has everything it had.
   const { error } = await supabase
     .from('creative_assets')
     .upsert(
@@ -816,6 +836,23 @@ export async function syncDriveImages(projectId: string, brandId: string, folder
 
   if (error) throw new Error(error.message)
 
+  // Only now that the new set is safely in: retire what the folder no longer
+  // holds. Still a soft hide — the row keeps its comments, revisions and
+  // publish history, and Blocker 2's fix means the un-hide list can see it.
+  if (toHide.length > 0) {
+    const { error: hideErr } = await supabase
+      .from('creative_assets')
+      .update({ is_hidden: true })
+      .in('id', toHide.map(a => a.id))
+    if (hideErr) console.error('[syncDriveImages] hide failed:', hideErr.message)
+  }
+
+  // And only now record the folder, so a link that could not be read is never
+  // left behind as if it had worked.
+  const { error: urlErr } = await supabase
+    .from('projects').update({ drive_folder_url: folderUrl }).eq('id', projectId)
+  if (urlErr) console.error('[syncDriveImages] folder url not saved:', urlErr.message)
+
   // New creatives start INTERNAL-ONLY — they only reach the client once
   // explicitly published. (Only touch genuinely new ones, so re-syncing never
   // un-publishes anything already live with the client.)
@@ -830,6 +867,7 @@ export async function syncDriveImages(projectId: string, brandId: string, folder
   }
 
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+  revalidatePath(`/preview/project/${projectId}`)
   return imageFiles.length
 }
 
