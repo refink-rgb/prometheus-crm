@@ -376,8 +376,11 @@ export default function PreviewProjectView({
     }}>{text}</span>
   )
 
+  // Was capped at 1280 whatever the monitor. Prose inside the cards is already
+  // capped at 68-80ch, so widening the shell gives the grids and the review
+  // panel room without turning body text into unreadable full-width lines.
   return (
-    <div style={{ padding: '20px 32px 60px', maxWidth: 1280, margin: '0 auto' }}>
+    <div style={{ padding: '20px 32px 60px', maxWidth: 1760, margin: '0 auto' }}>
       {/* Preview banner. Keep this list honest — it is the only thing telling an
           editor which controls on this page reach the real project. */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', marginBottom: 16, borderRadius: 10, background: 'rgba(234,179,8,0.10)', border: '1px solid rgba(234,179,8,0.30)' }}>

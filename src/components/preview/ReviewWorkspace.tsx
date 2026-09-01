@@ -75,6 +75,22 @@ export default function ReviewWorkspace({
   const [viewLabel, setViewLabel] = useState<string | null>(null)
   // Separate from viewUrl: the list shows a small image, the overlay a large one.
   const [viewFull, setViewFull] = useState<string | null>(null)
+  // Two columns once the PANEL is wide enough — measured on the panel itself,
+  // not the window. The window says little about the room this element got: it
+  // sits in a grid, in a page, behind a sidebar that collapses. Keying off the
+  // window meant a wider window could cost a thumbnail column.
+  const [roomy, setRoomy] = useState(false)
+  useEffect(() => {
+    const el = detailRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(([entry]) => {
+      // 620 is image + controls + gap. Below it, two columns are worse than one.
+      setRoomy(entry.contentRect.width >= 620)
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
   const [draft, setDraft] = useState('')
   const [posting, setPosting] = useState(false)
   const [err, setErr] = useState('')
@@ -296,7 +312,11 @@ export default function ReviewWorkspace({
         />
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(320px,1fr)', gap: 16 }}>
+      {/* Both columns grow with the window. The panel's minimum went 320 -> 340;
+          its SHARE was left alone deliberately — giving it more reached the
+          two-column threshold only at 1920 and cost the thumbnail grid a column
+          at 1280 and 1600 to get there. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(340px,1fr)', gap: 16 }}>
         {/* Grid */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(128px,1fr))', gap: 8, alignContent: 'start' }}>
           {shown.map(a => {
@@ -357,7 +377,14 @@ export default function ReviewWorkspace({
           }}
         >
           {active ? (
-            <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 16, background: 'var(--surface-1)' }}>
+            <div style={{
+              border: '1px solid var(--border)', borderRadius: 10, padding: 16, background: 'var(--surface-1)',
+              // As ONE column the stack — image, verdict, note, versions,
+              // visibility, comments — ran past the fold on every screen, which
+              // is what made the panel feel cramped however tall the window was.
+              ...(roomy ? { display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(300px,360px)', gap: 18, alignItems: 'start' } : null),
+            }}>
+              <div style={{ minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
                 <StatusChip status={statusOf(active)} size="md" />
                 <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)' }}>
@@ -393,6 +420,9 @@ export default function ReviewWorkspace({
                 <img src={viewUrl ?? thumb(active)} alt="" style={{ width: '100%', borderRadius: 10, display: 'block' }} />
               </button>
 
+              </div>
+
+              <div style={{ minWidth: 0 }}>
               {/* The three actions */}
               {mode === 'internal' && (
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
@@ -644,6 +674,7 @@ export default function ReviewWorkspace({
                 )
                 return <>{group('Client feedback', client, '#60a5fa')}{mode === 'internal' && group('Internal notes', internal, 'var(--text-secondary)')}</>
               })()}
+              </div>
             </div>
           ) : <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>No creatives synced yet.</p>}
         </div>
