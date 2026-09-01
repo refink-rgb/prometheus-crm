@@ -484,9 +484,9 @@ export default function ProjectEditForm({ projectId, brandId, journeys, profiles
           </Field>
         </Section>
 
-        {/* ── Deliverables ── */}
-        <Section title="Deliverables">
-          <Field label="Landing page URL" optional>
+        {/* ── Final output ── */}
+        <Section title="Final output">
+          <Field label="Landing page — final URL" optional>
             <input type="url" name="lp_url" defaultValue={initial.lp_url ?? ''} placeholder="https://…" />
           </Field>
           <Field label="Shopify coupon code" optional>

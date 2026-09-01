@@ -58,7 +58,7 @@ export default function DriveSyncBar({
     }}>
       {linked ? (
         <>
-          <span style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)' }}>Drive folder</span>
+          <span style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)' }}>Final output</span>
           <a href={folderUrl!} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, color: 'var(--accent)' }}>Open ↗</a>
           <span style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
             {assetCount} synced

@@ -365,7 +365,7 @@ export default function PreviewProjectView({
   const supportPoisoned = !!p.supporting_message && p.supporting_message.length > SUPPORT_CAP
 
   const lpNav = useMemo(() => ([
-    { id: 'page', label: 'The page', show: true },
+    { id: 'page', label: 'Final output', show: true },
     { id: 'library', label: brandLandingPages.length ? `Past pages · ${brandLandingPages.length}` : 'Past pages', show: brandLandingPages.length > 1 },
     { id: 'offer', label: 'The offer', show: true },
     { id: 'copy', label: 'Page copy', show: true },
@@ -1021,7 +1021,7 @@ export default function PreviewProjectView({
 
               {/* 1 — the page, first: 60 of 66 already have one, so this is a
                   revision job far more often than a build. */}
-              <Card id="page" title="The page" purpose="The page, and what's open on it.">
+              <Card id="page" title="Final output — landing page" purpose="The live page, and what's open on it.">
                 {p.lp_url ? (
                   <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>
                     <a href={p.lp_url} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: 'var(--accent)' }}>
@@ -1474,7 +1474,7 @@ export default function PreviewProjectView({
                 {p.drive_folder_url && (
                   <div style={{ marginTop: 16 }}>
                     <a href={p.drive_folder_url} target="_blank" rel="noreferrer"
-                      style={{ fontSize: 12, fontWeight: 600, padding: '8px 12px', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', textDecoration: 'none' }}>Drive folder ↗</a>
+                      style={{ fontSize: 12, fontWeight: 600, padding: '8px 12px', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', textDecoration: 'none' }}>Final output — Drive ↗</a>
                   </div>
                 )}
               </Card>
