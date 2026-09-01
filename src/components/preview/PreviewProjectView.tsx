@@ -22,6 +22,7 @@ import { readProducts, readCompetitors, readTopPerformers, readCopyApprovals, gr
 import ProductGroupEditor from '@/components/preview/ProductGroupEditor'
 import CopyApprovalDeck from '@/components/preview/CopyApprovalDeck'
 import BrandBrief from '@/components/preview/BrandBrief'
+import DriveSyncBar from '@/components/preview/DriveSyncBar'
 import { summariseProjectOffer, fetchProductThumbnails } from '@/lib/actions'
 import { projectBriefMarkdown } from '@/lib/markdown-export'
 import { STAGE_COLORS } from '@/lib/stageColors'
@@ -1181,6 +1182,16 @@ export default function PreviewProjectView({
 
           {tab === 'creatives' && (
             <>
+              {/* First thing on the tab, because it is the first thing an editor
+                  does — nothing below works until the folder is synced. It was
+                  behind a disclosure in the last card. */}
+              <DriveSyncBar
+                projectId={p.id}
+                brandId={p.brand_id}
+                folderUrl={p.drive_folder_url}
+                assetCount={assets.length}
+              />
+
               {/* One card, not three. Creative Brief, Copy Deck and Drive Folder
                   were separate sections for six rows, three arrays and a single
                   link — and the brief half of it reprinted Overview's product,
@@ -1652,12 +1663,12 @@ export default function PreviewProjectView({
                 </div>
                 <ReviewWorkspace projectId={p.id} brandId={p.brand_id} assets={assets} comments={creativeComments} revisionsByAsset={revisionsByAsset} authorName={authorName} />
 
-                {/* Whole-folder work: Drive sync, bulk publish, purge, archive.
-                    ReviewWorkspace is the per-ad verdict loop; this is what sits
-                    either side of it. Collapsed because it is used at the start
-                    and end of a batch, not during. */}
+                {/* Bulk publish, purge, archive. Syncing moved to the bar at the
+                    top of the tab — this panel carries its own folder input too,
+                    but the bar is the one an editor should find, so the label
+                    here no longer advertises it. */}
                 <details style={{ marginTop: 20 }}>
-                  <summary style={{ fontSize: 11, color: 'var(--text-secondary)', cursor: 'pointer' }}>Manage assets &amp; Drive sync</summary>
+                  <summary style={{ fontSize: 11, color: 'var(--text-secondary)', cursor: 'pointer' }}>Bulk actions &amp; archive</summary>
                   <div style={{ marginTop: 12 }}>
                     <CreativeAssetsManager
                       projectId={p.id}
