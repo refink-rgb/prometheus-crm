@@ -2886,7 +2886,11 @@ export async function saveCopyApprovals(
   projectId: string,
   brandId: string,
   verdicts: { text: string; status: 'approved' | 'rejected' }[],
-): Promise<{ ok: true; by: string; at: string } | { ok: false; error: string }> {
+  // When true, every line that is not approved is DELETED from the copy deck —
+  // rejected and never-reviewed alike. The caller is expected to have said so
+  // out loud first; see CopyApprovalDeck's confirm step.
+  prune = false,
+): Promise<{ ok: true; by: string; at: string; removed: number } | { ok: false; error: string }> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
@@ -2906,7 +2910,10 @@ export async function saveCopyApprovals(
     .slice(0, 200)
 
   const { data: existing } = await supabase
-    .from('projects').select('copy_approvals').eq('id', projectId).single()
+    .from('projects')
+    .select('copy_approvals, ad_headlines, ad_subcopies, ad_eyebrows')
+    .eq('id', projectId)
+    .single()
 
   const { readCopyApprovals } = await import('@/lib/products')
   const prev = readCopyApprovals((existing ?? {}) as { copy_approvals?: unknown })
@@ -2927,13 +2934,84 @@ export async function saveCopyApprovals(
   // an unbounded audit trail on a JSONB column is a slow page, not a feature.
   const log = [entry, ...prev.log].slice(0, 25)
 
-  const { error } = await supabase
-    .from('projects')
-    .update({ copy_approvals: { lines, log } })
-    .eq('id', projectId)
+  const patch: Record<string, unknown> = {}
+  const removedNow: { text: string; column: string; status: 'rejected' | 'unreviewed'; at: string; by: string }[] = []
+
+  if (prune) {
+    // Keep only what is APPROVED. Rejected and never-reviewed both go, which is
+    // what was asked for — but every removed line is archived below, because a
+    // deck is hours of work and an accidental prune must not be terminal.
+    const approved = new Set(lines.filter(l => l.status === 'approved').map(l => l.text.trim()))
+    const rejected = new Set(lines.filter(l => l.status === 'rejected').map(l => l.text.trim()))
+
+    for (const col of ['ad_headlines', 'ad_subcopies', 'ad_eyebrows'] as const) {
+      const before: string[] = Array.isArray(existing?.[col]) ? existing[col] as string[] : []
+      const after = before.filter(x => approved.has((x ?? '').trim()))
+      if (after.length !== before.length) {
+        patch[col] = after
+        for (const gone of before.filter(x => !approved.has((x ?? '').trim()))) {
+          removedNow.push({
+            text: gone,
+            column: col,
+            status: rejected.has((gone ?? '').trim()) ? 'rejected' : 'unreviewed',
+            at, by,
+          })
+        }
+      }
+    }
+  }
+
+  // Archive is capped like the log: enough to undo a mistake, not an unbounded
+  // second copy of every deck the project ever had.
+  const removed = [...removedNow, ...prev.removed].slice(0, 200)
+  patch.copy_approvals = { lines, log, removed }
+
+  const { error } = await supabase.from('projects').update(patch).eq('id', projectId)
   if (error) return { ok: false, error: `Could not save: ${error.message}` }
 
   revalidatePath(`/preview/project/${projectId}`)
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)
-  return { ok: true, by, at }
+  return { ok: true, by, at, removed: removedNow.length }
+}
+
+// Put back everything a prune removed. The archive exists so a mis-click is a
+// click to undo rather than an afternoon of rewriting copy.
+export async function restorePrunedCopy(
+  projectId: string,
+  brandId: string,
+): Promise<{ ok: true; restored: number } | { ok: false; error: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
+
+  const { data: project } = await supabase
+    .from('projects')
+    .select('copy_approvals, ad_headlines, ad_subcopies, ad_eyebrows')
+    .eq('id', projectId)
+    .single()
+  if (!project) return { ok: false, error: 'Project not found.' }
+
+  const { readCopyApprovals } = await import('@/lib/products')
+  const state = readCopyApprovals(project as { copy_approvals?: unknown })
+  if (!state.removed.length) return { ok: false, error: 'Nothing to restore.' }
+
+  const patch: Record<string, unknown> = {}
+  let restored = 0
+  for (const col of ['ad_headlines', 'ad_subcopies', 'ad_eyebrows'] as const) {
+    const current: string[] = Array.isArray(project[col]) ? project[col] as string[] : []
+    const back = state.removed
+      .filter(r => r.column === col)
+      .map(r => r.text)
+      .filter(t => !current.some(c => (c ?? '').trim() === t.trim()))
+    if (back.length) { patch[col] = [...current, ...back]; restored += back.length }
+  }
+  patch.copy_approvals = { lines: state.lines, log: state.log, removed: [] }
+
+  const { error } = await supabase.from('projects').update(patch).eq('id', projectId)
+  if (error) return { ok: false, error: `Could not restore: ${error.message}` }
+
+  revalidatePath(`/preview/project/${projectId}`)
+  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+  return { ok: true, restored }
 }

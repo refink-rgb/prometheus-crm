@@ -1,4 +1,4 @@
-import type { ProjectProduct, ProjectCompetitor, ProjectTopPerformer, CopyApprovals, CopyApprovalLine, CopyApprovalLog } from './types'
+import type { ProjectProduct, ProjectCompetitor, ProjectTopPerformer, CopyApprovals, CopyApprovalLine, CopyApprovalLog, CopyApprovalRemoved } from './types'
 
 // Reading the Creatives tab's two repeating lists.
 //
@@ -151,7 +151,7 @@ export const offerSource = (p: { offer?: string | null; offer_description?: stri
  */
 export function readCopyApprovals(p: { copy_approvals?: unknown }): CopyApprovals {
   const raw = p.copy_approvals as Record<string, unknown> | null | undefined
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { lines: [], log: [] }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { lines: [], log: [], removed: [] }
 
   const lines: CopyApprovalLine[] = (Array.isArray(raw.lines) ? raw.lines : [])
     .filter((el): el is Record<string, unknown> => !!el && typeof el === 'object')
@@ -173,7 +173,19 @@ export function readCopyApprovals(p: { copy_approvals?: unknown }): CopyApproval
     }))
     .filter(x => x.at.length > 0)
 
-  return { lines, log }
+  const COLS = ['ad_headlines', 'ad_subcopies', 'ad_eyebrows'] as const
+  const removed: CopyApprovalRemoved[] = (Array.isArray(raw.removed) ? raw.removed : [])
+    .filter((el): el is Record<string, unknown> => !!el && typeof el === 'object')
+    .map(el => ({
+      text: str(el.text),
+      column: (COLS as readonly string[]).includes(str(el.column)) ? str(el.column) as CopyApprovalRemoved['column'] : 'ad_headlines',
+      status: el.status === 'rejected' ? 'rejected' as const : 'unreviewed' as const,
+      at: str(el.at),
+      by: str(el.by) || null,
+    }))
+    .filter(x => x.text.length > 0)
+
+  return { lines, log, removed }
 }
 
 /** Verdict for one line of copy, or null when it has not been reviewed. */

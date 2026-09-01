@@ -280,9 +280,19 @@ export interface CopyApprovalLog {
   rejected: number
 }
 
+/** A line removed by a prune, kept so a mis-click is recoverable. */
+export interface CopyApprovalRemoved {
+  text: string
+  column: 'ad_headlines' | 'ad_subcopies' | 'ad_eyebrows'
+  status: 'rejected' | 'unreviewed'
+  at: string
+  by: string | null
+}
+
 export interface CopyApprovals {
   lines: CopyApprovalLine[]
   log: CopyApprovalLog[]
+  removed: CopyApprovalRemoved[]
 }
 
 export interface ProjectImage {
