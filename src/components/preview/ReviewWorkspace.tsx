@@ -91,6 +91,11 @@ export default function ReviewWorkspace({
     return () => ro.disconnect()
   }, [])
 
+  // Jaspen asked to separate internal notes from client feedback. The mode
+  // toggle already does it implicitly, which is why it was not obvious — this
+  // says it out loud on the one list where the two are mixed.
+  const [feedAudience, setFeedAudience] = useState<'all' | 'client' | 'internal'>('all')
+
   const [draft, setDraft] = useState('')
   const [posting, setPosting] = useState(false)
   const [err, setErr] = useState('')
@@ -111,10 +116,12 @@ export default function ReviewWorkspace({
 
   // Same audience rule the panel uses, so the feed can never advertise a comment
   // the panel will refuse to show.
-  const feedComments = useMemo(
-    () => (mode === 'internal' ? comments : comments.filter(c => c.audience !== 'internal')),
-    [comments, mode],
-  )
+  const feedComments = useMemo(() => {
+    const base = mode === 'internal' ? comments : comments.filter(c => c.audience !== 'internal')
+    if (feedAudience === 'client') return base.filter(c => c.audience !== 'internal')
+    if (feedAudience === 'internal') return base.filter(c => c.audience === 'internal')
+    return base
+  }, [comments, mode, feedAudience])
 
   const counts = useMemo(() => {
     const c = { pending: 0, approved: 0, needs_revision: 0, rejected: 0, commented: 0, visible: 0 }
@@ -683,7 +690,32 @@ export default function ReviewWorkspace({
       {/* Comment activity → jump to the creative */}
       {feedComments.length > 0 && (
         <div style={{ marginTop: 24 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>Comment activity</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+            <span style={{ fontSize: 12, fontWeight: 700 }}>Comment activity</span>
+            {mode === 'internal' && (
+              <div style={{ display: 'flex', gap: 4 }}>
+                {([['all', 'All'], ['client', 'Client'], ['internal', 'Internal']] as const).map(([k, label]) => {
+                  const on = feedAudience === k
+                  const n = k === 'all' ? comments.length
+                    : k === 'client' ? comments.filter(c => c.audience !== 'internal').length
+                    : comments.filter(c => c.audience === 'internal').length
+                  return (
+                    <button
+                      key={k}
+                      onClick={() => setFeedAudience(k)}
+                      aria-pressed={on}
+                      style={{
+                        fontSize: 11, fontWeight: on ? 700 : 500, padding: '3px 10px', borderRadius: 999, cursor: 'pointer',
+                        border: `1px solid ${on ? 'var(--accent)' : 'var(--border)'}`,
+                        background: on ? 'var(--accent-muted)' : 'transparent',
+                        color: on ? 'var(--accent)' : 'var(--text-muted)',
+                      }}
+                    >{label} {n}</button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
           {feedComments.slice(0, 15).map(c => {
             const a = assets.find(x => x.id === c.asset_id)
             // Ticking a comment off in the panel dims and strikes it here, so the

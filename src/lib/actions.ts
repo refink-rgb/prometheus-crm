@@ -621,6 +621,29 @@ export async function addProjectComment(
     .select('id')
     .single()
 
+  // A client comment on a creative marks that creative as needing changes.
+  //
+  // Asked for by Roberto after Jaspen hit the mismatch on Bather: the "Needs
+  // changes" tile read 2 while the "Comments" tile read 40, because the client
+  // clicked the flag twice and then just typed. The two tiles measured different
+  // things, so an editor could not tell how much work was actually waiting.
+  //
+  // Only the CLIENT-facing status column. internal_status is the team's own
+  // verdict and is left alone — an editor who approved something internally
+  // should not have that silently reversed by a client remark.
+  //
+  // Not applied to an already-rejected asset: rejected is a stronger verdict
+  // than needs_revision and downgrading it would lose information.
+  if (commentTrack === 'image' && extras?.asset_id) {
+    const { error: flagErr } = await supabase
+      .from('creative_assets')
+      .update({ status: 'needs_revision' })
+      .eq('id', extras.asset_id)
+      .eq('project_id', project.id)
+      .neq('status', 'rejected')
+    if (flagErr) console.error('[addProjectComment] could not flag asset:', flagErr.message)
+  }
+
   // Notify the assigned editor and (for review feedback, not a general message)
   // move the track into Revisions. Image comments belong to the creative editor;
   // LP/general to the LP editor. A 'note' is chatter in the Notes thread — it
