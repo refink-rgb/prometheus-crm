@@ -1505,9 +1505,7 @@ export default function PreviewProjectView({
                 ) : (
                   <>
                     {topPerformers.length === 0 ? (
-                      <Missing tone="muted">
-                        Nothing yet. Paste {brand?.name ?? 'the client'}&rsquo;s best-performing creative from Motion — it is the strongest reference an editor has.
-                      </Missing>
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Empty.</div>
                     ) : (
                       topPerformers.map((t, i) => (
                         <div key={t.id} style={{ display: 'flex', alignItems: 'baseline', gap: 10, padding: '8px 0', borderBottom: i < topPerformers.length - 1 ? '1px solid var(--border)' : 'none' }}>
@@ -1542,7 +1540,7 @@ export default function PreviewProjectView({
                 ) : (
                   <>
                     {competitors.length === 0 ? (
-                      <Missing tone="muted">No competitors yet. Add one, then paste its Motion report link.</Missing>
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Empty.</div>
                     ) : (
                       competitors.map((c, i) => (
                         <div key={c.id} style={{ display: 'flex', alignItems: 'baseline', gap: 10, padding: '8px 0', borderBottom: i < competitors.length - 1 ? '1px solid var(--border)' : 'none' }}>

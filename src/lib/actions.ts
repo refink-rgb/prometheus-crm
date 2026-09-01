@@ -2828,3 +2828,46 @@ export async function fetchProductThumbnails(
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)
   return { ok: true, found, checked: withLinks.length, skipped }
 }
+
+
+// A pasted screenshot as a product reference.
+//
+// Getting the right product into the CRM is the hard part: a link only helps
+// when the store has a clean PDP, and plenty of these are collection pages,
+// bundles or SKUs that never got their own page. Pasting a screenshot is the
+// one route that always works.
+//
+// Stored in the same bucket as everything else, under products/, and returned as
+// a URL the caller writes onto the product row — this action does not touch the
+// project, so a failed upload can never half-write a product list.
+export async function uploadProductImage(
+  formData: FormData,
+): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
+
+  const file = formData.get('file') as File | null
+  const projectId = (formData.get('project_id') as string | null) ?? ''
+  if (!file) return { ok: false, error: 'No image found.' }
+  if (!file.type.startsWith('image/')) return { ok: false, error: 'That is not an image.' }
+  // A pasted screenshot is a few hundred KB. Anything past 10MB is a mistake.
+  if (file.size > 10 * 1024 * 1024) return { ok: false, error: 'That image is over 10MB.' }
+
+  try {
+    const buffer = Buffer.from(await file.arrayBuffer())
+    const ext = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg'
+    const path = `products/${projectId || 'unfiled'}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`
+
+    const { error: upErr } = await supabase.storage
+      .from('project-images')
+      .upload(path, buffer, { contentType: file.type, upsert: false, cacheControl: '31536000' })
+    if (upErr) return { ok: false, error: `Upload failed: ${upErr.message}` }
+
+    const { data: { publicUrl } } = supabase.storage.from('project-images').getPublicUrl(path)
+    return { ok: true, url: publicUrl }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Upload failed.' }
+  }
+}
