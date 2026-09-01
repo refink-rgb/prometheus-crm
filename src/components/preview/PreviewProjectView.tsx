@@ -23,6 +23,7 @@ import ProductGroupEditor from '@/components/preview/ProductGroupEditor'
 import CopyApprovalDeck from '@/components/preview/CopyApprovalDeck'
 import BrandBrief from '@/components/preview/BrandBrief'
 import DriveSyncBar from '@/components/preview/DriveSyncBar'
+import BrandGuidelines from '@/components/preview/BrandGuidelines'
 import { summariseProjectOffer, fetchProductThumbnails } from '@/lib/actions'
 import { projectBriefMarkdown } from '@/lib/markdown-export'
 import { STAGE_COLORS } from '@/lib/stageColors'
@@ -601,6 +602,15 @@ export default function PreviewProjectView({
                   projectId={p.id}
                   notes={brand.brand_notes ?? null}
                   sensitivity={brand.ai_sensitivity ?? null}
+                />
+              )}
+
+              {brand?.id && (
+                <BrandGuidelines
+                  brandId={brand.id}
+                  brandName={brand.name}
+                  projectId={p.id}
+                  guidelines={brand.brand_guidelines ?? null}
                 />
               )}
 
@@ -1299,6 +1309,16 @@ export default function PreviewProjectView({
                   </div>
                 )}
               </Card>
+
+              {brand?.id && (
+                <BrandGuidelines
+                  brandId={brand.id}
+                  brandName={brand.name}
+                  projectId={p.id}
+                  guidelines={brand.brand_guidelines ?? null}
+                  collapsed
+                />
+              )}
 
               {/* Brand DNA, collapsed. It is reference material an editor consults
                   rather than reads every visit, and the Overview already renders

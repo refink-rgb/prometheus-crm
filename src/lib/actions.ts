@@ -2997,7 +2997,7 @@ export async function restorePrunedCopy(
 // not mean relearning it.
 export async function updateBrandBrief(
   brandId: string,
-  values: { brand_notes?: string | null; ai_sensitivity?: number | null },
+  values: { brand_notes?: string | null; ai_sensitivity?: number | null; brand_guidelines?: string | null },
   revalidateProjectId?: string,
 ) {
   const supabase = await createClient()
@@ -3009,6 +3009,10 @@ export async function updateBrandBrief(
   if ('brand_notes' in values) {
     const t = typeof values.brand_notes === 'string' ? values.brand_notes.trim() : ''
     patch.brand_notes = t || null
+  }
+  if ('brand_guidelines' in values) {
+    const t = typeof values.brand_guidelines === 'string' ? values.brand_guidelines.trim() : ''
+    patch.brand_guidelines = t || null
   }
   if ('ai_sensitivity' in values) {
     const n = values.ai_sensitivity

@@ -122,6 +122,8 @@ export interface Brand {
   created_by: string
   /** 0 = doesn't mind AI … 3 = will reject anything that reads as AI. NULL = unset. */
   ai_sensitivity: number | null
+  /** The client's own rules, pasted. Distinct from brand_notes, which is ours. */
+  brand_guidelines: string | null
 }
 
 export interface Journey {
