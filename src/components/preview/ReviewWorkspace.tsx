@@ -729,6 +729,14 @@ export default function ReviewWorkspace({
                   <img src={thumb(a)} alt="" loading="lazy" style={{ width: 34, height: 42, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }} />
                 )}
                 <div style={{ minWidth: 0, flex: 1 }}>
+                  {/* The filename, first. A thumbnail at 34px does not tell two
+                      variants of the same ad apart, and the filename is what an
+                      editor searches for in Drive. */}
+                  {a?.name && (
+                    <div style={{ fontSize: 11, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={a.name}>
+                      {a.name}
+                    </div>
+                  )}
                   <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
                     {c.author_name} · {new Date(c.created_at).toLocaleDateString()}
                     {done && <span style={{ color: 'var(--success)', fontWeight: 700 }}> · done</span>}
