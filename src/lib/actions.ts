@@ -2987,3 +2987,43 @@ export async function restorePrunedCopy(
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)
   return { ok: true, restored }
 }
+
+
+// The brand bible: what an editor needs to know about a client before they start.
+//
+// Asked for on the editors' call, 1 Sep — AI tolerance, standing complaints, the
+// things you only learn by working on a brand for six weeks. Stored on the BRAND
+// and shown on every one of its projects, so swapping who works on a brand does
+// not mean relearning it.
+export async function updateBrandBrief(
+  brandId: string,
+  values: { brand_notes?: string | null; ai_sensitivity?: number | null },
+  revalidateProjectId?: string,
+) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
+
+  const patch: Record<string, unknown> = {}
+  if ('brand_notes' in values) {
+    const t = typeof values.brand_notes === 'string' ? values.brand_notes.trim() : ''
+    patch.brand_notes = t || null
+  }
+  if ('ai_sensitivity' in values) {
+    const n = values.ai_sensitivity
+    // Out of range becomes null rather than clamping: a value we cannot explain
+    // is worse than no value, and the constraint would reject it anyway.
+    patch.ai_sensitivity = typeof n === 'number' && n >= 0 && n <= 3 ? Math.round(n) : null
+  }
+  if (Object.keys(patch).length === 0) return
+
+  const { error } = await supabase.from('brands').update(patch).eq('id', brandId)
+  if (error) throw new Error(`Failed to save: ${error.message}`)
+
+  revalidatePath(`/brands/${brandId}`)
+  if (revalidateProjectId) {
+    revalidatePath(`/preview/project/${revalidateProjectId}`)
+    revalidatePath(`/brands/${brandId}/projects/${revalidateProjectId}`)
+  }
+}

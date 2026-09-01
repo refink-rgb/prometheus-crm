@@ -12,6 +12,7 @@ import {
   toggleCommentResolved,
   uploadAssetRevision,
   setClientVersion,
+  addInternalAssetComment,
 } from '@/lib/actions'
 
 // Review, inline in the Creatives tab. Saves the context switch out to
@@ -50,13 +51,14 @@ function StatusChip({ status, size = 'sm' }: { status: string; size?: 'sm' | 'md
 }
 
 export default function ReviewWorkspace({
-  projectId, brandId, assets, comments, revisionsByAsset,
+  projectId, brandId, assets, comments, revisionsByAsset, authorName,
 }: {
   projectId: string
   brandId: string
   assets: CreativeAsset[]
   comments: ProjectComment[]
   revisionsByAsset: Record<string, AssetRevision[]>
+  authorName: string
 }) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
@@ -73,6 +75,8 @@ export default function ReviewWorkspace({
   const [viewLabel, setViewLabel] = useState<string | null>(null)
   // Separate from viewUrl: the list shows a small image, the overlay a large one.
   const [viewFull, setViewFull] = useState<string | null>(null)
+  const [draft, setDraft] = useState('')
+  const [posting, setPosting] = useState(false)
   const [err, setErr] = useState('')
 
   // Internal and client approval are separate columns. One set of counts for
@@ -118,6 +122,31 @@ export default function ReviewWorkspace({
     return statusOf(a) === filter
   }), [assets, filter, commentsFor, mode]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ← → walk the filtered grid, so a batch can be reviewed without going back to
+  // the mouse between every image. Bound to the FILTERED list, not all assets:
+  // arrowing out of the filter you deliberately set would be surprising.
+  //
+  // Ignored while typing, so arrowing inside a comment box or a filename does
+  // not jump the selection out from under you.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      const el = document.activeElement as HTMLElement | null
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
+      if (zoom) return
+      if (shown.length < 2) return
+      e.preventDefault()
+      const i = shown.findIndex(a => a.id === selected)
+      const next = e.key === 'ArrowRight'
+        ? shown[(i + 1 + shown.length) % shown.length]
+        : shown[(i - 1 + shown.length) % shown.length]
+      if (next) pickAsset(next.id)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+
   // Escape closes the overlay, and the page behind it stops scrolling — without
   // the lock a trackpad flick scrolls the review list under the image.
   useEffect(() => {
@@ -144,6 +173,21 @@ export default function ReviewWorkspace({
     a.revision_url ?? a.thumbnail_url ?? `https://drive.google.com/thumbnail?id=${a.drive_file_id}&sz=w600`
   const full = (a: CreativeAsset) =>
     a.revision_url ?? `https://drive.google.com/thumbnail?id=${a.drive_file_id}&sz=w2048`
+
+  async function post() {
+    const content = draft.trim()
+    if (!content || !active) return
+    setPosting(true); setErr('')
+    try {
+      await addInternalAssetComment({
+        projectId, brandId, assetId: active.id, content, displayName: authorName,
+      })
+      setDraft('')
+      router.refresh()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Could not add the note.')
+    } finally { setPosting(false) }
+  }
 
   const run = (fn: () => Promise<unknown>) => {
     setErr('')
@@ -294,7 +338,19 @@ export default function ReviewWorkspace({
         </div>
 
         {/* Detail */}
-        <div ref={detailRef} style={{ position: 'sticky', top: 16, alignSelf: 'start', scrollMarginTop: 16 }}>
+        {/* Sticky AND scrollable. Sticky alone pins the panel to the viewport
+            and then simply clips everything below it — on a creative with more
+            than a few comments the end of the thread could not be reached at
+            all, at any zoom level. Reported by Janella, 1 Sep. */}
+        <div
+          ref={detailRef}
+          style={{
+            position: 'sticky', top: 16, alignSelf: 'start', scrollMarginTop: 16,
+            maxHeight: 'calc(100vh - 32px)', overflowY: 'auto',
+            // Room for the scrollbar so it never sits on top of the content.
+            paddingRight: 4,
+          }}
+        >
           {active ? (
             <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 16, background: 'var(--surface-1)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
@@ -389,6 +445,37 @@ export default function ReviewWorkspace({
                   {active.client_visible ? 'on the review link' : 'hidden'}
                 </span>
               </label>
+
+              {/* Write a note on THIS creative. Asked for on the editors' call —
+                  until now the preview could show comments but not take one, so
+                  an editor reviewing here had to go elsewhere to say anything.
+                  Internal audience: this is the editors' own channel, and a note
+                  typed here must never surprise anyone by reaching the client. */}
+              <div style={{ marginBottom: 12 }}>
+                <textarea
+                  value={draft}
+                  onChange={e => setDraft(e.target.value)}
+                  rows={2}
+                  placeholder="Add an internal note on this creative…"
+                  onKeyDown={e => {
+                    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); void post() }
+                  }}
+                  style={{ width: '100%', fontSize: 12.5, lineHeight: 1.5, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text-primary)', resize: 'vertical' }}
+                />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
+                  <button
+                    onClick={() => void post()}
+                    disabled={posting || !draft.trim()}
+                    style={{
+                      fontSize: 11.5, fontWeight: 700, padding: '6px 12px', borderRadius: 7, cursor: posting || !draft.trim() ? 'not-allowed' : 'pointer',
+                      border: `1px solid ${draft.trim() ? 'var(--accent)' : 'var(--border)'}`,
+                      background: draft.trim() ? 'var(--accent-muted)' : 'transparent',
+                      color: draft.trim() ? 'var(--accent)' : 'var(--text-muted)',
+                    }}
+                  >{posting ? 'Adding…' : 'Add note'}</button>
+                  <span style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>Internal only · ⌘↵</span>
+                </div>
+              </div>
 
               {/* Versions — the stack IS the control. Exactly one row is what the
                   client sees, so "which version are they looking at" is answered
@@ -549,14 +636,22 @@ export default function ReviewWorkspace({
           <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>Comment activity</div>
           {feedComments.slice(0, 15).map(c => {
             const a = assets.find(x => x.id === c.asset_id)
+            // Ticking a comment off in the panel dims and strikes it here, so the
+            // feed stops reading as a to-do list of things already handled.
+            // Jaspen, 1 Sep. Driven off resolved_at, so the two surfaces cannot
+            // disagree — there is no second piece of state to keep in sync.
+            const done = !!c.resolved_at
             return (
-              <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 8 }}>
+              <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 8, opacity: done ? 0.5 : 1, background: done ? 'var(--surface-2)' : 'transparent' }}>
                 {a && /* eslint-disable-next-line @next/next/no-img-element */ (
                   <img src={thumb(a)} alt="" loading="lazy" style={{ width: 34, height: 42, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }} />
                 )}
                 <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{c.author_name} · {new Date(c.created_at).toLocaleDateString()}</div>
-                  <div style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.content}</div>
+                  <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+                    {c.author_name} · {new Date(c.created_at).toLocaleDateString()}
+                    {done && <span style={{ color: 'var(--success)', fontWeight: 700 }}> · done</span>}
+                  </div>
+                  <div style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: done ? 'line-through' : 'none' }}>{c.content}</div>
                 </div>
                 {a && <button onClick={() => pickAsset(a.id, true)} style={{ flexShrink: 0, fontSize: 11, fontWeight: 600, padding: '4px 12px', borderRadius: 6, border: '1px solid var(--accent)', background: 'var(--accent-muted)', color: 'var(--accent)', cursor: 'pointer' }}>Open creative →</button>}
               </div>

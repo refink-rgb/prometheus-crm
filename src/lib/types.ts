@@ -120,6 +120,8 @@ export interface Brand {
   client_token: string | null
   created_at: string
   created_by: string
+  /** 0 = doesn't mind AI … 3 = will reject anything that reads as AI. NULL = unset. */
+  ai_sensitivity: number | null
 }
 
 export interface Journey {

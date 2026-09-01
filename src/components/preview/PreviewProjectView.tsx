@@ -21,6 +21,7 @@ import ListEditor, { type ListRow } from '@/components/preview/ListEditor'
 import { readProducts, readCompetitors, readTopPerformers, readCopyApprovals, groupProducts, productsDrifted, offerSource, splitSkus } from '@/lib/products'
 import ProductGroupEditor from '@/components/preview/ProductGroupEditor'
 import CopyApprovalDeck from '@/components/preview/CopyApprovalDeck'
+import BrandBrief from '@/components/preview/BrandBrief'
 import { summariseProjectOffer, fetchProductThumbnails } from '@/lib/actions'
 import { projectBriefMarkdown } from '@/lib/markdown-export'
 import { STAGE_COLORS } from '@/lib/stageColors'
@@ -188,13 +189,15 @@ function CommentList({ comments, empty }: { comments: ProjectComment[]; empty: s
 }
 
 export default function PreviewProjectView({
-  project: p, brand, assets, comments, images, dna, revisionsByAsset, lpEditorName, creativeEditorName, journeyName, journeys, profiles, campaigns, todayIso,
+  project: p, brand, assets, comments, images, dna, revisionsByAsset, lpEditorName, creativeEditorName, journeyName, journeys, profiles, campaigns, todayIso, authorName,
 }: {
   project: Project; brand: Brand; assets: CreativeAsset[]; comments: ProjectComment[]
   images: ProjectImage[]; dna: BrandDna | null
   revisionsByAsset: Record<string, AssetRevision[]>
   lpEditorName: string | null; creativeEditorName: string | null; journeyName: string | null
   journeys: Journey[]; profiles: Profile[]; campaigns: TrackedCampaign[]; todayIso: string
+  /** Who a note typed here is attributed to. */
+  authorName: string
 }) {
   const [tab, setTab] = useState<Tab>('overview')
   // Which section the reader is actually in, so the sub-nav reports position
@@ -584,6 +587,19 @@ export default function PreviewProjectView({
         <div style={{ minWidth: 0 }}>
           {tab === 'overview' && (
             <>
+              {/* First thing on the tab, by design — "anytime you open up a
+                  project it's the first thing that you see". Lives on the brand,
+                  so every project for this client shows the same notes. */}
+              {brand?.id && (
+                <BrandBrief
+                  brandId={brand.id}
+                  brandName={brand.name}
+                  projectId={p.id}
+                  notes={brand.brand_notes ?? null}
+                  sensitivity={brand.ai_sensitivity ?? null}
+                />
+              )}
+
               {/* What is missing, named and jumpable. No score and no meters —
                   a ledger can only certify that a fact is on file, not that it
                   is the right fact, and false confidence is the error this
@@ -1631,7 +1647,7 @@ export default function PreviewProjectView({
                     Open internal review →
                   </Link>
                 </div>
-                <ReviewWorkspace projectId={p.id} brandId={p.brand_id} assets={assets} comments={creativeComments} revisionsByAsset={revisionsByAsset} />
+                <ReviewWorkspace projectId={p.id} brandId={p.brand_id} assets={assets} comments={creativeComments} revisionsByAsset={revisionsByAsset} authorName={authorName} />
 
                 {/* Whole-folder work: Drive sync, bulk publish, purge, archive.
                     ReviewWorkspace is the per-ad verdict loop; this is what sits

@@ -62,7 +62,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <ConfirmDialogHost>
         <div style={{ minHeight: '100vh' }}>
           <Sidebar email={user.email ?? null} showFinancials={showFinancials} capacity={capacity} />
-          <div className="app-main" style={{ marginLeft: 220, minHeight: '100vh' }}>
+          {/* Follows the sidebar. The variable is set by Sidebar (a client
+              component); the fallback is what renders before its effect runs and on
+              any page where the sidebar is absent. */}
+          <div className="app-main" style={{ marginLeft: 'var(--sidebar-w, 220px)', minHeight: '100vh', transition: 'margin-left 0.15s' }}>
             {children}
           </div>
         </div>

@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { signOut } from '@/lib/actions'
@@ -132,6 +133,28 @@ const ShowcaseIcon = (
 export default function Sidebar({ email, showFinancials, capacity = null }: SidebarProps) {
   const pathname = usePathname()
 
+  // Collapsed to a 60px rail. Asked for by Janella, 1 Sep: reviewing creatives
+  // on a laptop, the sidebar was eating the width the image grid needed.
+  //
+  // The width is published as a CSS variable rather than lifted into a context,
+  // because the thing that has to react to it — the app layout — is a server
+  // component. A variable lets it stay one.
+  const [collapsed, setCollapsed] = useState(false)
+  const [ready, setReady] = useState(false)
+
+  useEffect(() => {
+    try {
+      setCollapsed(localStorage.getItem('prometheus-sidebar-collapsed') === '1')
+    } catch { /* private window, or storage blocked — start expanded */ }
+    setReady(true)
+  }, [])
+
+  useEffect(() => {
+    if (!ready) return
+    document.documentElement.style.setProperty('--sidebar-w', collapsed ? '60px' : '220px')
+    try { localStorage.setItem('prometheus-sidebar-collapsed', collapsed ? '1' : '0') } catch { /* ignore */ }
+  }, [collapsed, ready])
+
   const items: NavItem[] = [
     {
       href: '/',
@@ -213,14 +236,15 @@ export default function Sidebar({ email, showFinancials, capacity = null }: Side
         top: 0,
         left: 0,
         bottom: 0,
-        width: 220,
+        width: collapsed ? 60 : 220,
+        transition: 'width 0.15s',
         background: 'var(--sidebar-bg)',
         borderRight: '1px solid var(--sidebar-border)',
         display: 'flex',
         flexDirection: 'column',
         zIndex: 40,
       }}>
-        <div style={{ padding: '20px 20px 16px' }}>
+        <div style={{ padding: collapsed ? '20px 0 16px' : '20px 20px 16px', display: 'flex', justifyContent: 'center' }}>
           <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none' }}>
             <div style={{
               width: 26, height: 26,
@@ -240,6 +264,17 @@ export default function Sidebar({ email, showFinancials, capacity = null }: Side
           </Link>
         </div>
 
+        <button
+          onClick={() => setCollapsed(v => !v)}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          style={{
+            margin: collapsed ? '0 auto 8px' : '0 12px 8px auto', display: 'block',
+            width: 26, height: 26, borderRadius: 6, cursor: 'pointer', fontSize: 12,
+            border: '1px solid var(--sidebar-border)', background: 'transparent', color: 'var(--text-muted)',
+          }}
+        >{collapsed ? '›' : '‹'}</button>
+
         <div style={{ height: 1, background: 'var(--sidebar-border)', margin: '0 12px' }} />
 
         <nav style={{
@@ -255,7 +290,9 @@ export default function Sidebar({ email, showFinancials, capacity = null }: Side
               <Link
                 key={item.href}
                 href={item.href}
+                title={collapsed ? item.label : undefined}
                 style={{
+                  justifyContent: collapsed ? 'center' : 'flex-start',
                   display: 'flex',
                   alignItems: 'center',
                   gap: 12,
@@ -274,7 +311,7 @@ export default function Sidebar({ email, showFinancials, capacity = null }: Side
                 <span style={{ display: 'inline-flex', color: active ? 'var(--accent)' : 'var(--text-muted)' }}>
                   {item.icon}
                 </span>
-                <span>{item.label}</span>
+                {!collapsed && <span>{item.label}</span>}
               </Link>
             )
           })}
@@ -282,7 +319,7 @@ export default function Sidebar({ email, showFinancials, capacity = null }: Side
           {/* Team capacity — management only (capacity is null for others).
               A person's number = assigned tracks in brief / in progress /
               internal review / revisions; drops off at client review. */}
-          {capacity && capacity.rows.length > 0 && (
+          {!collapsed && capacity && capacity.rows.length > 0 && (
             <div style={{ marginTop: 16, padding: '12px 12px 0', borderTop: '1px solid var(--sidebar-border)' }}>
               <div style={{
                 fontSize: 10, fontWeight: 600, color: 'var(--text-muted)',

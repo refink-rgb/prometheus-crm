@@ -45,7 +45,7 @@ export default async function PreviewProjectPage({
     { data: trackedCampaignsRaw },
     profiles,
   ] = await Promise.all([
-    supabase.from('brands').select('id, name').eq('id', p.brand_id).single(),
+    supabase.from('brands').select('id, name, brand_notes, ai_sensitivity').eq('id', p.brand_id).single(),
     supabase.from('creative_assets').select('*').eq('project_id', projectId).eq('is_hidden', false).order('sort_order'),
     supabase.from('project_comments').select('*').eq('project_id', projectId).order('created_at', { ascending: false }),
     supabase.from('project_images').select('id, storage_url').eq('project_id', projectId),
@@ -85,6 +85,7 @@ export default async function PreviewProjectPage({
       profiles={profiles}
       campaigns={(trackedCampaignsRaw ?? []) as unknown as TrackedCampaign[]}
       todayIso={easternToday()}
+      authorName={profiles.find(x => x.email.toLowerCase() === (user.email ?? '').toLowerCase())?.full_name || user.email || 'Unknown'}
     />
   )
 }
