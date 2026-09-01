@@ -56,7 +56,7 @@ function ImageCell({
         onPaste={fromClipboard}
         onDragOver={e => e.preventDefault()}
         onDrop={e => { e.preventDefault(); void send(e.dataTransfer.files?.[0]) }}
-        title="Click to choose, or focus this box and paste a screenshot"
+        title="Click to choose, or paste a screenshot"
         style={{
           textTransform: 'none', letterSpacing: 0,
           display: 'grid', placeItems: 'center', width: 44, height: 44, flexShrink: 0,
@@ -215,7 +215,7 @@ export default function ProductGroupEditor({
         <button onClick={propose} disabled={proposing || pending} style={aiBtn}>
           {proposing ? 'Reading the brief…' : '✦ Fill from the brief'}
         </button>
-        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Adds what is missing and regroups. Existing links are kept. Nothing saves until you press Save.</span>
+        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Adds what is missing. Your links are kept.</span>
       </div>
       {note && <div style={{ fontSize: 11.5, color: 'var(--success)', marginBottom: 12 }}>{note}</div>}
 
@@ -223,7 +223,7 @@ export default function ProductGroupEditor({
         <div key={g.gid} style={{ marginBottom: 20, paddingLeft: 12, borderLeft: `2px solid ${g.name ? 'var(--accent)' : 'var(--border)'}` }}>
           <input
             value={g.name}
-            placeholder="Group name — e.g. Bundle 1, Tier 2. Leave blank for ungrouped."
+            placeholder="Group name — e.g. Bundle 1"
             onChange={e => renameGroup(g.gid, e.target.value)}
             style={{ ...input(true), fontWeight: 700, fontSize: 12.5, marginBottom: 8, maxWidth: 380 }}
           />

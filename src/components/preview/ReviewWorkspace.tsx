@@ -245,7 +245,7 @@ export default function ReviewWorkspace({
         {clientApproved.length > 0 && (
           <a
             href={`/api/projects/${projectId}/download?set=approved`}
-            title="Downloads a zip of every client-approved creative, using the version the client signed off"
+            title="Zip of every client-approved creative"
             style={{ ...btn('transparent', 'var(--text-secondary)'), textDecoration: 'none', display: 'inline-block' }}
           >
             ⬇ Download {clientApproved.length} approved
@@ -505,7 +505,7 @@ export default function ReviewWorkspace({
                   value={draft}
                   onChange={e => setDraft(e.target.value)}
                   rows={2}
-                  placeholder="Add an internal note on this creative…"
+                  placeholder="Internal note…"
                   onKeyDown={e => {
                     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); void post() }
                   }}

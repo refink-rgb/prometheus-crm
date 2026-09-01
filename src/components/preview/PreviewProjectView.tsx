@@ -502,7 +502,7 @@ export default function PreviewProjectView({
                 creativeEditor: creativeEditorName,
               })}
               label="Copy brief"
-              title="Copy every filled-in brief field as markdown"
+              title="Copy the brief as markdown"
               style={{ marginTop: 8 }}
             />
             {p.is_complete && (
@@ -721,7 +721,7 @@ export default function PreviewProjectView({
               )}
 
               {/* 1 — the artefact */}
-              <Card id="making" title="What you're making" purpose="The product, the offer, and the reference images.">
+              <Card id="making" title="What you're making" purpose="What you're drawing.">
                 <div style={{ display: 'grid', gridTemplateColumns: wide && images.length > 0 ? '360px minmax(0,1fr)' : '1fr', gap: 20 }}>
                   {/* No image, no column. The empty state used to be a square the
                       size of the hero announcing it had nothing to show — on 37 of
@@ -750,7 +750,7 @@ export default function PreviewProjectView({
                         </div>
                       )}
                       <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 8 }}>
-                        {images.length} reference image{images.length === 1 ? '' : 's'} · click to open full size
+                        {images.length} reference{images.length === 1 ? '' : 's'} · click to enlarge
                       </div>
                     </div>
                   )}
@@ -761,7 +761,7 @@ export default function PreviewProjectView({
                     ) : skus.length === 1 && isUrl(skus[0]) ? (
                       <>
                         <a href={skus[0]} target="_blank" rel="noreferrer" style={{ fontSize: 15, fontWeight: 600, color: 'var(--accent)' }}>Product page ↗</a>
-                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>This field holds a link, not a product name.</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>A link, not a name.</div>
                       </>
                     ) : skus.length === 1 ? (
                       <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.01em' }}>{skus[0]}</div>
@@ -814,7 +814,7 @@ export default function PreviewProjectView({
                           {p.offer_dynamics_type.trim().toUpperCase()}
                         </span>
                       ) : (
-                        <span style={{ fontSize: 11, color: 'var(--urgent-soon)' }}>Mechanic not set — infer it from the description below.</span>
+                        <span style={{ fontSize: 11, color: 'var(--urgent-soon)' }}>Mechanic not set — read it below.</span>
                       )}
                       <span style={{
                         fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999,
@@ -843,7 +843,7 @@ export default function PreviewProjectView({
 
               {/* 2 — the words */}
               {(hasAdCopy || hasLpCopy) && (
-                <Card id="copy" title="What it says" purpose="Copy for the ad first, then copy for the page.">
+                <Card id="copy" title="What it says" purpose="Ad copy first, page copy below.">
                   <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: 12 }}>On the ad</div>
                   {hasAdCopy ? (
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 16 }}>
@@ -949,7 +949,7 @@ export default function PreviewProjectView({
               <Card id="destination" title="Where it goes" purpose="For the landing-page editor.">
                 {p.page_type
                   ? <div style={{ fontSize: 15, fontWeight: 700 }}>{p.page_type}</div>
-                  : <Missing tone="warn">Page type not set — an LP editor can&rsquo;t start.</Missing>}
+                  : <Missing tone="warn">No page type. An LP editor can&rsquo;t start.</Missing>}
 
                 <div style={{ marginTop: 12 }}>
                   {p.lp_url ? (
@@ -1021,7 +1021,7 @@ export default function PreviewProjectView({
 
               {/* 1 — the page, first: 60 of 66 already have one, so this is a
                   revision job far more often than a build. */}
-              <Card id="page" title="The page" purpose="The page as it stands, and whether anything is open on it.">
+              <Card id="page" title="The page" purpose="The page, and what's open on it.">
                 {p.lp_url ? (
                   <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>
                     <a href={p.lp_url} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: 'var(--accent)' }}>
@@ -1035,14 +1035,14 @@ export default function PreviewProjectView({
                     }}>{p.lp_approved ? 'Client approved' : 'Not yet approved'}</span>
                   </div>
                 ) : (
-                  <Missing tone="muted">No page built yet — this brief is a build, not a revision.</Missing>
+                  <Missing tone="muted">No page yet. This is a build, not a revision.</Missing>
                 )}
 
                 {p.lp_url && (
                   <div style={{ fontSize: 12, marginTop: 12 }}>
                     {lpComments.length === 0 ? (
                       <span style={{ color: 'var(--text-muted)' }}>
-                        The page is built and the client hasn&rsquo;t commented on it. Nothing to reconcile — work from the brief below.
+                        No client comments. Work from the brief.
                       </span>
                     ) : (
                       <a
@@ -1067,7 +1067,7 @@ export default function PreviewProjectView({
                 {p.lp_approved && !p.offer_locked && (
                   <div style={{ marginTop: 16 }}>
                     <Missing tone="warn">
-                      The client approved this page against an offer that can still change. Confirm the offer before anything ships.
+                      Approved against an unlocked offer. Confirm it before shipping.
                     </Missing>
                   </div>
                 )}
@@ -1091,7 +1091,7 @@ export default function PreviewProjectView({
                   than one — a list of the page you are already looking at is not
                   a list. */}
               {brandLandingPages.length > 1 && (
-                <Card id="library" title="Past pages for this brand" purpose="What we've built for them before, newest first.">
+                <Card id="library" title="Past pages for this brand" purpose="Newest first.">
                   {brandLandingPages.map((lp, i) => {
                     const mine = lp.id === p.id
                     return (
@@ -1126,14 +1126,14 @@ export default function PreviewProjectView({
               )}
 
               {/* 2 — the offer */}
-              <Card id="offer" title="The offer" purpose="What this page sells, and whether it can still change under you.">
+              <Card id="offer" title="The offer" purpose="What this page sells.">
                 <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
                   {p.offer_dynamics_type ? (
                     <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', padding: '4px 10px', borderRadius: 6, background: 'var(--accent-muted)', color: 'var(--accent)', border: '1px solid var(--accent)' }}>
                       {p.offer_dynamics_type.trim().toUpperCase()}
                     </span>
                   ) : (
-                    <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Mechanic not set — read it out of the description below.</span>
+                    <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Mechanic not set — read it below.</span>
                   )}
                   <span style={{
                     fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999,
@@ -1156,7 +1156,7 @@ export default function PreviewProjectView({
                   </div>
                 ) : (
                   <div style={{ marginTop: 12 }}>
-                    <Missing tone="warn">No offer on this project. Don&rsquo;t infer one from the copy.</Missing>
+                    <Missing tone="warn">No offer. Don&rsquo;t infer one.</Missing>
                   </div>
                 )}
 
@@ -1180,12 +1180,12 @@ export default function PreviewProjectView({
               </Card>
 
               {/* 3 — the words, in the order they land on the page */}
-              <Card id="copy" title="Page copy" purpose="The approved words, in the order they appear on the page.">
+              <Card id="copy" title="Page copy" purpose="In page order.">
                 {!hasLpCopy ? (
                   // Bimodal in the data: 49 of 66 have all four blocks and 6 have
                   // none, so absence is written once rather than as four blanks.
                   <Missing tone="warn">
-                    No page copy written yet. Don&rsquo;t write your own — copy is where 33% of client revisions come back.
+                    No page copy yet. Don&rsquo;t write your own.
                   </Missing>
                 ) : (
                   <>
@@ -1234,7 +1234,7 @@ export default function PreviewProjectView({
                         <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: 4 }}>Button label</div>
                         {p.cta.length > 40 ? (
                           <>
-                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>This field holds alternates, not one button label — pick one and confirm it.</div>
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>Alternates, not one label. Pick one.</div>
                             <CopyLine text={p.cta} />
                           </>
                         ) : (
@@ -1258,11 +1258,11 @@ export default function PreviewProjectView({
               {/* 4 — product. No hero image: that belongs to Overview, and firing
                   the loud "don't guess" state twice per project makes it wallpaper. */}
               {hasProduct && (
-                <Card id="product" title="Product on the page" purpose="Confirm the right thing is being sold before you build.">
+                <Card id="product" title="Product on the page" purpose="Check the right product.">
                   {skus.length === 1 && isUrl(skus[0]) ? (
                     <>
                       <a href={skus[0]} target="_blank" rel="noreferrer" style={{ fontSize: 15, fontWeight: 600, color: 'var(--accent)' }}>Product page ↗</a>
-                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>This field holds a link, not a product name.</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>A link, not a name.</div>
                     </>
                   ) : skus.length === 1 ? (
                     <div style={{ fontSize: 15, fontWeight: 700 }}>{skus[0]}</div>
@@ -1304,7 +1304,7 @@ export default function PreviewProjectView({
 
               {/* 5 — feedback */}
               {lpComments.length > 0 && (
-                <Card id="feedback" title="Client feedback" purpose="What the client said about the page you already built — open items first.">
+                <Card id="feedback" title="Client feedback" purpose="Open items first.">
                   {/* The real panel: resolve toggles, per-asset grouping and pin
                       numbers. The preview's own grouping was read-only, so an
                       editor could see feedback here but only tick it off
@@ -1336,7 +1336,7 @@ export default function PreviewProjectView({
                   anyone — and it was gated on there already being notes, so on a
                   fresh project the section did not exist at all and there was
                   nowhere to start one. Always rendered now. */}
-              <Card id="notes" title="Internal notes" purpose="Team context that never went to the client.">
+              <Card id="notes" title="Internal notes" purpose="Never seen by the client.">
                 <NotesThread
                   notes={noteComments}
                   mode="internal"
@@ -1380,7 +1380,7 @@ export default function PreviewProjectView({
                   rather than named: 23% of client revisions are "wrong product
                   shown", and an editor should not have to leave the tab they are
                   working on to see what they are drawing. */}
-              <Card id="brief" title="Brief" purpose="What you're advertising, and the words to put on it.">
+              <Card id="brief" title="Brief" purpose="What you're advertising.">
                 <div style={{ display: 'grid', gridTemplateColumns: images.length ? 'auto minmax(0,1fr)' : '1fr', gap: 16, alignItems: 'start' }}>
                   {images.length > 0 && (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, maxWidth: 200 }}>
@@ -1438,7 +1438,7 @@ export default function PreviewProjectView({
                             {summarising ? 'Summarising…' : shownSummary ? 'Re-summarise' : '✦ Simplify with AI'}
                           </button>
                           {summaryStale && !summary && (
-                            <span style={{ fontSize: 11, color: 'var(--urgent-soon)' }}>The offer changed since the last summary.</span>
+                            <span style={{ fontSize: 11, color: 'var(--urgent-soon)' }}>Offer changed. Re-summarise.</span>
                           )}
                           {summaryErr && <span style={{ fontSize: 11, color: 'var(--danger)' }}>{summaryErr}</span>}
                         </div>
@@ -1542,7 +1542,7 @@ export default function PreviewProjectView({
                   23% of client comments are "wrong product shown", and until now
                   an editor working on the third of eight SKUs had nowhere to read
                   its link. */}
-              <Card id="products" title="Products in this project" purpose="Every product, its page, and where the high-res photography lives.">
+              <Card id="products" title="Products in this project" purpose="Name, link, HQ assets.">
                 {editing === 'products' ? (
                   <ProductGroupEditor
                     projectId={p.id} brandId={p.brand_id}
@@ -1558,7 +1558,7 @@ export default function PreviewProjectView({
                     )}
 
                     {products.length === 0 ? (
-                      <Missing tone="warn">No products named — the ad has nothing to show. Add them, or read them out of the brief.</Missing>
+                      <Missing tone="warn">No products. Add them, or read them from the brief.</Missing>
                     ) : (
                       grouped.map(({ group, items }) => (
                         <div key={group ?? '__none'} style={{ marginBottom: 20 }}>
@@ -1640,7 +1640,7 @@ export default function PreviewProjectView({
                     {(p.product_images_link || p.drive_folder_url) && (
                       <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
                         <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: 6 }}>
-                          Fallback — the whole project, not one product
+                          Whole project, not one product
                         </div>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
                           {p.product_images_link && <a href={p.product_images_link} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--accent)' }}>Project product photos ↗</a>}
@@ -1703,7 +1703,7 @@ export default function PreviewProjectView({
               {/* Two lists, deliberately not one. The client's own winners and a
                   competitor's report answer different questions, and mixing them
                   would file our own client under "Competitors". */}
-              <Card id="motion" title="Motion reports" purpose="What's already working for the client, and who we're benchmarking against.">
+              <Card id="motion" title="Motion reports" purpose="Ours, then theirs.">
                 <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: 10 }}>
                   Top performers
                 </div>
@@ -1804,7 +1804,7 @@ export default function PreviewProjectView({
                   be a plain list on the one tab where the words actually get
                   used, so every line was retyped by hand. */}
               {hasAdCopy && (
-                <Card id="copy" title="Copy deck" purpose="Tick what is approved, cross what is not. Click a line to copy it.">
+                <Card id="copy" title="Copy deck" purpose="Tick what's approved.">
                   <CopyApprovalDeck
                     // Same reason as BrandBrief: the tick/cross draft is seeded
                     // once at mount, so it must be rebuilt when the saved
@@ -1839,14 +1839,14 @@ export default function PreviewProjectView({
                 </Card>
               )}
 
-              <Card id="review" title="Review" purpose="Give a verdict, upload fixes, and control what the client sees.">
+              <Card id="review" title="Review" purpose="Approve, fix, and publish.">
                 {/* /internal-review is staying. This inline workspace is for the
                     routine pass; the dedicated screen is still where you work a
                     batch at full width, so say so and link it rather than
                     leaving editors to remember the URL. */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, padding: '8px 12px', border: '1px solid var(--border)', borderRadius: 10 }}>
                   <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-                    Reviewing a whole batch? The full-width screen has keyboard nav and the annotation pins.
+                    Need annotation pins?
                   </span>
                   <Link
                     href={`/brands/${p.brand_id}/projects/${p.id}/internal-review`}

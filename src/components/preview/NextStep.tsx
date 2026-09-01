@@ -19,20 +19,20 @@ import { normalizeStage, STAGE_LABELS, type Stage } from '@/lib/types'
 type Track = 'lp_stage' | 'creatives_stage'
 
 const NEXT: Record<Stage, { to: Stage; label: string; note: string } | null> = {
-  brief:           { to: 'in_progress',     label: 'Start work',                note: 'Marks this as being worked on, so nobody doubles up.' },
-  in_progress:     { to: 'internal_review', label: 'Submit for internal review', note: 'Hands it to the team to check before the client sees it.' },
-  internal_review: { to: 'client_review',   label: 'Send to client review',      note: 'Only creatives you have made visible appear on the client link.' },
+  brief:           { to: 'in_progress',     label: 'Start work',                note: 'Nobody else will pick it up.' },
+  in_progress:     { to: 'internal_review', label: 'Submit for internal review', note: 'The team checks it first.' },
+  internal_review: { to: 'client_review',   label: 'Send to client review',      note: 'Only visible creatives go.' },
   // The client moves this one by approving or commenting; an editor pushing it
   // forward would be claiming a decision that is not theirs.
   client_review:   null,
-  revisions:       { to: 'internal_review', label: 'Submit revisions',           note: 'Back to the team to check the fixes.' },
+  revisions:       { to: 'internal_review', label: 'Submit revisions',           note: 'The team checks the fixes.' },
   ready:           { to: 'live',            label: 'Mark live',                  note: 'The ads are running.' },
   live:            null,
 }
 
 const WAITING: Partial<Record<Stage, string>> = {
-  client_review: 'With the client. They approve or comment from the review link — nothing to do here until they do.',
-  live: 'Live. Nothing left on this track.',
+  client_review: 'Waiting on the client.',
+  live: 'Done.',
 }
 
 export default function NextStep({
@@ -78,7 +78,7 @@ export default function NextStep({
           {label} · {STAGE_LABELS[current]}
         </div>
         <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', marginTop: 3 }}>
-          {disabled ? 'This project is complete.' : (waiting ?? next?.note ?? '')}
+          {disabled ? 'Complete.' : (waiting ?? next?.note ?? '')}
         </div>
       </div>
 

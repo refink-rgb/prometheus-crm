@@ -32,8 +32,8 @@ export default function DriveSyncBar({
 
   async function sync() {
     const u = url.trim()
-    if (!u) { setErr('Paste the Drive folder link first.'); return }
-    if (!/^https?:\/\//i.test(u)) { setErr('That does not look like a link — it should start with https://'); return }
+    if (!u) { setErr('Paste a link first.'); return }
+    if (!/^https?:\/\//i.test(u)) { setErr('That is not a link — it should start with https://'); return }
     setBusy(true); setErr(''); setMsg('')
     try {
       const n = await syncDriveImages(projectId, brandId, u)
@@ -61,7 +61,7 @@ export default function DriveSyncBar({
           <span style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)' }}>Drive folder</span>
           <a href={folderUrl!} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, color: 'var(--accent)' }}>Open ↗</a>
           <span style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
-            {assetCount} creative{assetCount === 1 ? '' : 's'} synced
+            {assetCount} synced
           </span>
           <button onClick={sync} disabled={busy} style={btn}>{busy ? 'Syncing…' : '⟳ Re-sync'}</button>
           <button onClick={() => setEditing(true)} disabled={busy} style={{ ...btn, border: 'none', color: 'var(--text-muted)' }}>Change folder</button>
@@ -69,10 +69,8 @@ export default function DriveSyncBar({
       ) : (
         <>
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 12.5, fontWeight: 700 }}>Paste the Drive folder to pull the creatives in</div>
-            <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
-              Everything below fills in from this — the grid, the review, the client link.
-            </div>
+            <div style={{ fontSize: 12.5, fontWeight: 700 }}>Paste your Drive folder link</div>
+
           </div>
           <input
             value={url}
