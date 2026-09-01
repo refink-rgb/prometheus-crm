@@ -438,17 +438,6 @@ export default function PreviewProjectView({
   // panel room without turning body text into unreadable full-width lines.
   return (
     <div style={{ padding: '20px 32px 60px', maxWidth: 1760, margin: '0 auto' }}>
-      {/* Preview banner. Keep this list honest — it is the only thing telling an
-          editor which controls on this page reach the real project. */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', marginBottom: 16, borderRadius: 10, background: 'rgba(234,179,8,0.10)', border: '1px solid rgba(234,179,8,0.30)' }}>
-        <span style={{ fontSize: 13 }}>👁</span>
-        <span style={{ fontSize: 12, color: 'var(--warning)', fontWeight: 600 }}>Preview of the proposed layout</span>
-        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-          Real data. The review controls are <strong>live</strong> — approving, pushing to client
-          the visibility switch and revision uploads all change the real project. Stage rails are still inert.
-        </span>
-      </div>
-
       {/* Brand-wide, above everything. The preview had lost this entirely, so a
           Noble project looked like any other and an editor would generate copy
           Lucas is supposed to write. */}
