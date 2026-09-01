@@ -18,7 +18,8 @@ import ReviewWorkspace from '@/components/preview/ReviewWorkspace'
 import Link from 'next/link'
 import CopyMarkdownButton from '@/components/CopyMarkdownButton'
 import ListEditor, { type ListRow } from '@/components/preview/ListEditor'
-import { readProducts, readCompetitors, productsDrifted, offerSource, splitSkus } from '@/lib/products'
+import { readProducts, readCompetitors, readTopPerformers, groupProducts, productsDrifted, offerSource, splitSkus } from '@/lib/products'
+import ProductGroupEditor from '@/components/preview/ProductGroupEditor'
 import { summariseProjectOffer } from '@/lib/actions'
 import { projectBriefMarkdown } from '@/lib/markdown-export'
 import { STAGE_COLORS } from '@/lib/stageColors'
@@ -214,10 +215,12 @@ export default function PreviewProjectView({
 
   const products = useMemo(() => readProducts(p), [p])
   const competitors = useMemo(() => readCompetitors(p), [p])
+  const topPerformers = useMemo(() => readTopPerformers(p), [p])
+  const grouped = useMemo(() => groupProducts(products), [products])
   const drifted = productsDrifted(p)
   const skus = useMemo(() => products.map(x => x.name), [products])
 
-  const [editing, setEditing] = useState<null | 'products' | 'competitors'>(null)
+  const [editing, setEditing] = useState<null | 'products' | 'competitors' | 'top'>(null)
   // Noble never generates AI copy — Lucas Dias writes it. Checked here as well
   // as in the action so the button is never even offered.
   const hypercareRule = hypercareFor(brand?.name)
@@ -1329,12 +1332,11 @@ export default function PreviewProjectView({
                   23% of client comments are "wrong product shown", and until now
                   an editor working on the third of eight SKUs had nowhere to read
                   its link. */}
-              <Card id="products" title="Products in this ad" purpose="Every product, its page, and where the high-res photography lives.">
+              <Card id="products" title="Products in this project" purpose="Every product, its page, and where the high-res photography lives.">
                 {editing === 'products' ? (
-                  <ListEditor
-                    projectId={p.id} brandId={p.brand_id} kind="products"
-                    rows={products.map(x => ({ id: x.id, name: x.name, a: x.url ?? '', b: x.assets_url ?? '' })) as ListRow[]}
-                    labels={{ name: 'Product name', a: 'Product link', b: 'HQ assets link', add: 'Add product' }}
+                  <ProductGroupEditor
+                    projectId={p.id} brandId={p.brand_id}
+                    initial={products}
                     onDone={() => setEditing(null)}
                   />
                 ) : (
@@ -1346,40 +1348,54 @@ export default function PreviewProjectView({
                     )}
 
                     {products.length === 0 ? (
-                      <Missing tone="warn">No products named — the ad has nothing to show. Add them here.</Missing>
+                      <Missing tone="warn">No products named — the ad has nothing to show. Add them, or read them out of the brief.</Missing>
                     ) : (
-                      products.map((prod, i) => (
-                        <div key={prod.id} style={{ display: 'flex', alignItems: 'baseline', gap: 10, padding: '10px 0', borderBottom: i < products.length - 1 ? '1px solid var(--border)' : 'none' }}>
-                          <span style={{ flexShrink: 0, width: 16, height: 16, borderRadius: 4, background: 'var(--surface-raised)', color: 'var(--text-secondary)', fontSize: 10, display: 'grid', placeItems: 'center' }}>{i + 1}</span>
-                          <div style={{ minWidth: 0, flex: 1 }}>
-                            <div style={{ fontSize: 13, fontWeight: 600 }}>{isUrl(prod.name) ? hostOf(prod.name) : prod.name}</div>
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 3 }}>
-                              {prod.url && (
-                                <a href={prod.url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--accent)' }}>
-                                  {hostOf(prod.url)}<span style={{ color: 'var(--text-muted)' }}>{pathOf(prod.url)}</span> ↗
-                                </a>
-                              )}
-                              {prod.assets_url && (
-                                <a href={prod.assets_url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--accent)' }}>HQ assets ↗</a>
-                              )}
-                              {/* Quiet, not loud. Every one of the 59 backfilled
-                                  projects starts here — 179 warning blocks on day
-                                  one would train everyone to ignore the colour the
-                                  price warning depends on. */}
-                              {!prod.url && !prod.assets_url && (
-                                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                                  No link yet ·{' '}
-                                  <button onClick={() => setEditing('products')} style={{ fontSize: 12, color: 'var(--accent)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}>Add link</button>
-                                </span>
-                              )}
+                      grouped.map(({ group, items }) => (
+                        <div key={group ?? '__none'} style={{ marginBottom: 20 }}>
+                          {/* A group header only where there IS a group. On a flat
+                              project this renders exactly as it did before. */}
+                          {group && (
+                            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--accent)', marginBottom: 6 }}>
+                              {group} <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>· {items.length}</span>
                             </div>
+                          )}
+                          {grouped.some(g => g.group) && !group && (
+                            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: 6 }}>
+                              Not in a group · {items.length}
+                            </div>
+                          )}
+                          <div style={{ paddingLeft: group ? 12 : 0, borderLeft: group ? '2px solid var(--border)' : 'none' }}>
+                            {items.map((prod, i) => (
+                              <div key={prod.id} style={{ display: 'flex', alignItems: 'baseline', gap: 10, padding: '8px 0', borderBottom: i < items.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                                <span style={{ flexShrink: 0, width: 16, height: 16, borderRadius: 4, background: 'var(--surface-raised)', color: 'var(--text-secondary)', fontSize: 10, display: 'grid', placeItems: 'center' }}>{i + 1}</span>
+                                <div style={{ minWidth: 0, flex: 1 }}>
+                                  <div style={{ fontSize: 13, fontWeight: 600 }}>{isUrl(prod.name) ? hostOf(prod.name) : prod.name}</div>
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 3 }}>
+                                    {prod.url && (
+                                      <a href={prod.url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--accent)' }}>
+                                        {hostOf(prod.url)}<span style={{ color: 'var(--text-muted)' }}>{pathOf(prod.url)}</span> ↗
+                                      </a>
+                                    )}
+                                    {prod.assets_url && (
+                                      <a href={prod.assets_url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--accent)' }}>HQ assets ↗</a>
+                                    )}
+                                    {!prod.url && !prod.assets_url && (
+                                      <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                                        No link yet ·{' '}
+                                        <button onClick={() => setEditing('products')} style={{ fontSize: 12, color: 'var(--accent)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}>Add link</button>
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
                           </div>
                         </div>
                       ))
                     )}
 
                     <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-                      <button onClick={() => setEditing('products')} style={editBtn}>{products.length ? 'Edit products' : 'Add products'}</button>
+                      <button onClick={() => setEditing('products')} style={editBtn}>{products.length ? 'Edit products & groups' : 'Add products'}</button>
                     </div>
 
                     {(p.product_images_link || p.drive_folder_url) && (
@@ -1397,17 +1413,59 @@ export default function PreviewProjectView({
                 )}
               </Card>
 
-              {/* Who we benchmark, and the Motion report for each. */}
-              <Card id="motion" title="Motion reports" purpose="Who we're benchmarking, and the Motion report for each.">
-                {/* Ours, pinned and labelled, so nobody files it as a competitor's. */}
+              {/* Two lists, deliberately not one. The client's own winners and a
+                  competitor's report answer different questions, and mixing them
+                  would file our own client under "Competitors". */}
+              <Card id="motion" title="Motion reports" purpose="What's already working for the client, and who we're benchmarking against.">
+                <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: 10 }}>
+                  Top performers
+                </div>
+
+                {/* The project's own working board, if one is set on the live
+                    page's deliverable form. Distinct from a top-performer report. */}
                 {p.motion_link && (
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, padding: '10px 12px', marginBottom: 12, borderRadius: 8, background: 'var(--surface-2)' }}>
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600 }}>This project&rsquo;s own Motion board</div>
-                      <a href={p.motion_link} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--accent)' }}>Open board ↗</a>
-                    </div>
+                  <div style={{ padding: '8px 12px', marginBottom: 10, borderRadius: 8, background: 'var(--surface-2)' }}>
+                    <div style={{ fontSize: 12, fontWeight: 600 }}>This project&rsquo;s Motion board</div>
+                    <a href={p.motion_link} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--accent)' }}>Open board ↗</a>
                   </div>
                 )}
+
+                {editing === 'top' ? (
+                  <ListEditor
+                    projectId={p.id} brandId={p.brand_id} kind="top_performers"
+                    rows={topPerformers.map(x => ({ id: x.id, name: x.name, a: x.motion_url ?? '', b: x.link ?? '' })) as ListRow[]}
+                    labels={{ name: 'What it is', a: 'Motion report link', b: 'Other link (optional)', add: 'Add top performer' }}
+                    onDone={() => setEditing(null)}
+                  />
+                ) : (
+                  <>
+                    {topPerformers.length === 0 ? (
+                      <Missing tone="muted">
+                        Nothing yet. Paste {brand?.name ?? 'the client'}&rsquo;s best-performing creative from Motion — it is the strongest reference an editor has.
+                      </Missing>
+                    ) : (
+                      topPerformers.map((t, i) => (
+                        <div key={t.id} style={{ display: 'flex', alignItems: 'baseline', gap: 10, padding: '8px 0', borderBottom: i < topPerformers.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={{ fontSize: 13, fontWeight: 600 }}>{t.name}</div>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 3 }}>
+                              {t.motion_url && <a href={t.motion_url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--accent)' }}>Motion report ↗</a>}
+                              {t.link && <a href={t.link} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--accent)' }}>{hostOf(t.link)} ↗</a>}
+                              {!t.motion_url && !t.link && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>No link yet</span>}
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                    <div style={{ marginTop: 12 }}>
+                      <button onClick={() => setEditing('top')} style={editBtn}>{topPerformers.length ? 'Edit top performers' : 'Add top performer'}</button>
+                    </div>
+                  </>
+                )}
+
+                <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginTop: 28, marginBottom: 10, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+                  Competitors
+                </div>
 
                 {editing === 'competitors' ? (
                   <ListEditor
@@ -1422,7 +1480,7 @@ export default function PreviewProjectView({
                       <Missing tone="muted">No competitors yet. Add one, then paste its Motion report link.</Missing>
                     ) : (
                       competitors.map((c, i) => (
-                        <div key={c.id} style={{ display: 'flex', alignItems: 'baseline', gap: 10, padding: '10px 0', borderBottom: i < competitors.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                        <div key={c.id} style={{ display: 'flex', alignItems: 'baseline', gap: 10, padding: '8px 0', borderBottom: i < competitors.length - 1 ? '1px solid var(--border)' : 'none' }}>
                           <div style={{ minWidth: 0, flex: 1 }}>
                             <div style={{ fontSize: 13, fontWeight: 600 }}>{c.name}</div>
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 3 }}>
@@ -1439,14 +1497,10 @@ export default function PreviewProjectView({
                       ))
                     )}
 
-                    <div style={{ marginTop: 16 }}>
+                    <div style={{ marginTop: 12 }}>
                       <button onClick={() => setEditing('competitors')} style={editBtn}>{competitors.length ? 'Edit competitors' : 'Add competitor'}</button>
                     </div>
 
-                    {/* The prose an editor reads WHILE typing the rows above, which
-                        is why it sits next to the form that replaces it. Nothing
-                        parses it automatically — any regex would invent names and
-                        break the link between a competitor and its reasoning. */}
                     {p.competitor_reference && (
                       <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
                         <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: 6 }}>

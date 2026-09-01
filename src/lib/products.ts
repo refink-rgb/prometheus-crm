@@ -1,4 +1,4 @@
-import type { ProjectProduct, ProjectCompetitor } from './types'
+import type { ProjectProduct, ProjectCompetitor, ProjectTopPerformer } from './types'
 
 // Reading the Creatives tab's two repeating lists.
 //
@@ -52,11 +52,12 @@ export function readProducts(p: ProductSource): ProjectProduct[] {
         name: str(el.name),
         url: safeUrl(el.url),
         assets_url: safeUrl(el.assets_url),
+        group: str(el.group) || null,
       }))
       .filter(x => x.name.length > 0)
   }
   return splitSkus(p.product_featured).map(name => ({
-    id: `legacy-${name}`, name, url: null, assets_url: null,
+    id: `legacy-${name}`, name, url: null, assets_url: null, group: null,
   }))
 }
 
@@ -73,6 +74,44 @@ export function readCompetitors(p: CompetitorSource): ProjectCompetitor[] {
       motion_url: safeUrl(el.motion_url),
     }))
     .filter(x => x.name.length > 0)
+}
+
+export function readTopPerformers(p: { top_performers?: unknown }): ProjectTopPerformer[] {
+  const raw = p.top_performers as unknown
+  if (!Array.isArray(raw)) return []
+  return raw
+    .filter((el): el is Record<string, unknown> => !!el && typeof el === 'object')
+    .map(el => ({
+      id: str(el.id) || mintId(),
+      name: str(el.name),
+      motion_url: safeUrl(el.motion_url),
+      link: safeUrl(el.link),
+    }))
+    .filter(x => x.name.length > 0)
+}
+
+/**
+ * Products in display order, bucketed by group.
+ *
+ * Ungrouped products come LAST under a null key, not first: on a project that
+ * has bundles, the stragglers are the exception and should read as one.
+ * Group order follows first appearance in the array, so reordering in the editor
+ * reorders the groups too — there is no second ordering field to keep in sync.
+ */
+export function groupProducts(list: ProjectProduct[]): { group: string | null; items: ProjectProduct[] }[] {
+  const buckets = new Map<string | null, ProjectProduct[]>()
+  for (const item of list) {
+    const key = item.group || null
+    const bucket = buckets.get(key)
+    if (bucket) bucket.push(item)
+    else buckets.set(key, [item])
+  }
+  const named = [...buckets.entries()].filter(([k]) => k !== null)
+  const loose = buckets.get(null)
+  return [
+    ...named.map(([group, items]) => ({ group, items })),
+    ...(loose ? [{ group: null, items: loose }] : []),
+  ]
 }
 
 /** What the writer mirrors back into product_featured. */

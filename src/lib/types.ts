@@ -192,6 +192,7 @@ export interface Project {
   // it", and the normaliser is what keeps those apart.
   products: ProjectProduct[] | null
   competitors: ProjectCompetitor[] | null
+  top_performers: ProjectTopPerformer[] | null
   offer_summary: string[] | null
   offer_summary_source: string | null
   product_images_link: string | null
@@ -232,6 +233,21 @@ export interface ProjectProduct {
   url: string | null
   /** "High quality product links" — the hi-res photography for THIS product. */
   assets_url: string | null
+  /**
+   * Bundle or tier this product belongs to ("Bundle 1", "Tier 2").
+   * A flat label rather than nested arrays: moving a product between groups is
+   * then a one-field edit, and a bad group name can never orphan a product.
+   * null = ungrouped, which is what all 179 backfilled products are.
+   */
+  group: string | null
+}
+
+/** The client's own best-performing creative, from Motion. Not a competitor. */
+export interface ProjectTopPerformer {
+  id: string
+  name: string
+  motion_url: string | null
+  link: string | null
 }
 
 export interface ProjectCompetitor {

@@ -2638,8 +2638,9 @@ export async function updateProjectLists(
   projectId: string,
   brandId: string,
   values: {
-    products?: { id?: string; name: string; url?: string | null; assets_url?: string | null }[]
+    products?: { id?: string; name: string; url?: string | null; assets_url?: string | null; group?: string | null }[]
     competitors?: { id?: string; name: string; site_url?: string | null; motion_url?: string | null }[]
+    top_performers?: { id?: string; name: string; motion_url?: string | null; link?: string | null }[]
   },
 ) {
   const supabase = await createClient()
@@ -2655,7 +2656,7 @@ export async function updateProjectLists(
 
   if (Array.isArray(values.products)) {
     const rows = values.products.slice(0, MAX_LIST_ROWS)
-      .map(r => ({ id: text(r.id) || newId(), name: text(r.name), url: link(r.url), assets_url: link(r.assets_url) }))
+      .map(r => ({ id: text(r.id) || newId(), name: text(r.name), url: link(r.url), assets_url: link(r.assets_url), group: text(r.group) || null }))
       .filter(r => r.name.length > 0)  // an unnamed row is worse than no row
     patch.products = rows
     // The mirror. Several surfaces still read product_featured, including the
@@ -2672,6 +2673,14 @@ export async function updateProjectLists(
     // competitor_reference is NOT mirrored — it is prose, and overwriting it
     // with a name list destroys the reasoning it exists to hold. motion_link is
     // never touched here either: it is our own Motion board, not a competitor's.
+  }
+
+  if (Array.isArray(values.top_performers)) {
+    // Ours, not a competitor's — a separate column so our own client can never
+    // end up rendered under a heading that says "Competitors".
+    patch.top_performers = values.top_performers.slice(0, MAX_LIST_ROWS)
+      .map(r => ({ id: text(r.id) || newId(), name: text(r.name), motion_url: link(r.motion_url), link: link(r.link) }))
+      .filter(r => r.name.length > 0)
   }
 
   if (Object.keys(patch).length === 0) return
@@ -2721,5 +2730,46 @@ export async function summariseProjectOffer(
     return { ok: true, bullets }
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : 'Could not summarise the offer.' }
+  }
+}
+
+
+// Propose the product list from the brief. Deliberately DOES NOT SAVE: the
+// caller opens the editor pre-filled with this and a person presses Save. There
+// are already 179 products on file, some curated by hand, and a model must not
+// be able to replace them because someone clicked a button once.
+export async function proposeProjectProducts(
+  projectId: string,
+): Promise<{ ok: true; products: { name: string; group: string | null; url: string | null }[] } | { ok: false; error: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
+
+  const { data: project } = await supabase
+    .from('projects')
+    .select('offer, offer_description, product_featured, product_description')
+    .eq('id', projectId)
+    .single()
+  if (!project) return { ok: false, error: 'Project not found.' }
+
+  // Everything that describes what is being sold. product_featured goes in as
+  // well as the prose: it is often the only place the exact SKU names appear.
+  const brief = [
+    project.product_featured && `PRODUCTS: ${project.product_featured}`,
+    project.product_description && `PRODUCT NOTES: ${project.product_description}`,
+    project.offer && `OFFER: ${project.offer}`,
+    project.offer_description && `OFFER DETAIL: ${project.offer_description}`,
+  ].filter(Boolean).join('\n\n').trim()
+
+  if (!brief) return { ok: false, error: 'There is no brief to read yet — fill in the offer or the products first.' }
+
+  try {
+    const { extractProductsFromBrief } = await import('@/lib/ai/brief-products')
+    const products = await extractProductsFromBrief(brief)
+    if (!products.length) return { ok: false, error: 'Could not find any products in the brief.' }
+    return { ok: true, products }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Could not read the brief.' }
   }
 }

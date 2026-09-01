@@ -4,9 +4,10 @@ import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { updateProjectLists } from '@/lib/actions'
 
-// One editor for both of the Creatives tab's repeating lists. Products and
-// competitors are the same shape — a name plus two links — so they get one
-// implementation parameterised by column labels.
+// One editor for the two flat link lists on the Creatives tab: competitors and
+// top performers. Same shape — a name plus two links — so one implementation
+// parameterised by column labels. Products have their own editor because they
+// are grouped.
 //
 // The whole array is rewritten on save, so this is last-write-wins per project:
 // two people editing the same tab at once will overwrite each other. That is the
@@ -22,7 +23,7 @@ export default function ListEditor({
 }: {
   projectId: string
   brandId: string
-  kind: 'products' | 'competitors'
+  kind: 'competitors' | 'top_performers'
   rows: ListRow[]
   labels: { name: string; a: string; b: string; add: string }
   onDone: () => void
@@ -54,9 +55,9 @@ export default function ListEditor({
       try {
         const payload = rows.filter(r => r.name.trim())
         await updateProjectLists(projectId, brandId,
-          kind === 'products'
-            ? { products: payload.map(r => ({ id: r.id, name: r.name, url: r.a || null, assets_url: r.b || null })) }
-            : { competitors: payload.map(r => ({ id: r.id, name: r.name, site_url: r.a || null, motion_url: r.b || null })) })
+          kind === 'competitors'
+            ? { competitors: payload.map(r => ({ id: r.id, name: r.name, site_url: r.a || null, motion_url: r.b || null })) }
+            : { top_performers: payload.map(r => ({ id: r.id, name: r.name, motion_url: r.a || null, link: r.b || null })) })
         router.refresh()
         onDone()
       } catch (e) {
