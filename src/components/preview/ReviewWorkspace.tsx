@@ -137,11 +137,7 @@ export default function ReviewWorkspace({
       if (zoom) return
       if (shown.length < 2) return
       e.preventDefault()
-      const i = shown.findIndex(a => a.id === selected)
-      const next = e.key === 'ArrowRight'
-        ? shown[(i + 1 + shown.length) % shown.length]
-        : shown[(i - 1 + shown.length) % shown.length]
-      if (next) pickAsset(next.id)
+      step(e.key === 'ArrowRight' ? 1 : -1)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -173,6 +169,15 @@ export default function ReviewWorkspace({
     a.revision_url ?? a.thumbnail_url ?? `https://drive.google.com/thumbnail?id=${a.drive_file_id}&sz=w600`
   const full = (a: CreativeAsset) =>
     a.revision_url ?? `https://drive.google.com/thumbnail?id=${a.drive_file_id}&sz=w2048`
+
+  // Position within the FILTERED grid, and the one place that decides what
+  // "next" means — the buttons and the arrow keys both call this.
+  const shownIndex = shown.findIndex(a => a.id === selected)
+  const step = (dir: -1 | 1) => {
+    if (shown.length < 2) return
+    const next = shown[(shownIndex + dir + shown.length) % shown.length]
+    if (next) pickAsset(next.id)
+  }
 
   async function post() {
     const content = draft.trim()
@@ -359,6 +364,20 @@ export default function ReviewWorkspace({
                   {mode === 'internal' ? 'internal' : 'client'} status
                 </span>
               </div>
+
+              {shown.length > 1 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                  <button onClick={() => step(-1)} title="Previous (←)" aria-label="Previous creative" style={navBtn}>‹</button>
+                  <button onClick={() => step(1)} title="Next (→)" aria-label="Next creative" style={navBtn}>›</button>
+                  <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                    {shownIndex + 1} of {shown.length}
+                    {filter !== 'all' && <span> in this filter</span>}
+                  </span>
+                  {/* The keys work whether or not anyone reads this; saying so is
+                      what turns them from a secret into a shortcut. */}
+                  <span style={{ marginLeft: 'auto', fontSize: 10.5, color: 'var(--text-muted)' }}>← → also work</span>
+                </div>
+              )}
 
               {/* Click to expand — inline for flow, full size for scrutiny */}
               {viewLabel && (
@@ -679,4 +698,9 @@ export default function ReviewWorkspace({
       )}
     </div>
   )
+}
+
+const navBtn: React.CSSProperties = {
+  width: 28, height: 28, borderRadius: 7, fontSize: 15, lineHeight: 1, cursor: 'pointer',
+  border: '1px solid var(--border-strong)', background: 'var(--surface-2)', color: 'var(--text-secondary)',
 }
