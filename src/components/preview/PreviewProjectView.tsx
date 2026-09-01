@@ -600,55 +600,38 @@ export default function PreviewProjectView({
 
               {/* 1 — the artefact */}
               <Card id="making" title="What you're making" purpose="The product, the offer, and the reference images.">
-                <div style={{ display: 'grid', gridTemplateColumns: wide ? '360px minmax(0,1fr)' : '1fr', gap: 20 }}>
-                  <div>
-                    {images.length > 0 ? (
-                      <>
-                        {/* contain, never cover: cropping a label is how a wrong SKU survives review. */}
-                        <a href={images[0].storage_url} target="_blank" rel="noreferrer">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={images[0].storage_url} alt={p.product_featured ?? 'Product reference'} loading="lazy" decoding="async"
-                            style={{ width: '100%', aspectRatio: '1', objectFit: 'contain', background: 'var(--surface-2)', borderRadius: 12, border: '1px solid var(--border-strong)', display: 'block' }} />
-                        </a>
-                        {images.length > 1 && (
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
-                            {/* No cap. Five projects hold 14-22 references and the
-                                old slice(0,12) dropped the rest silently, on the
-                                one tab whose job is preventing wrong-product errors. */}
-                            {images.slice(1).map((im, i) => (
-                              <a key={im.id} href={im.storage_url} target="_blank" rel="noreferrer">
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img src={im.storage_url} alt={`Reference ${i + 2}`} loading="lazy"
-                                  style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--border)', display: 'block' }} />
-                              </a>
-                            ))}
-                          </div>
-                        )}
-                        <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 8 }}>
-                          {images.length} reference image{images.length === 1 ? '' : 's'} · click to open full size
+                <div style={{ display: 'grid', gridTemplateColumns: wide && images.length > 0 ? '360px minmax(0,1fr)' : '1fr', gap: 20 }}>
+                  {/* No image, no column. The empty state used to be a square the
+                      size of the hero announcing it had nothing to show — on 37 of
+                      the 59 projects that name a product. The product link answers
+                      the same question now, and the Drive fallback moved into the
+                      spec beside it, where it costs one line instead of a card. */}
+                  {images.length > 0 && (
+                    <div>
+                      {/* contain, never cover: cropping a label is how a wrong SKU survives review. */}
+                      <a href={images[0].storage_url} target="_blank" rel="noreferrer">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={images[0].storage_url} alt={p.product_featured ?? 'Product reference'} loading="lazy" decoding="async"
+                          style={{ width: '100%', aspectRatio: '1', objectFit: 'contain', background: 'var(--surface-2)', borderRadius: 12, border: '1px solid var(--border-strong)', display: 'block' }} />
+                      </a>
+                      {images.length > 1 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
+                          {/* No cap. Five projects hold 14-22 references and the old
+                              slice(0,12) dropped the rest silently. */}
+                          {images.slice(1).map((im, i) => (
+                            <a key={im.id} href={im.storage_url} target="_blank" rel="noreferrer">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={im.storage_url} alt={`Reference ${i + 2}`} loading="lazy"
+                                style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--border)', display: 'block' }} />
+                            </a>
+                          ))}
                         </div>
-                      </>
-                    ) : (
-                      // Escalating, so the loud state stays meaningful. A red box on
-                      // every image-less project is wallpaper within a week.
-                      <div style={{
-                        aspectRatio: '1', borderRadius: 12, display: 'grid', placeItems: 'center', textAlign: 'center', padding: 16, gap: 8,
-                        background: imageFallback ? 'var(--surface-2)' : 'var(--urgent-soon-bg)',
-                        border: `1px dashed ${imageFallback ? 'var(--border-strong)' : 'var(--urgent-soon)'}`,
-                      }}>
-                        {imageFallback ? (
-                          <div>
-                            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>No image stored in the CRM</div>
-                            <a href={imageFallback.href} target="_blank" rel="noreferrer" style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}>{imageFallback.label}</a>
-                          </div>
-                        ) : (
-                          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--urgent-soon)', lineHeight: 1.5 }}>
-                            Nothing here shows what &ldquo;{skus[0] ?? 'this product'}&rdquo; looks like — don&rsquo;t guess.
-                          </div>
-                        )}
+                      )}
+                      <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 8 }}>
+                        {images.length} reference image{images.length === 1 ? '' : 's'} · click to open full size
                       </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
 
                   <div>
                     {skus.length === 0 ? (
@@ -680,6 +663,11 @@ export default function PreviewProjectView({
 
                     <div style={{ marginTop: 16 }}>
                       <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: 4 }}>Price / anchor</div>
+                      {images.length === 0 && imageFallback && (
+                        <div style={{ marginBottom: 12 }}>
+                          <a href={imageFallback.href} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--accent)' }}>{imageFallback.label}</a>
+                        </div>
+                      )}
                       {p.retail_price ? (
                         // Verbatim, never parsed as a number: this field averages
                         // ~90 characters of prose, and "N/A — sitewide % off, no
@@ -1248,11 +1236,9 @@ export default function PreviewProjectView({
                       ? <div style={{ marginTop: 10 }}><Field label="Price / anchor — verbatim"><Clamp text={p.retail_price} lines={2} /></Field></div>
                       : <div style={{ marginTop: 10 }}><Missing tone="warn">No price anchor given — don&rsquo;t put a price on the ad.</Missing></div>}
 
-                    {images.length === 0 && (
+                    {images.length === 0 && imageFallback && (
                       <div style={{ marginTop: 10 }}>
-                        {imageFallback
-                          ? <a href={imageFallback.href} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--accent)' }}>{imageFallback.label}</a>
-                          : <Missing tone="warn">Nothing here shows what &ldquo;{skus[0] ?? 'this product'}&rdquo; looks like — don&rsquo;t guess.</Missing>}
+                        <a href={imageFallback.href} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--accent)' }}>{imageFallback.label}</a>
                       </div>
                     )}
                   </div>
