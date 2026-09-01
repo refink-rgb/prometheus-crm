@@ -1426,6 +1426,54 @@ export default function PreviewProjectView({
                         </div>
                       </div>
                     )}
+
+                    {/* The whole set at a glance. The 44px thumbnails in the rows
+                        are an identity check while you read a line; this is for
+                        recognising the products as a group before you start —
+                        which is the thing a 44px square cannot do. Ordered and
+                        grouped the same as the list above, so the two never
+                        disagree about what is in a bundle. */}
+                    {products.some(x => x.image_url) && (
+                      <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+                        <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: 10 }}>
+                          Everything in this project
+                        </div>
+                        {grouped.map(({ group, items }) => {
+                          const shown = items.filter(x => x.image_url)
+                          if (!shown.length) return null
+                          return (
+                            <div key={group ?? '__none'} style={{ marginBottom: 16 }}>
+                              {grouped.some(g => g.group) && (
+                                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: group ? 'var(--accent)' : 'var(--text-muted)', marginBottom: 8 }}>
+                                  {group ?? 'Not in a group'}
+                                </div>
+                              )}
+                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(132px,1fr))', gap: 12 }}>
+                                {shown.map(prod => (
+                                  <a
+                                    key={prod.id}
+                                    href={prod.url ?? prod.image_url ?? '#'}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    title={prod.name}
+                                    style={{ textDecoration: 'none', color: 'inherit' }}
+                                  >
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img
+                                      src={prod.image_url!}
+                                      alt={prod.name}
+                                      loading="lazy"
+                                      style={{ width: '100%', aspectRatio: '1', objectFit: 'contain', background: 'var(--surface-2)', borderRadius: 10, border: '1px solid var(--border)', display: 'block' }}
+                                    />
+                                    <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 6, lineHeight: 1.35 }}>{prod.name}</div>
+                                  </a>
+                                ))}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
                   </>
                 )}
               </Card>
