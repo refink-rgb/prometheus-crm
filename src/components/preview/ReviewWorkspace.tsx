@@ -5,13 +5,13 @@ import { useRouter } from 'next/navigation'
 import type { CreativeAsset, ProjectComment } from '@/lib/types'
 import type { AssetRevision } from '@/lib/revisions'
 import { driveThumb, resizeDriveThumb } from '@/lib/drive-thumb'
+import { uploadRevisionFile } from '@/lib/upload-revision'
 import BulkRevisionUpload from './BulkRevisionUpload'
 import {
   updateAssetStatusInternal,
   setAssetClientVisible,
   publishAssets,
   toggleCommentResolved,
-  uploadAssetRevision,
   setClientVersion,
   addInternalAssetComment,
 } from '@/lib/actions'
@@ -473,10 +473,7 @@ export default function ReviewWorkspace({
                     if (!f) return
                     setUploading(true); setErr('')
                     try {
-                      const fd = new FormData()
-                      fd.append('file', f); fd.append('asset_id', active.id)
-                      fd.append('project_id', projectId); fd.append('brand_id', brandId)
-                      const r = await uploadAssetRevision(fd)
+                      const r = await uploadRevisionFile(f, active.id, projectId, brandId)
                       if (!r.ok) setErr(r.error); else router.refresh()
                     } catch (ex) { setErr(ex instanceof Error ? ex.message : 'Upload failed') }
                     finally { setUploading(false); e.target.value = '' }

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { uploadAssetRevision } from '@/lib/actions'
+import { uploadRevisionFile } from '@/lib/upload-revision'
 import { matchRevisionsToAssets, type MatchableAsset } from '@/lib/asset-match'
 
 // Bulk revision upload. An editor fixes a batch in Photoshop and re-exports it
@@ -70,10 +70,7 @@ export default function BulkRevisionUpload({
     for (let i = 0; i < queue.length; i++) {
       const { file, asset } = queue[i]
       try {
-        const fd = new FormData()
-        fd.append('file', file); fd.append('asset_id', asset.id)
-        fd.append('project_id', projectId); fd.append('brand_id', brandId)
-        const r = await uploadAssetRevision(fd)
+        const r = await uploadRevisionFile(file, asset.id, projectId, brandId)
         if (!r.ok) failed.push(`${file.name}: ${r.error}`)
       } catch (e) {
         failed.push(`${file.name}: ${e instanceof Error ? e.message : 'upload failed'}`)

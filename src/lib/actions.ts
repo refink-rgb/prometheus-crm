@@ -3113,3 +3113,74 @@ export async function updateBrandBrief(
     revalidatePath(`/brands/${brandId}/projects/${revalidateProjectId}`)
   }
 }
+
+
+// ── Revision upload, in two steps, because the bytes must not go through us ──
+//
+// uploadAssetRevision took the File through a Server Action. Next caps a Server
+// Action body at 1MB by default and Vercel caps a function request at 4.5MB, but
+// the creatives are median 1.81MB and reach 8.6MB — 191 of the last 200 exceed
+// 1MB. So almost every upload failed, which is what "a bunch of errors" was.
+//
+// Raising the Next limit only moves the wall to 4.5MB, which the p90 already
+// brushes. Instead the browser uploads STRAIGHT to Supabase Storage with a
+// short-lived signed URL, and the server only ever sees the resulting path.
+// There is then no size ceiling of ours at all.
+
+export async function createRevisionUploadUrl(
+  assetId: string,
+  contentType: string,
+): Promise<{ ok: true; path: string; token: string } | { ok: false; error: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
+
+  if (!contentType.startsWith('image/')) return { ok: false, error: 'That is not an image file.' }
+
+  const ext = contentType === 'image/png' ? 'png'
+    : contentType === 'image/webp' ? 'webp'
+    : contentType === 'image/gif' ? 'gif' : 'jpg'
+  // Same folder the old path used, so nothing that reads revisions/ changes.
+  const path = `revisions/${assetId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`
+
+  const { data, error } = await supabase.storage.from('project-images').createSignedUploadUrl(path)
+  if (error || !data) return { ok: false, error: error?.message ?? 'Could not start the upload.' }
+  return { ok: true, path: data.path, token: data.token }
+}
+
+// Second half: the file is already in storage, so this only records it.
+export async function attachRevisionUpload(
+  assetId: string,
+  path: string,
+  projectId: string,
+  brandId: string,
+): Promise<{ ok: true; revisionNumber: number | null } | { ok: false; error: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
+
+  // The path is minted by createRevisionUploadUrl above; check it anyway, since
+  // this argument arrives from the browser.
+  if (!path.startsWith(`revisions/${assetId}-`)) return { ok: false, error: 'That upload does not belong to this creative.' }
+
+  const { data: { publicUrl } } = supabase.storage.from('project-images').getPublicUrl(path)
+
+  // revision_url only — NOT published_url. The client keeps seeing the last
+  // published version until someone explicitly sends the latest.
+  const { error } = await supabase
+    .from('creative_assets')
+    .update({ revision_url: publicUrl, revision_created_at: new Date().toISOString() })
+    .eq('id', assetId)
+  if (error) return { ok: false, error: `Failed to attach revision: ${error.message}` }
+
+  const { recordAssetRevision } = await import('@/lib/revisions')
+  const revisionNumber = await recordAssetRevision(supabase, {
+    assetId, imageUrl: publicUrl, prompt: null, createdBy: user.email ?? null,
+  })
+
+  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+  revalidatePath(`/preview/project/${projectId}`)
+  return { ok: true, revisionNumber }
+}
