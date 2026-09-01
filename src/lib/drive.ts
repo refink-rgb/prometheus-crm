@@ -89,7 +89,11 @@ export function extractDriveFolderId(folderUrl: string): string {
   return match[1]
 }
 
-type DriveFile = { id: string; name: string; mimeType: string }
+// modifiedTime is what makes a replaced file visible. Drive's thumbnail endpoint
+// is keyed on the file ID alone and its CDN caches hard, so swapping a file's
+// CONTENTS in Drive — same ID — keeps serving the old render for hours. Carrying
+// the modified time lets the sync put a version on the URL.
+type DriveFile = { id: string; name: string; mimeType: string; modifiedTime?: string }
 
 /**
  * List image files in a Drive folder (non-recursive, non-trashed).
@@ -107,7 +111,7 @@ export async function listDriveFolder(folderId: string): Promise<DriveFile[]> {
 
   const params = new URLSearchParams({
     q: `'${folderId}' in parents and trashed=false`,
-    fields: 'files(id,name,mimeType)',
+    fields: 'files(id,name,mimeType,modifiedTime)',
     orderBy: 'name',
     pageSize: '200',
   })

@@ -5,6 +5,7 @@ import Image from 'next/image'
 import { syncDriveImages, toggleAssetVisibility, applyAiEdits, approveAndPublishRevision, publishAssets, unpublishAllAssets } from '@/lib/actions'
 import { useRouter } from 'next/navigation'
 import type { CreativeAsset, ProjectComment } from '@/lib/types'
+import { driveThumb, resizeDriveThumb } from '@/lib/drive-thumb'
 
 const QUALITY_OPTIONS: Array<{ value: 'low' | 'medium' | 'high'; label: string; price: string }> = [
   { value: 'low',    label: 'Low',    price: '$0.011' },
@@ -51,8 +52,8 @@ function InternalLightbox({
 
   const hasComments = comments.length > 0
   const hasRevision = !!asset.revision_url
-  const mainImage = hasRevision ? asset.revision_url! : `https://drive.google.com/thumbnail?id=${asset.drive_file_id}&sz=w2048`
-  const originalThumb = hasRevision ? `https://drive.google.com/thumbnail?id=${asset.drive_file_id}&sz=w200` : null
+  const mainImage = hasRevision ? asset.revision_url! : (resizeDriveThumb(asset.thumbnail_url, 2048) ?? driveThumb(asset.drive_file_id, 2048))
+  const originalThumb = hasRevision ? (asset.thumbnail_url ?? driveThumb(asset.drive_file_id, 600)) : null
 
   const pinnedComments = comments.filter(c => c.pin_x != null)
   const pinIndex = (c: ProjectComment) => pinnedComments.findIndex(p => p.id === c.id) + 1
@@ -634,7 +635,7 @@ function AssetThumb({
 }) {
   const displayUrl = asset.revision_url
     ?? asset.thumbnail_url
-    ?? `https://drive.google.com/thumbnail?id=${asset.drive_file_id}&sz=w400`
+    ?? driveThumb(asset.drive_file_id, 600)
 
   return (
     <div style={{ position: 'relative' }}>

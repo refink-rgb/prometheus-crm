@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import type { CreativeAsset, ProjectComment } from '@/lib/types'
 import type { AssetRevision } from '@/lib/revisions'
+import { driveThumb, resizeDriveThumb } from '@/lib/drive-thumb'
 import BulkRevisionUpload from './BulkRevisionUpload'
 import {
   updateAssetStatusInternal,
@@ -188,10 +189,13 @@ export default function ReviewWorkspace({
     if (scroll) requestAnimationFrame(() => detailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
   }
   const activeRevs = active ? (revisionsByAsset[active.id] ?? []) : []
+  // thumbnail_url is preferred because it is the only place the &v= cache-buster
+  // written by the last sync survives. Rebuilding from drive_file_id throws it
+  // away, which is what let a replaced Drive file keep showing its old render.
   const thumb = (a: CreativeAsset) =>
-    a.revision_url ?? a.thumbnail_url ?? `https://drive.google.com/thumbnail?id=${a.drive_file_id}&sz=w600`
+    a.revision_url ?? a.thumbnail_url ?? driveThumb(a.drive_file_id, 600)
   const full = (a: CreativeAsset) =>
-    a.revision_url ?? `https://drive.google.com/thumbnail?id=${a.drive_file_id}&sz=w2048`
+    a.revision_url ?? resizeDriveThumb(a.thumbnail_url, 2048) ?? driveThumb(a.drive_file_id, 2048)
 
   // Position within the FILTERED grid, and the one place that decides what
   // "next" means — the buttons and the arrow keys both call this.
@@ -542,7 +546,7 @@ export default function ReviewWorkspace({
                 // for the list and w2048 for the expand, so clicking a version
                 // and then expanding no longer hands the reviewer a thumbnail
                 // to scrutinise. Revisions are already stored full-size.
-                const originalUrl = `https://drive.google.com/thumbnail?id=${active.drive_file_id}&sz=w600`
+                const originalUrl = active.thumbnail_url ?? driveThumb(active.drive_file_id, 600)
                 const rows = [
                   { key: 'original', label: 'Original', url: null as string | null, thumb: originalUrl, fullUrl: full(active), at: null as string | null },
                   ...activeRevs.map(r => ({ key: r.id, label: `Edit ${r.revision_number}`, url: r.image_url, thumb: r.image_url, fullUrl: r.image_url, at: r.created_at })),

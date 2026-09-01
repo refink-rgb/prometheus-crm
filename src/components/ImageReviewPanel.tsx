@@ -6,6 +6,7 @@ import { addProjectComment, approveProject, deleteProjectComment, updateAssetSta
 import { useConfirm } from '@/components/ConfirmDialog'
 import { useToast } from '@/components/Toast'
 import type { CreativeAsset, ProjectComment } from '@/lib/types'
+import { driveThumb, resizeDriveThumb } from '@/lib/drive-thumb'
 
 // ─── Single asset row ────────────────────────────────────────────────────────
 
@@ -120,7 +121,7 @@ function AssetRow({
   // publish (and between new edits and the next publish) they see the last
   // published version, or the original if nothing has been published yet.
   const imgSrc = asset.published_url
-    ?? `https://drive.google.com/thumbnail?id=${asset.drive_file_id}&sz=w2048`
+    ?? resizeDriveThumb(asset.thumbnail_url, 2048) ?? driveThumb(asset.drive_file_id, 2048)
   const statusColors: Record<CreativeAsset['status'], { bg: string; color: string; border: string }> = {
     pending:       { bg: 'transparent',           color: 'var(--text-muted)',    border: 'var(--border)' },
     approved:      { bg: 'rgba(34,197,94,0.12)',   color: 'var(--success)',       border: 'rgba(34,197,94,0.3)' },

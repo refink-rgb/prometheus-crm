@@ -20,6 +20,7 @@ import {
   type PipelineEventInput,
 } from '@/lib/events'
 import { createNotifications } from '@/lib/notifications'
+import { driveThumb } from './drive-thumb'
 import { createServiceClient } from '@/lib/supabase/service'
 import {
   ensureDeleteSubfolder,
@@ -851,7 +852,11 @@ export async function syncDriveImages(projectId: string, brandId: string, folder
         project_id: projectId,
         drive_file_id: f.id,
         name: f.name,
-        thumbnail_url: `https://drive.google.com/thumbnail?id=${f.id}&sz=w600`,
+        // &v= is a cache-buster, not something Drive reads. Replacing a file's
+        // contents in Drive keeps the same file ID, so without it Google's CDN
+        // serves the old render and the editor sees their fix ignored. Keyed on
+        // modifiedTime so the URL only changes when the file actually does.
+        thumbnail_url: driveThumb(f.id, 600, f.modifiedTime),
         sort_order: i,
       })),
       { onConflict: 'project_id,drive_file_id', ignoreDuplicates: false }

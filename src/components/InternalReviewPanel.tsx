@@ -16,6 +16,7 @@ import {
   purgeStaleAssets,
 } from '@/lib/actions'
 import type { CreativeAsset, ProjectComment } from '@/lib/types'
+import { driveThumb, resizeDriveThumb } from '@/lib/drive-thumb'
 
 const QUALITY_OPTIONS: Array<{ value: 'low' | 'medium' | 'high'; label: string; price: string }> = [
   { value: 'low',    label: 'Low',    price: '$0.011' },
@@ -284,7 +285,7 @@ export default function InternalReviewPanel({
       }}>
         {assets.map((a, i) => {
           const isActive = i === activeIdx
-          const thumb = a.revision_url ?? a.thumbnail_url ?? `https://drive.google.com/thumbnail?id=${a.drive_file_id}&sz=w200`
+          const thumb = a.revision_url ?? a.thumbnail_url ?? driveThumb(a.drive_file_id, 600)
           return (
             <button
               key={a.id}
@@ -418,7 +419,7 @@ function AssetView({
 
   // The untouched Drive import — always reachable, even after N edits.
   const originalSrc = asset.thumbnail_url
-    ?? `https://drive.google.com/thumbnail?id=${asset.drive_file_id}&sz=w2048`
+    ?? resizeDriveThumb(asset.thumbnail_url, 2048) ?? driveThumb(asset.drive_file_id, 2048)
   const originalHref = `https://drive.google.com/uc?export=view&id=${asset.drive_file_id}`
 
   // Version strip: Original, then each recorded edit oldest→newest.
