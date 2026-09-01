@@ -902,11 +902,17 @@ function AssetView({
           {comments.length === 0 && (
             <p style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', margin: '4px 0' }}>No comments yet</p>
           )}
+          {comments.length > 0 && (
+            <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              {comments.filter(c => !c.resolved_at).length} open of {comments.length}
+            </div>
+          )}
           {comments.map(c => {
             const isPinned = c.pin_x != null
             const pIdx = isPinned ? pinIndex(c) : null
             const isActive = activePin === c.id
             const aud = c.audience ?? 'client'
+            const done = !!c.resolved_at
             return (
               <div
                 key={c.id}
@@ -916,6 +922,9 @@ function AssetView({
                   border: `1px solid ${isActive ? 'var(--accent)' : 'var(--border)'}`,
                   background: isActive ? 'var(--accent-muted)' : 'var(--surface-raised)',
                   cursor: isPinned ? 'pointer' : 'default',
+                  // Handled feedback stays visible — it is context for the next
+                  // edit — but stops competing with the work still outstanding.
+                  opacity: done ? 0.45 : 1,
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
@@ -939,8 +948,13 @@ function AssetView({
                   }}>
                     {aud}
                   </span>
+                  {done && (
+                    <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--success)', textTransform: 'uppercase', letterSpacing: '0.05em', flexShrink: 0 }}>
+                      done
+                    </span>
+                  )}
                 </div>
-                <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.55, margin: 0, whiteSpace: 'pre-wrap' }}>{c.content}</p>
+                <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.55, margin: 0, whiteSpace: 'pre-wrap', textDecoration: done ? 'line-through' : 'none' }}>{c.content}</p>
               </div>
             )
           })}
