@@ -152,6 +152,16 @@ function Missing({ tone = 'muted', children }: { tone?: 'warn' | 'muted'; childr
 
 type Tab = 'overview' | 'lp' | 'creatives'
 
+/** One row of the brand's landing-page history. */
+export type BrandLandingPage = {
+  id: string
+  name: string
+  offer: string | null
+  lp_url: string | null
+  due_date: string | null
+  lp_stage: string | null
+}
+
 
 
 
@@ -191,13 +201,14 @@ function CommentList({ comments, empty }: { comments: ProjectComment[]; empty: s
 }
 
 export default function PreviewProjectView({
-  project: p, brand, assets, comments, images, dna, revisionsByAsset, lpEditorName, creativeEditorName, journeyName, journeys, profiles, campaigns, todayIso, authorName,
+  project: p, brand, assets, comments, images, dna, revisionsByAsset, lpEditorName, creativeEditorName, journeyName, journeys, profiles, campaigns, todayIso, authorName, brandLandingPages,
 }: {
   project: Project; brand: Brand; assets: CreativeAsset[]; comments: ProjectComment[]
   images: ProjectImage[]; dna: BrandDna | null
   revisionsByAsset: Record<string, AssetRevision[]>
   lpEditorName: string | null; creativeEditorName: string | null; journeyName: string | null
   journeys: Journey[]; profiles: Profile[]; campaigns: TrackedCampaign[]; todayIso: string
+  brandLandingPages: BrandLandingPage[]
   /** Who a note typed here is attributed to. */
   authorName: string
 }) {
@@ -311,12 +322,13 @@ export default function PreviewProjectView({
 
   const lpNav = useMemo(() => ([
     { id: 'page', label: 'The page', show: true },
+    { id: 'library', label: brandLandingPages.length ? `Past pages · ${brandLandingPages.length}` : 'Past pages', show: brandLandingPages.length > 1 },
     { id: 'offer', label: 'The offer', show: true },
     { id: 'copy', label: 'Page copy', show: true },
     { id: 'product', label: 'Product', show: hasProduct },
     { id: 'feedback', label: lpOpen.length ? `Client feedback · ${lpOpen.length} open` : 'Client feedback', show: lpComments.length > 0 },
     { id: 'notes', label: 'Internal notes', show: noteComments.length > 0 },
-  ]).filter(n => n.show), [hasProduct, lpOpen.length, lpComments.length, noteComments.length])
+  ]).filter(n => n.show), [hasProduct, lpOpen.length, lpComments.length, noteComments.length, brandLandingPages.length])
 
   // Products and Motion reports are always shown, even empty: an empty list is
   // the prompt to fill it, and hiding it hides the only place the work happens.
@@ -985,6 +997,45 @@ export default function PreviewProjectView({
                     is entered rather than holding a permanent empty slot. */}
                 <div style={{ marginTop: 12 }}><Field label="Coupon code">{p.shopify_coupon_code}</Field></div>
               </Card>
+
+              {/* Every page built for this brand, so an LP editor can open what
+                  was done last time instead of asking. Only when there is more
+                  than one — a list of the page you are already looking at is not
+                  a list. */}
+              {brandLandingPages.length > 1 && (
+                <Card id="library" title="Past pages for this brand" purpose="What we've built for them before, newest first.">
+                  {brandLandingPages.map((lp, i) => {
+                    const mine = lp.id === p.id
+                    return (
+                      <div
+                        key={lp.id}
+                        style={{
+                          display: 'flex', alignItems: 'baseline', gap: 12, padding: '10px 0',
+                          borderBottom: i < brandLandingPages.length - 1 ? '1px solid var(--border)' : 'none',
+                        }}
+                      >
+                        <span style={{ flexShrink: 0, width: 62, fontSize: 11, color: 'var(--text-muted)' }}>
+                          {lp.due_date ? new Date(lp.due_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}
+                        </span>
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div style={{ fontSize: 13, fontWeight: mine ? 700 : 600, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                            {/* The offer is what an LP editor recognises a page by
+                                — not the project name, which is often the same
+                                words every month. */}
+                            <span>{lp.offer?.trim() || lp.name}</span>
+                            {mine && <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 999, background: 'var(--accent-muted)', color: 'var(--accent)' }}>this project</span>}
+                          </div>
+                          {lp.lp_url && (
+                            <a href={lp.lp_url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--accent)' }}>
+                              {hostOf(lp.lp_url)}<span style={{ color: 'var(--text-muted)' }}>{pathOf(lp.lp_url)}</span> ↗
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </Card>
+              )}
 
               {/* 2 — the offer */}
               <Card id="offer" title="The offer" purpose="What this page sells, and whether it can still change under you.">

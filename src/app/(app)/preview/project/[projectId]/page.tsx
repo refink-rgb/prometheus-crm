@@ -6,7 +6,7 @@ import { getRevisionsByAsset } from '@/lib/revisions'
 import { easternToday } from '@/lib/eastern'
 import type { TrackedCampaign } from '@/lib/results'
 import type { Project, Brand, CreativeAsset, ProjectComment, BrandDna, ProjectImage, Journey } from '@/lib/types'
-import PreviewProjectView from '@/components/preview/PreviewProjectView'
+import PreviewProjectView, { type BrandLandingPage } from '@/components/preview/PreviewProjectView'
 
 // PREVIEW ROUTE — deliberately not in the sidebar nav.
 //
@@ -43,6 +43,7 @@ export default async function PreviewProjectPage({
     { data: journey },
     { data: brandJourneysRaw },
     { data: trackedCampaignsRaw },
+    { data: brandLandingPagesRaw },
     profiles,
   ] = await Promise.all([
     supabase.from('brands').select('id, name, brand_notes, ai_sensitivity, brand_guidelines').eq('id', p.brand_id).single(),
@@ -63,6 +64,15 @@ export default async function PreviewProjectPage({
       .select('id, project_id, brand_id, meta_ad_account_id, meta_campaign_id, campaign_name, meta_adset_id, adset_name, moment_group_id, moment_group_label, launched_on, ended_on, created_at')
       .eq('project_id', projectId)
       .order('launched_on', { ascending: false }),
+    // Every landing page this brand has. Cheap — one indexed brand_id lookup
+    // over a 66-row table — and it is what turns the LP tab from "this page"
+    // into "every page we have built for them".
+    supabase
+      .from('projects')
+      .select('id, name, offer, lp_url, due_date, lp_stage')
+      .eq('brand_id', p.brand_id)
+      .not('lp_url', 'is', null)
+      .order('due_date', { ascending: false, nullsFirst: false }),
     getCachedProfiles(),
   ])
 
@@ -82,6 +92,7 @@ export default async function PreviewProjectPage({
       creativeEditorName={profiles.find(x => x.id === p.creative_editor_id)?.full_name ?? null}
       journeyName={(journey as { name: string } | null)?.name ?? null}
       journeys={(brandJourneysRaw ?? []) as Journey[]}
+      brandLandingPages={(brandLandingPagesRaw ?? []) as BrandLandingPage[]}
       profiles={profiles}
       campaigns={(trackedCampaignsRaw ?? []) as unknown as TrackedCampaign[]}
       todayIso={easternToday()}
