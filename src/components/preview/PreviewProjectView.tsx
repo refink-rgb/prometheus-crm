@@ -10,6 +10,9 @@ import ClientFeedbackPanel from '@/components/ClientFeedbackPanel'
 import CampaignTrackingPanel from '@/components/CampaignTrackingPanel'
 import NotesThread from '@/components/NotesThread'
 import ConfirmDeleteForm from '@/components/ConfirmDeleteForm'
+import RevisionsToggle from '@/components/RevisionsToggle'
+import EditorPicker from '@/components/EditorPicker'
+import { editorsFor } from '@/lib/types'
 import { profileName } from '@/lib/types'
 import type { TrackedCampaign } from '@/lib/results'
 import { hypercareFor, hypercareCopyMessage } from '@/lib/hypercare'
@@ -220,6 +223,28 @@ export default function PreviewProjectView({
   // rather than only offering destinations.
   const [activeSection, setActiveSection] = useState<string | null>(null)
 
+  // Notifications deep-link to #client-feedback, and that anchor lives inside the
+  // Landing Page tab. Arriving with the hash while Overview is showing meant the
+  // target was not in the DOM at all, so the bell dropped you at the top of the
+  // page with no indication of why. Switch to the tab that owns the hash, then
+  // scroll once it has rendered.
+  useEffect(() => {
+    const hash = window.location.hash.slice(1)
+    if (!hash) return
+    const owner: Record<string, Tab> = {
+      'client-feedback': 'lp', feedback: 'lp', page: 'lp', offer: 'lp', copy: 'lp',
+      library: 'lp', notes: 'lp', product: 'lp',
+      brief: 'creatives', products: 'creatives', motion: 'creatives', review: 'creatives',
+      making: 'overview', look: 'overview', destination: 'overview',
+    }
+    const t = owner[hash]
+    if (t) setTab(t)
+    // Two frames: one for the tab switch to commit, one for its content to mount.
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      document.getElementById(hash)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }))
+  }, [])
+
   // `assets` now arrives with hidden rows included, because CreativeAssetsManager
   // is the only place that can un-hide one and it needs to see them. Everything
   // else — the grid, the review loop, the counts, the client feedback panel —
@@ -227,7 +252,13 @@ export default function PreviewProjectView({
   const visibleAssets = useMemo(() => assets.filter(a => !a.is_hidden), [assets])
 
   const creativeComments = useMemo(() => comments.filter(c => c.track === 'image'), [comments])
-  const lpComments = useMemo(() => comments.filter(c => c.track === 'lp'), [comments])
+  const lpComments = useMemo(
+    // 'general' is addProjectComment's DEFAULT track and CommentForm passes no
+    // track at all, so excluding it means the first comment posted through that
+    // form disappears. Zero rows use it today; that is luck, not safety.
+    () => comments.filter(c => c.track === 'lp' || c.track === 'general'),
+    [comments],
+  )
   const noteComments = useMemo(() => comments.filter(c => c.track === 'note'), [comments])
 
   // One media query, used in exactly one place (section 1's split).
@@ -313,6 +344,9 @@ export default function PreviewProjectView({
     [p.headline, 'a headline'], [p.body_copy, 'body copy'],
     [p.supporting_message, 'a supporting line'], [p.cta, 'a button label'],
   ] as const).filter(([v]) => !v).map(([, label]) => label), [p.headline, p.body_copy, p.supporting_message, p.cta])
+
+  const clientLpFeedback = useMemo(() => lpComments.filter(c => c.audience !== 'internal'), [lpComments])
+  const clientCreativeFeedback = useMemo(() => creativeComments.filter(c => c.audience !== 'internal'), [creativeComments])
 
   const lpOpen = useMemo(() => lpComments.filter(c => !c.resolved_at), [lpComments])
   const lpResolved = useMemo(() => lpComments.filter(c => !!c.resolved_at), [lpComments])
@@ -415,6 +449,23 @@ export default function PreviewProjectView({
         </span>
       </div>
 
+      {/* Brand-wide, above everything. The preview had lost this entirely, so a
+          Noble project looked like any other and an editor would generate copy
+          Lucas is supposed to write. */}
+      {hypercareRule && (
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: 16, marginBottom: 20, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10 }}>
+          <span style={{ fontSize: 16, lineHeight: 1.2, flexShrink: 0 }}>⚠</span>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#EF4444', marginBottom: 2 }}>
+              Hypercare — reach out to {hypercareRule.contact} for ad copy
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+              {hypercareRule.reason} Copy generation is disabled on every {brand?.name} project.
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
         <Link href="/brands" style={{ color: 'var(--text-muted)' }}>Brands</Link>
         {' / '}
@@ -464,10 +515,15 @@ export default function PreviewProjectView({
               title="Copy every filled-in brief field as markdown"
               style={{ marginTop: 8 }}
             />
+            {p.is_complete && (
+              <div style={{ fontSize: 11, color: 'var(--complete-text)', marginTop: 8 }}>Complete — locked</div>
+            )}
+            {!p.is_complete && (
             <button
               onClick={() => window.dispatchEvent(new Event('prometheus-open-edit'))}
               style={{ marginTop: 8, marginLeft: 8, fontSize: 12, fontWeight: 600, padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}
             >✏ Edit details</button>
+            )}
           </div>
         </div>
         {/* Two inert 7-step rails cost ~240px and rendered the pipeline at a
@@ -487,8 +543,21 @@ export default function PreviewProjectView({
               )
             })}
             {p.marketing_moment ? chip(`Moment ${p.marketing_moment}`) : null}
-            {chip(`LP · ${lpEditorName ?? 'unassigned'}`, 'lp')}
-            {chip(`CR · ${creativeEditorName ?? 'unassigned'}`, 'cre')}
+            {/* Instant mode, like the live page: guards the capability flag,
+                logs an `assigned` pipeline event and notifies the editor. The
+                edit form's plain select writes the FK and none of that, so
+                assignment there was silent. */}
+            {!p.is_complete ? (
+              <>
+                <EditorPicker mode="instant" track="lp" options={editorsFor(profiles, 'is_lp_editor')} current={p.lp_editor_id} projectId={p.id} brandId={p.brand_id} />
+                <EditorPicker mode="instant" track="creative" options={editorsFor(profiles, 'is_creative_editor')} current={p.creative_editor_id} projectId={p.id} brandId={p.brand_id} />
+              </>
+            ) : (
+              <>
+                {chip(`LP · ${lpEditorName ?? 'unassigned'}`, 'lp')}
+                {chip(`CR · ${creativeEditorName ?? 'unassigned'}`, 'cre')}
+              </>
+            )}
             {journeyName ? chip(journeyName) : null}
             {p.offer_locked ? <span style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, background: 'var(--complete-bg)', color: 'var(--complete-text)' }}>Offer locked</span> : null}
             {p.is_complete ? <span style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, background: 'var(--complete-bg)', color: 'var(--complete-text)' }}>Complete</span> : null}
@@ -500,8 +569,10 @@ export default function PreviewProjectView({
           <details style={{ marginTop: 12 }}>
             <summary style={{ fontSize: 11, color: 'var(--text-secondary)', cursor: 'pointer' }}>Move a stage</summary>
             <div style={{ marginTop: 8 }}>
-              <StageTracker projectId={p.id} brandId={p.brand_id} track="lp_stage" currentStage={p.lp_stage} label="Landing Page" />
-              <StageTracker projectId={p.id} brandId={p.brand_id} track="creatives_stage" currentStage={p.creatives_stage} label="Creatives / Statics" />
+              {/* Locked once complete, like the live page. A finished project
+                  should not quietly move backwards. */}
+              <StageTracker projectId={p.id} brandId={p.brand_id} track="lp_stage" currentStage={p.lp_stage} label="Landing Page" disabled={p.is_complete} />
+              <StageTracker projectId={p.id} brandId={p.brand_id} track="creatives_stage" currentStage={p.creatives_stage} label="Creatives / Statics" disabled={p.is_complete} />
             </div>
           </details>
 
@@ -619,6 +690,10 @@ export default function PreviewProjectView({
                   so every project for this client shows the same notes. */}
               {brand?.id && (
                 <BrandBrief
+                  // Remount when the stored value changes: this component holds a
+                  // draft in useState seeded from props, so without a key the
+                  // second save writes a stale draft over the first.
+                  key={`${brand.brand_notes ?? ''}::${brand.ai_sensitivity ?? ''}`}
                   brandId={brand.id}
                   brandName={brand.name}
                   projectId={p.id}
@@ -629,6 +704,7 @@ export default function PreviewProjectView({
 
               {brand?.id && (
                 <BrandGuidelines
+                  key={brand.brand_guidelines ?? ''}
                   brandId={brand.id}
                   brandName={brand.name}
                   projectId={p.id}
@@ -986,6 +1062,12 @@ export default function PreviewProjectView({
                   </div>
                 )}
 
+                {/* The only toggle for needs_revisions in the app lived on the
+                    page being retired, which made the column write-only. */}
+                <div style={{ marginTop: 16 }}>
+                  <RevisionsToggle projectId={p.id} brandId={p.brand_id} currentValue={p.needs_revisions} />
+                </div>
+
                 {p.lp_approved && !p.offer_locked && (
                   <div style={{ marginTop: 16 }}>
                     <Missing tone="warn">
@@ -1094,6 +1176,11 @@ export default function PreviewProjectView({
                   </div>
                 )}
                 {p.discount && <div style={{ marginTop: 8 }}><Field label="Discount">{p.discount}</Field></div>}
+                {/* Rendered by the live page AND the public client review page;
+                    the preview showed neither, so a tiered offer or a piece of
+                    client inspiration simply vanished from the brief. */}
+                {p.tiered_offer && <div style={{ marginTop: 8 }}><Field label="Tiered offer">{p.tiered_offer}</Field></div>}
+                {p.inspiration && <div style={{ marginTop: 8 }}><Field label="Inspiration"><Clamp text={p.inspiration} lines={3} /></Field></div>}
               </Card>
 
               {/* 3 — the words, in the order they land on the page */}
@@ -1227,8 +1314,13 @@ export default function PreviewProjectView({
                       editor could see feedback here but only tick it off
                       somewhere else. */}
                   <ClientFeedbackPanel
-                    lpFeedback={lpOpen.concat(lpResolved)}
-                    creativeFeedback={[]}
+                    // Same two sets the live page builds: client-audience only,
+                    // and the creative track included. Passing [] for creatives
+                    // meant image feedback never reached this panel at all, and
+                    // passing unfiltered LP comments could show an internal note
+                    // in a panel labelled Client feedback.
+                    lpFeedback={clientLpFeedback}
+                    creativeFeedback={clientCreativeFeedback}
                     assets={visibleAssets}
                     lpApproved={p.lp_approved}
                     creativesApproved={p.creatives_approved}
@@ -1389,6 +1481,7 @@ export default function PreviewProjectView({
                   projectId={p.id}
                   guidelines={brand.brand_guidelines ?? null}
                   collapsed
+                  key={`c:${brand.brand_guidelines ?? ''}`}
                 />
               )}
 
@@ -1708,6 +1801,10 @@ export default function PreviewProjectView({
               {hasAdCopy && (
                 <Card id="copy" title="Copy deck" purpose="Tick what is approved, cross what is not. Click a line to copy it.">
                   <CopyApprovalDeck
+                    // Same reason as BrandBrief: the tick/cross draft is seeded
+                    // once at mount, so it must be rebuilt when the saved
+                    // verdicts or the copy lines themselves change.
+                    key={`${(p.ad_headlines ?? []).length}:${(p.ad_subcopies ?? []).length}:${(p.ad_eyebrows ?? []).length}:${copyApprovals.lines.length}:${copyApprovals.log[0]?.at ?? ''}`}
                     projectId={p.id}
                     brandId={p.brand_id}
                     approvals={copyApprovals}

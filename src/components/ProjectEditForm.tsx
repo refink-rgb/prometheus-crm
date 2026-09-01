@@ -248,7 +248,6 @@ export default function ProjectEditForm({ projectId, brandId, journeys, profiles
     putText('headline')
     putText('body_copy')
     putText('supporting_message')
-    putText('product_featured')
     putText('product_description')
     putText('retail_price')
     putText('competitor_reference')
@@ -425,9 +424,11 @@ export default function ProjectEditForm({ projectId, brandId, journeys, profiles
             <input type="text" name="cta" defaultValue={initial.cta ?? ''} placeholder="e.g. Shop Now, Claim Your Deal" />
           </Field>
 
-          <Field label="Product name" optional>
-            <input type="text" name="product_featured" defaultValue={initial.product_featured ?? ''} placeholder="e.g. Viking Beard Oil 3-Pack" />
-          </Field>
+          {/* product_featured is no longer edited here. The Products card on the
+              Creatives tab owns it: it holds the per-product links and mirrors
+              the names back into this column on every save. Two writers meant
+              editing the text here silently did nothing visible — the read layer
+              prefers the structured list — while still overwriting the mirror. */}
           <Field label="Product description" optional>
             <textarea name="product_description" defaultValue={initial.product_description ?? ''} rows={2} style={{ resize: 'vertical' }} />
           </Field>

@@ -14,7 +14,7 @@ import type { ProjectProduct } from '@/lib/types'
 // The AI proposal loads into this editor UNSAVED. Nothing a model produced
 // reaches the database without someone reading it and pressing Save.
 
-type Row = ProjectProduct & { _key: string }
+type Row = ProjectProduct & { _key: string; _gid: string }
 
 const newKey = () => globalThis.crypto?.randomUUID?.() ?? `k-${Math.random().toString(36).slice(2)}`
 const isLink = (v: string | null) => !v?.trim() || /^https?:\/\//i.test(v.trim())
@@ -97,28 +97,40 @@ export default function ProductGroupEditor({
   onDone: () => void
 }) {
   const router = useRouter()
-  const [rows, setRows] = useState<Row[]>(initial.map(p => ({ ...p, _key: newKey() })))
+  // Rows arriving from the server carry only a group NAME. Map each distinct
+  // name to one stable id up front; from then on the id is identity and the name
+  // is just a label that can be edited freely.
+  const [rows, setRows] = useState<Row[]>(() => {
+    const ids = new Map<string, string>()
+    return initial.map(p => {
+      const name = p.group ?? ''
+      if (!ids.has(name)) ids.set(name, newKey())
+      return { ...p, _key: newKey(), _gid: ids.get(name)! }
+    })
+  })
   const [pending, startTransition] = useTransition()
   const [proposing, setProposing] = useState(false)
   const [err, setErr] = useState('')
   const [note, setNote] = useState('')
 
   // Group order follows first appearance, so reordering rows reorders groups.
-  const groups: (string | null)[] = []
+  // Keyed by _gid, so two groups may share a name mid-edit without merging.
+  const groups: { gid: string; name: string }[] = []
   for (const r of rows) {
-    const g = r.group || null
-    if (!groups.some(x => x === g)) groups.push(g)
+    if (!groups.some(g => g.gid === r._gid)) groups.push({ gid: r._gid, name: r.group ?? '' })
   }
-  if (!groups.length) groups.push(null)
+  if (!groups.length) groups.push({ gid: 'g0', name: '' })
 
   const set = (key: string, field: keyof ProjectProduct, v: string) =>
     setRows(prev => prev.map(r => (r._key === key ? { ...r, [field]: v } : r)))
 
-  const addTo = (group: string | null) =>
-    setRows(prev => [...prev, { _key: newKey(), id: '', name: '', url: null, assets_url: null, group, image_url: null }])
+  const addTo = (gid: string, name: string) =>
+    setRows(prev => [...prev, { _key: newKey(), _gid: gid, id: '', name: '', url: null, assets_url: null, group: name || null, image_url: null }])
 
-  const renameGroup = (from: string | null, to: string) =>
-    setRows(prev => prev.map(r => ((r.group || null) === from ? { ...r, group: to || null } : r)))
+  // Renames by ID, so a name that transiently matches another group no longer
+  // swallows it.
+  const renameGroup = (gid: string, to: string) =>
+    setRows(prev => prev.map(r => (r._gid === gid ? { ...r, group: to || null } : r)))
 
   const bad = rows.some(r => !isLink(r.url) || !isLink(r.assets_url))
 
@@ -145,14 +157,45 @@ export default function ProductGroupEditor({
     try {
       const r = await proposeProjectProducts(projectId)
       if (!r.ok) { setErr(r.error); return }
-      // Keep any image already pasted against a product of the same name — a
-      // re-read of the brief should not throw away a screenshot someone took.
-      const keptImages = new Map(rows.filter(x => x.image_url).map(x => [x.name.trim().toLowerCase(), x.image_url]))
-      setRows(r.products.map(p => ({
-        _key: newKey(), id: '', name: p.name, url: p.url, assets_url: null, group: p.group,
-        image_url: keptImages.get(p.name.trim().toLowerCase()) ?? null,
-      })))
-      setNote(`Read ${r.products.length} product${r.products.length === 1 ? '' : 's'} from the brief. Nothing is saved until you press Save.`)
+      // MERGE, do not replace. The old version threw away every curated
+      // product link, HQ assets link and stable id, keeping only images and only
+      // by exact name match — twenty minutes of link-entry gone because someone
+      // re-read the brief to pick up one new SKU.
+      //
+      // Matching is by normalised name. A product the model names again keeps
+      // everything it already had and takes only its group; a product it does
+      // not mention is KEPT, not deleted — the model missing something is not
+      // evidence the product is gone.
+      const norm = (v: string) => v.trim().toLowerCase()
+      const existing = new Map(rows.map(r => [norm(r.name), r]))
+      const gids = new Map<string, string>()
+      for (const r of rows) if (!gids.has(r.group ?? '')) gids.set(r.group ?? '', r._gid)
+
+      let added = 0
+      const merged: Row[] = r.products.map(pr => {
+        const prev = existing.get(norm(pr.name))
+        const groupName = pr.group ?? ''
+        if (!gids.has(groupName)) gids.set(groupName, newKey())
+        if (prev) {
+          existing.delete(norm(pr.name))
+          // Only the group moves. url/assets_url/image_url/id are whatever a
+          // person put there.
+          return { ...prev, group: pr.group, _gid: gids.get(groupName)! }
+        }
+        added++
+        return {
+          _key: newKey(), _gid: gids.get(groupName)!, id: '',
+          name: pr.name, url: pr.url, assets_url: null, group: pr.group, image_url: null,
+        }
+      })
+      // Anything the model did not mention, kept at the end.
+      const untouched = [...existing.values()]
+      setRows([...merged, ...untouched])
+
+      setNote(
+        `Read ${r.products.length} from the brief — ${added} new, ${r.products.length - added} already here (links kept)` +
+        `${untouched.length ? `, ${untouched.length} not mentioned and left alone` : ''}. Nothing is saved until you press Save.`,
+      )
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Could not read the brief.')
     } finally {
@@ -172,20 +215,20 @@ export default function ProductGroupEditor({
         <button onClick={propose} disabled={proposing || pending} style={aiBtn}>
           {proposing ? 'Reading the brief…' : '✦ Fill from the brief'}
         </button>
-        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Replaces what is below, keeping any images you pasted. Nothing saves until you press Save.</span>
+        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Adds what is missing and regroups. Existing links are kept. Nothing saves until you press Save.</span>
       </div>
       {note && <div style={{ fontSize: 11.5, color: 'var(--success)', marginBottom: 12 }}>{note}</div>}
 
-      {groups.map(group => (
-        <div key={group ?? '__none'} style={{ marginBottom: 20, paddingLeft: 12, borderLeft: `2px solid ${group ? 'var(--accent)' : 'var(--border)'}` }}>
+      {groups.map(g => (
+        <div key={g.gid} style={{ marginBottom: 20, paddingLeft: 12, borderLeft: `2px solid ${g.name ? 'var(--accent)' : 'var(--border)'}` }}>
           <input
-            value={group ?? ''}
+            value={g.name}
             placeholder="Group name — e.g. Bundle 1, Tier 2. Leave blank for ungrouped."
-            onChange={e => renameGroup(group, e.target.value)}
+            onChange={e => renameGroup(g.gid, e.target.value)}
             style={{ ...input(true), fontWeight: 700, fontSize: 12.5, marginBottom: 8, maxWidth: 380 }}
           />
 
-          {rows.filter(r => (r.group || null) === group).map(r => (
+          {rows.filter(r => r._gid === g.gid).map(r => (
             <div key={r._key} style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr) auto', gap: 8, marginBottom: 8, alignItems: 'center' }}>
               <ImageCell
                 value={r.image_url}
@@ -199,12 +242,12 @@ export default function ProductGroupEditor({
             </div>
           ))}
 
-          <button onClick={() => addTo(group)} style={ghostBtn}>+ Add product to this group</button>
+          <button onClick={() => addTo(g.gid, g.name)} style={ghostBtn}>+ Add product to this group</button>
         </div>
       ))}
 
       <button
-        onClick={() => setRows(prev => [...prev, { _key: newKey(), id: '', name: '', url: null, assets_url: null, group: `Bundle ${groups.filter(Boolean).length + 1}`, image_url: null }])}
+        onClick={() => setRows(prev => [...prev, { _key: newKey(), _gid: newKey(), id: '', name: '', url: null, assets_url: null, group: `Bundle ${groups.filter(g => g.name).length + 1}`, image_url: null }])}
         style={{ ...ghostBtn, borderStyle: 'solid' }}
       >+ Add a group</button>
 

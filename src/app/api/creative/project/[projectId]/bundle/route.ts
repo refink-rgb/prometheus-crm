@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { bearerToken, validateEditorToken } from '@/lib/editor-auth'
-import { readProducts, readCompetitors } from '@/lib/products'
+import { readProducts, readCompetitors, readTopPerformers, readCopyApprovals } from '@/lib/products'
 
 export const runtime = 'nodejs'
 
@@ -16,6 +16,9 @@ interface ProjectRow {
   product_featured: string | null
   products: unknown
   competitors: unknown
+  top_performers: unknown
+  offer_summary: unknown
+  copy_approvals: unknown
   product_description: string | null
   product_images_link: string | null
   retail_price: string | null
@@ -69,7 +72,7 @@ export async function GET(
   }
 
   const [brandRes, dnaRes, imagesRes] = await Promise.all([
-    supabase.from('brands').select('id, name, website').eq('id', project.brand_id).maybeSingle(),
+    supabase.from('brands').select('id, name, website, brand_notes, ai_sensitivity, brand_guidelines').eq('id', project.brand_id).maybeSingle(),
     supabase
       .from('brand_dna')
       .select('*')
@@ -81,7 +84,10 @@ export async function GET(
     supabase.from('project_images').select('storage_url').eq('project_id', project.id),
   ])
 
-  const brand = brandRes.data as { id: string; name: string; website: string | null } | null
+  const brand = brandRes.data as {
+    id: string; name: string; website: string | null
+    brand_notes: string | null; brand_guidelines: string | null; ai_sensitivity: number | null
+  } | null
   const dna = dnaRes.data as (Record<string, unknown> & { version?: number }) | null
   const images = (imagesRes.data as Array<{ storage_url: string | null }> | null) ?? []
 
@@ -90,7 +96,15 @@ export async function GET(
     .filter((im): im is { url: string } => Boolean(im.url))
 
   return NextResponse.json({
-    brand: brand ? { id: brand.id, name: brand.name, website: brand.website } : null,
+    brand: brand ? {
+      id: brand.id, name: brand.name, website: brand.website,
+      // What the team knows about this client, and how much AI it tolerates.
+      // A creative run that does not know Noble rejects AI-looking work is
+      // going to produce AI-looking work for Noble.
+      notes: brand.brand_notes ?? null,
+      guidelines: brand.brand_guidelines ?? null,
+      ai_sensitivity: brand.ai_sensitivity ?? null,
+    } : null,
     brand_dna: dna,
     project: {
       id: project.id,
@@ -104,6 +118,11 @@ export async function GET(
       // existing consumers; these are additive.
       products: readProducts(project),
       competitors: readCompetitors(project),
+      // A creative run should know which lines were signed off and which of the
+      // client's own ads are working — both were invisible to it.
+      top_performers: readTopPerformers(project),
+      approved_copy: readCopyApprovals(project).lines.filter(l => l.status === 'approved').map(l => l.text),
+      offer_summary: Array.isArray(project.offer_summary) ? project.offer_summary : null,
       product_description: project.product_description,
       product_images_link: project.product_images_link,
       retail_price: project.retail_price,

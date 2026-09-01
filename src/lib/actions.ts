@@ -1343,20 +1343,20 @@ export async function setAssetClientVisible(
   if (!user) redirect('/login')
   if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
-  // Turning it ON freezes what the client sees to the current internal revision,
-  // matching approveAndPublishRevision. Turning it OFF leaves published_url alone
-  // so switching back on doesn't silently show a different image than before.
-  const update: { client_visible: boolean; published_url?: string } = { client_visible: visible }
-  if (visible) {
-    const { data: asset } = await supabase
-      .from('creative_assets')
-      .select('revision_url, published_url')
-      .eq('id', assetId)
-      .single()
-    if (asset?.revision_url && !asset.published_url) update.published_url = asset.revision_url
-  }
-
-  const { error } = await supabase.from('creative_assets').update(update).eq('id', assetId)
+  // published_url is NOT touched here, in either direction.
+  //
+  // It used to default to revision_url when turning visibility on and
+  // published_url was null. But null means two different things — "no version has
+  // ever been chosen" AND "the Original was chosen", because publishing the
+  // Original writes null. So an editor who deliberately published the Original,
+  // hid the ad, then unhid it, silently moved the client onto the latest edit.
+  //
+  // The version stack is the explicit control for which version the client sees.
+  // This switch answers only whether they see it at all.
+  const { error } = await supabase
+    .from('creative_assets')
+    .update({ client_visible: visible })
+    .eq('id', assetId)
   if (error) throw new Error(`Failed to update visibility: ${error.message}`)
 
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)
@@ -2840,24 +2840,40 @@ export async function fetchProductThumbnails(
 
   const { readProducts } = await import('@/lib/products')
   const products = readProducts(project as { products?: unknown })
-  const withLinks = products.filter(p => p.url)
+  const withLinks = products.filter(p => p.url && !p.image_url)
   if (!withLinks.length) {
-    return { ok: false, error: 'No product links to read yet — add a link to a product first.' }
+    return { ok: false, error: products.some(p => p.url)
+      ? 'Every linked product already has an image. Remove one in the editor to re-fetch it.'
+      : 'No product links to read yet — add a link to a product first.' }
   }
 
   const { fetchProductThumbnail } = await import('@/lib/product-thumbs')
 
   // Sequential on purpose. This hits a client's live storefront; a burst of 20
   // parallel requests from one IP is how you get rate-limited by their CDN.
+  //
+  // Only products with NO image are fetched. A pasted screenshot is a deliberate
+  // choice — someone looked at the store, decided the product page photo was
+  // wrong or missing, and took their own. Overwriting that with the store's
+  // image undoes the fix every time this button is pressed.
+  const fetched = new Map<string, string>()
   let found = 0, skipped = 0
-  const next = [...products]
-  for (let i = 0; i < next.length; i++) {
-    const p = next[i]
-    if (!p.url) continue
-    const r = await fetchProductThumbnail(p.url)
-    if (r.image) { next[i] = { ...p, image_url: r.image }; found++ }
+  for (const prod of products) {
+    if (!prod.url || prod.image_url) continue
+    const r = await fetchProductThumbnail(prod.url)
+    if (r.image) { fetched.set(prod.id, r.image); found++ }
     else if (r.reason === 'not-a-product-page') skipped++
   }
+
+  // RE-READ before writing. The loop above can run for minutes; the list read at
+  // the start is stale by now, and writing it back would silently undo anything
+  // saved in the meantime. Merge onto what is there NOW, by product id.
+  const { data: fresh } = await supabase
+    .from('projects').select('products').eq('id', projectId).single()
+  const current = readProducts(fresh as { products?: unknown })
+  const next = current.map(prod =>
+    !prod.image_url && fetched.has(prod.id) ? { ...prod, image_url: fetched.get(prod.id)! } : prod,
+  )
 
   const { error } = await supabase.from('projects').update({ products: next }).eq('id', projectId)
   if (error) return { ok: false, error: `Found ${found} but could not save: ${error.message}` }
