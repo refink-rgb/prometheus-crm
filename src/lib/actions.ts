@@ -2886,11 +2886,10 @@ export async function saveCopyApprovals(
   projectId: string,
   brandId: string,
   verdicts: { text: string; status: 'approved' | 'rejected' }[],
-  // When true, every line that is not approved is DELETED from the copy deck —
-  // rejected and never-reviewed alike. The caller is expected to have said so
-  // out loud first; see CopyApprovalDeck's confirm step.
-  prune = false,
-): Promise<{ ok: true; by: string; at: string; removed: number } | { ok: false; error: string }> {
+): Promise<{ ok: true; by: string; at: string } | { ok: false; error: string }> {
+  // Sign-off does NOT delete copy. Lines that are not approved are hidden by the
+  // deck, not removed from the project — a verdict is a view, and deleting on
+  // save meant a routine click could bin lines nobody had reviewed yet.
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
@@ -2911,7 +2910,7 @@ export async function saveCopyApprovals(
 
   const { data: existing } = await supabase
     .from('projects')
-    .select('copy_approvals, ad_headlines, ad_subcopies, ad_eyebrows')
+    .select('copy_approvals')
     .eq('id', projectId)
     .single()
 
@@ -2934,46 +2933,19 @@ export async function saveCopyApprovals(
   // an unbounded audit trail on a JSONB column is a slow page, not a feature.
   const log = [entry, ...prev.log].slice(0, 25)
 
-  const patch: Record<string, unknown> = {}
-  const removedNow: { text: string; column: string; status: 'rejected' | 'unreviewed'; at: string; by: string }[] = []
-
-  if (prune) {
-    // Keep only what is APPROVED. Rejected and never-reviewed both go, which is
-    // what was asked for — but every removed line is archived below, because a
-    // deck is hours of work and an accidental prune must not be terminal.
-    const approved = new Set(lines.filter(l => l.status === 'approved').map(l => l.text.trim()))
-    const rejected = new Set(lines.filter(l => l.status === 'rejected').map(l => l.text.trim()))
-
-    for (const col of ['ad_headlines', 'ad_subcopies', 'ad_eyebrows'] as const) {
-      const before: string[] = Array.isArray(existing?.[col]) ? existing[col] as string[] : []
-      const after = before.filter(x => approved.has((x ?? '').trim()))
-      if (after.length !== before.length) {
-        patch[col] = after
-        for (const gone of before.filter(x => !approved.has((x ?? '').trim()))) {
-          removedNow.push({
-            text: gone,
-            column: col,
-            status: rejected.has((gone ?? '').trim()) ? 'rejected' : 'unreviewed',
-            at, by,
-          })
-        }
-      }
-    }
-  }
-
-  // Archive is capped like the log: enough to undo a mistake, not an unbounded
-  // second copy of every deck the project ever had.
-  const removed = [...removedNow, ...prev.removed].slice(0, 200)
-  patch.copy_approvals = { lines, log, removed }
-
-  const { error } = await supabase.from('projects').update(patch).eq('id', projectId)
+  const { error } = await supabase
+    .from('projects')
+    .update({ copy_approvals: { lines, log, removed: prev.removed } })
+    .eq('id', projectId)
   if (error) return { ok: false, error: `Could not save: ${error.message}` }
 
   revalidatePath(`/preview/project/${projectId}`)
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)
-  return { ok: true, by, at, removed: removedNow.length }
+  return { ok: true, by, at }
 }
 
+// Recovery only. Nothing prunes any more, but a deck pruned before that changed
+// still has its lines archived, and they should not be stranded there.
 // Put back everything a prune removed. The archive exists so a mis-click is a
 // click to undo rather than an afternoon of rewriting copy.
 export async function restorePrunedCopy(

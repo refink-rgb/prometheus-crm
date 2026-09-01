@@ -30,7 +30,6 @@ export default function CopyApprovalDeck({
   const [pending, startTransition] = useTransition()
   const [err, setErr] = useState('')
   const [copied, setCopied] = useState<string | null>(null)
-  const [confirming, setConfirming] = useState(false)
   const [note, setNote] = useState('')
 
   // Seeded from what is saved; edits live here until Save.
@@ -60,23 +59,24 @@ export default function CopyApprovalDeck({
   const set = (line: string, next: Status) =>
     setDraft(prev => ({ ...prev, [line]: prev[line] === next ? null : next }))
 
-  // Everything that is not approved, which is what a prune deletes. Counted
-  // separately from `rejected` so the confirm can be honest that lines nobody
-  // has looked at go too.
   const total = columns.reduce((n, c) => n + c.lines.length, 0)
-  const willDelete = total - counts.approved
-  const neverReviewed = total - counts.approved - counts.rejected
 
-  function save(prune: boolean) {
-    setErr(''); setNote(''); setConfirming(false)
+  // Once anything has been approved, the deck shows the approved set by default.
+  // Nothing is deleted — a verdict changes what you look at, not what exists —
+  // so this is reversible with one click and there is nothing to confirm.
+  const anyApproved = counts.approved > 0
+  const [showAll, setShowAll] = useState(false)
+  const hidden = anyApproved && !showAll ? total - counts.approved : 0
+
+  function save() {
+    setErr(''); setNote('')
     startTransition(async () => {
       try {
         const verdicts = Object.entries(draft)
           .filter(([, v]) => v !== null)
           .map(([text, status]) => ({ text, status: status as 'approved' | 'rejected' }))
-        const r = await saveCopyApprovals(projectId, brandId, verdicts, prune)
+        const r = await saveCopyApprovals(projectId, brandId, verdicts)
         if (!r.ok) { setErr(r.error); return }
-        if (r.removed) setNote(`${r.removed} line${r.removed === 1 ? '' : 's'} removed from the deck.`)
         router.refresh()
       } catch (e) {
         setErr(e instanceof Error ? e.message : 'Could not save.')
@@ -104,9 +104,13 @@ export default function CopyApprovalDeck({
         {columns.filter(c => c.lines.length).map(col => (
           <div key={col.label}>
             <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: 6 }}>
-              {col.label} ({col.lines.length})
+              {col.label} ({anyApproved && !showAll
+                ? col.lines.filter(l => (draft[l] ?? null) === 'approved').length
+                : col.lines.length})
             </div>
-            {col.lines.map((line, i) => {
+            {col.lines
+              .filter(line => !(anyApproved && !showAll) || (draft[line] ?? null) === 'approved')
+              .map((line, i) => {
               const v = draft[line] ?? null
               const who = verdictFor(approvals, line)
               return (
@@ -157,38 +161,31 @@ export default function CopyApprovalDeck({
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
-        {/* Saving prunes the deck to the approved lines. It is destructive and
-            it takes unreviewed lines with it, so it says so and waits — but the
-            removal is archived, so the confirm is a speed bump, not a gate. */}
-        {confirming ? (
-          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 12, color: 'var(--urgent-soon)' }}>
-              Removes {willDelete} line{willDelete === 1 ? '' : 's'} from the deck
-              {neverReviewed > 0 && `, ${neverReviewed} of which nobody has reviewed`}. You can undo it.
-            </span>
-            <button onClick={() => save(true)} disabled={pending} style={{ fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 8, border: '1px solid var(--danger)', background: 'none', color: 'var(--danger)', cursor: 'pointer' }}>
-              {pending ? 'Saving…' : `Remove ${willDelete} & save`}
-            </button>
-            <button onClick={() => setConfirming(false)} disabled={pending} style={{ fontSize: 12, fontWeight: 600, padding: '7px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
-              Cancel
-            </button>
-          </div>
-        ) : (
-          <button
-            onClick={() => (willDelete > 0 && counts.approved > 0 ? setConfirming(true) : save(false))}
-            disabled={pending || !dirty}
-            style={{
-              fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 8, cursor: pending ? 'wait' : dirty ? 'pointer' : 'not-allowed',
-              border: `1px solid ${dirty ? 'var(--accent)' : 'var(--border)'}`,
-              background: dirty ? 'var(--accent-muted)' : 'transparent',
-              color: dirty ? 'var(--accent)' : 'var(--text-muted)',
-            }}
-          >{pending ? 'Saving…' : dirty ? 'Save sign-off' : 'Saved'}</button>
-        )}
+        <button
+          onClick={save}
+          disabled={pending || !dirty}
+          style={{
+            fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 8, cursor: pending ? 'wait' : dirty ? 'pointer' : 'not-allowed',
+            border: `1px solid ${dirty ? 'var(--accent)' : 'var(--border)'}`,
+            background: dirty ? 'var(--accent-muted)' : 'transparent',
+            color: dirty ? 'var(--accent)' : 'var(--text-muted)',
+          }}
+        >{pending ? 'Saving…' : dirty ? 'Save sign-off' : 'Saved'}</button>
 
         <span style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
           {counts.approved} approved · {counts.rejected} rejected
         </span>
+
+        {anyApproved && (
+          <button
+            onClick={() => setShowAll(v => !v)}
+            style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--accent)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+          >
+            {showAll
+              ? 'Show approved only'
+              : `Show all ${total} · ${hidden} hidden`}
+          </button>
+        )}
 
         {latest && (
           <span style={{ fontSize: 11.5, color: 'var(--text-muted)', marginLeft: 'auto' }}>
