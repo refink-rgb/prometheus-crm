@@ -136,9 +136,9 @@ FROM (
       )
       ORDER BY t.ord
     ) AS arr
-  FROM public.projects p2,
-       regexp_split_to_table(p2.product_featured, '\s*[;|]\s*')
-         WITH ORDINALITY AS t(part, ord)
+  FROM public.projects p2
+  CROSS JOIN LATERAL unnest(string_to_array(p2.product_featured, ';'))
+    WITH ORDINALITY AS t(part, ord)
   WHERE p2.products IS NULL
     AND p2.product_featured IS NOT NULL
     AND btrim(p2.product_featured) <> ''
