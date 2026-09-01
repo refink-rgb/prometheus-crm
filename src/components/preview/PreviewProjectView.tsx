@@ -29,6 +29,7 @@ import ProductGroupEditor from '@/components/preview/ProductGroupEditor'
 import CopyApprovalDeck from '@/components/preview/CopyApprovalDeck'
 import BrandBrief from '@/components/preview/BrandBrief'
 import DriveSyncBar from '@/components/preview/DriveSyncBar'
+import NextStep from '@/components/preview/NextStep'
 import BrandGuidelines from '@/components/preview/BrandGuidelines'
 import { summariseProjectOffer, fetchProductThumbnails } from '@/lib/actions'
 import { projectBriefMarkdown } from '@/lib/markdown-export'
@@ -974,6 +975,12 @@ export default function PreviewProjectView({
 
           {tab === 'lp' && (
             <>
+              <NextStep
+                projectId={p.id} brandId={p.brand_id}
+                track="lp_stage" stage={p.lp_stage}
+                label="Landing page" disabled={p.is_complete}
+              />
+
               {/* Build-state, above the first card and deliberately not a card:
                   it must never become a nav destination. Three lock states, not
                   one alarm — 50 of 66 built pages sit on an unlocked offer, and
@@ -1353,6 +1360,15 @@ export default function PreviewProjectView({
                 brandId={p.brand_id}
                 folderUrl={p.drive_folder_url}
                 assetCount={visibleAssets.length}
+              />
+
+              {/* The answer to "where do I submit my work". It used to be a
+                  seven-step rail behind a disclosure called "Move a stage" —
+                  a description of the data model, not an instruction. */}
+              <NextStep
+                projectId={p.id} brandId={p.brand_id}
+                track="creatives_stage" stage={p.creatives_stage}
+                label="Creatives" disabled={p.is_complete}
               />
 
               {/* One card, not three. Creative Brief, Copy Deck and Drive Folder
