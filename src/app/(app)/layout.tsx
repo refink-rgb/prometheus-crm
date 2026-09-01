@@ -16,9 +16,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const isEditor = await canEdit(user.email)
 
   // RLS grants any authenticated user full read/write — canEdit() is the only
-  // access boundary in the app. Without this check, anyone who signs in (even
-  // a self-created account, see login/page.tsx) could view every brand,
-  // project, and financial figure in the CRM even though they can't mutate.
+  // access boundary in the app. Accounts cannot be self-created: the login page
+  // passes shouldCreateUser: false, so someone must be added in Supabase Auth
+  // first. This check is what stops an account that exists but has not been
+  // granted can_edit from seeing every brand, project and financial figure.
   if (!isEditor) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
