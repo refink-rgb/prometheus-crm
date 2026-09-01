@@ -1,7 +1,18 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import type { Project, Brand, CreativeAsset, ProjectComment, BrandDna, ProjectImage } from '@/lib/types'
+import type { Project, Brand, CreativeAsset, ProjectComment, BrandDna, ProjectImage, Journey, Profile } from '@/lib/types'
+import ProjectEditForm from '@/components/ProjectEditForm'
+import StageTracker from '@/components/StageTracker'
+import CopyDeckPanel from '@/components/CopyDeckPanel'
+import CreativeAssetsManager from '@/components/CreativeAssetsManager'
+import ClientFeedbackPanel from '@/components/ClientFeedbackPanel'
+import CampaignTrackingPanel from '@/components/CampaignTrackingPanel'
+import type { TrackedCampaign } from '@/lib/results'
+import { hypercareFor, hypercareCopyMessage } from '@/lib/hypercare'
+import ShareButton from '@/components/ShareButton'
+import { markProjectComplete, deleteProject } from '@/lib/actions'
+import SubmitButton from '@/components/SubmitButton'
 import type { AssetRevision } from '@/lib/revisions'
 import ReviewWorkspace from '@/components/preview/ReviewWorkspace'
 import Link from 'next/link'
@@ -175,12 +186,13 @@ function CommentList({ comments, empty }: { comments: ProjectComment[]; empty: s
 }
 
 export default function PreviewProjectView({
-  project: p, brand, assets, comments, images, dna, revisionsByAsset, lpEditorName, creativeEditorName, journeyName,
+  project: p, brand, assets, comments, images, dna, revisionsByAsset, lpEditorName, creativeEditorName, journeyName, journeys, profiles, campaigns, todayIso,
 }: {
   project: Project; brand: Brand; assets: CreativeAsset[]; comments: ProjectComment[]
   images: ProjectImage[]; dna: BrandDna | null
   revisionsByAsset: Record<string, AssetRevision[]>
   lpEditorName: string | null; creativeEditorName: string | null; journeyName: string | null
+  journeys: Journey[]; profiles: Profile[]; campaigns: TrackedCampaign[]; todayIso: string
 }) {
   const [tab, setTab] = useState<Tab>('overview')
   // Which section the reader is actually in, so the sub-nav reports position
@@ -206,6 +218,9 @@ export default function PreviewProjectView({
   const skus = useMemo(() => products.map(x => x.name), [products])
 
   const [editing, setEditing] = useState<null | 'products' | 'competitors'>(null)
+  // Noble never generates AI copy — Lucas Dias writes it. Checked here as well
+  // as in the action so the button is never even offered.
+  const hypercareRule = hypercareFor(brand?.name)
   const [summary, setSummary] = useState<string[] | null>(null)
   const [summarising, setSummarising] = useState(false)
   const [summaryErr, setSummaryErr] = useState('')
@@ -394,6 +409,12 @@ export default function PreviewProjectView({
                 </span>
               )}
             </div>
+            {/* The client review link. The visibility switches in Review decide
+                WHAT the client sees; this is the URL they see it at, and without
+                it those switches have no reachable payoff. */}
+            <div style={{ marginTop: 8 }}>
+              <ShareButton projectId={p.id} initialToken={p.share_token} />
+            </div>
             {/* Same exporter the live page uses, so an editor copying from
                 either screen pastes byte-identical markdown. */}
             <CopyMarkdownButton
@@ -407,6 +428,10 @@ export default function PreviewProjectView({
               title="Copy every filled-in brief field as markdown"
               style={{ marginTop: 8 }}
             />
+            <button
+              onClick={() => window.dispatchEvent(new Event('prometheus-open-edit'))}
+              style={{ marginTop: 8, marginLeft: 8, fontSize: 12, fontWeight: 600, padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}
+            >✏ Edit details</button>
           </div>
         </div>
         {/* Two inert 7-step rails cost ~240px and rendered the pipeline at a
@@ -433,6 +458,17 @@ export default function PreviewProjectView({
             {p.is_complete ? <span style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, background: 'var(--complete-bg)', color: 'var(--complete-text)' }}>Complete</span> : null}
           </div>
 
+          {/* The pills above say where the project IS. This is how it MOVES.
+              Behind a disclosure because advancing a stage is a once-a-week act
+              and the two 7-step rails cost ~240px of permanent header. */}
+          <details style={{ marginTop: 12 }}>
+            <summary style={{ fontSize: 11, color: 'var(--text-secondary)', cursor: 'pointer' }}>Move a stage</summary>
+            <div style={{ marginTop: 8 }}>
+              <StageTracker projectId={p.id} brandId={p.brand_id} track="lp_stage" currentStage={p.lp_stage} label="Landing Page" />
+              <StageTracker projectId={p.id} brandId={p.brand_id} track="creatives_stage" currentStage={p.creatives_stage} label="Creatives / Statics" />
+            </div>
+          </details>
+
           {/* Present-only. 16 of 66 projects have no stage dates at all and used
               to get a row of five em-dashes as the first thing on the tab. */}
           {stageDates.length > 0 && (
@@ -447,6 +483,52 @@ export default function PreviewProjectView({
           )}
         </div>
       </div>
+
+      {/* Every scalar field on the project. The preview rebuilt the reading of
+          these fields; this is the writing of them, unchanged from the live page
+          so there is exactly one edit form in the app. It opens on the
+          prometheus-open-edit event, which the button below dispatches. */}
+      <ProjectEditForm
+        projectId={p.id}
+        brandId={p.brand_id}
+        journeys={journeys}
+        profiles={profiles}
+        initial={{
+          name: p.name,
+          due_date: p.due_date,
+          stage_brief_due_date: p.stage_brief_due_date,
+          stage_in_progress_due_date: p.stage_in_progress_due_date,
+          stage_internal_review_due_date: p.stage_internal_review_due_date,
+          stage_client_review_due_date: p.stage_client_review_due_date,
+          offer_description: p.offer_description,
+          offer: p.offer,
+          cta: p.cta,
+          headline: p.headline,
+          body_copy: p.body_copy,
+          supporting_message: p.supporting_message,
+          journey_id: p.journey_id,
+          marketing_moment: p.marketing_moment,
+          page_type: p.page_type,
+          product_featured: p.product_featured,
+          product_description: p.product_description,
+          retail_price: p.retail_price,
+          offer_dynamics_type: p.offer_dynamics_type,
+          competitor_reference: p.competitor_reference,
+          client_ad_inspiration: p.client_ad_inspiration,
+          ad_copy_primary_text: p.ad_copy_primary_text,
+          ad_copy_description: p.ad_copy_description,
+          ad_copy_url: p.ad_copy_url,
+          ad_headlines: p.ad_headlines,
+          ad_subcopies: p.ad_subcopies,
+          ad_eyebrows: p.ad_eyebrows,
+          product_images_link: p.product_images_link,
+          lp_url: p.lp_url,
+          creatives_notes: p.creatives_notes,
+          shopify_coupon_code: p.shopify_coupon_code,
+          lp_editor_id: p.lp_editor_id,
+          creative_editor_id: p.creative_editor_id,
+        }}
+      />
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 24, borderBottom: '1px solid var(--border)', marginBottom: 20 }}>
@@ -1054,30 +1136,21 @@ export default function PreviewProjectView({
               {/* 5 — feedback */}
               {lpComments.length > 0 && (
                 <Card id="feedback" title="Client feedback" purpose="What the client said about the page you already built — open items first.">
-                  <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: 8 }}>
-                    Open ({lpOpen.length})
-                  </div>
-                  <CommentList comments={lpOpen} empty="Nothing open — everything the client raised has been handled." />
+                  {/* The real panel: resolve toggles, per-asset grouping and pin
+                      numbers. The preview's own grouping was read-only, so an
+                      editor could see feedback here but only tick it off
+                      somewhere else. */}
+                  <ClientFeedbackPanel
+                    lpFeedback={lpOpen.concat(lpResolved)}
+                    creativeFeedback={[]}
+                    assets={assets}
+                    lpApproved={p.lp_approved}
+                    creativesApproved={p.creatives_approved}
+                    projectId={p.id}
+                    brandId={p.brand_id}
+                    canResolve
+                  />
 
-                  {lpResolved.length > 0 && (
-                    <div style={{ marginTop: 20 }}>
-                      {/* A resolved backlog is history, not work: 127 of 168 lp
-                          comments are resolved, and one project's 28 are all done. */}
-                      {lpResolved.length > 5 ? (
-                        <details>
-                          <summary style={{ fontSize: 11, color: 'var(--text-secondary)', cursor: 'pointer' }}>Show {lpResolved.length} resolved</summary>
-                          <div style={{ marginTop: 12 }}><CommentList comments={lpResolved} empty="" /></div>
-                        </details>
-                      ) : (
-                        <>
-                          <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: 8 }}>
-                            Resolved ({lpResolved.length})
-                          </div>
-                          <CommentList comments={lpResolved} empty="" />
-                        </>
-                      )}
-                    </div>
-                  )}
                 </Card>
               )}
 
@@ -1403,6 +1476,23 @@ export default function PreviewProjectView({
                         </div>
                       ))}
                   </div>
+
+                  {/* Editing and generation, behind the read view. The columns
+                      above stay because they are what an editor uses 95% of the
+                      time — lifting a line, not rewriting the deck. */}
+                  <details style={{ marginTop: 16 }}>
+                    <summary style={{ fontSize: 11, color: 'var(--text-secondary)', cursor: 'pointer' }}>Edit or generate copy</summary>
+                    <div style={{ marginTop: 12 }}>
+                      <CopyDeckPanel
+                        projectId={p.id}
+                        brandId={p.brand_id}
+                        initialHeadlines={p.ad_headlines ?? []}
+                        initialEyebrows={p.ad_eyebrows ?? []}
+                        initialSubcopies={p.ad_subcopies ?? []}
+                        hypercareContact={hypercareRule ? hypercareCopyMessage(hypercareRule) : null}
+                      />
+                    </div>
+                  </details>
                 </Card>
               )}
 
@@ -1423,10 +1513,70 @@ export default function PreviewProjectView({
                   </Link>
                 </div>
                 <ReviewWorkspace projectId={p.id} brandId={p.brand_id} assets={assets} comments={creativeComments} revisionsByAsset={revisionsByAsset} />
+
+                {/* Whole-folder work: Drive sync, bulk publish, purge, archive.
+                    ReviewWorkspace is the per-ad verdict loop; this is what sits
+                    either side of it. Collapsed because it is used at the start
+                    and end of a batch, not during. */}
+                <details style={{ marginTop: 20 }}>
+                  <summary style={{ fontSize: 11, color: 'var(--text-secondary)', cursor: 'pointer' }}>Manage assets &amp; Drive sync</summary>
+                  <div style={{ marginTop: 12 }}>
+                    <CreativeAssetsManager
+                      projectId={p.id}
+                      brandId={p.brand_id}
+                      initialFolderUrl={p.drive_folder_url}
+                      initialAssets={assets}
+                      imageComments={creativeComments}
+                    />
+                  </div>
+                </details>
+
+                {/* Which Meta campaigns these creatives went live in. Without it
+                    the Results pipeline has no link back to the project. */}
+                <details style={{ marginTop: 12 }}>
+                  <summary style={{ fontSize: 11, color: 'var(--text-secondary)', cursor: 'pointer' }}>Campaign tracking</summary>
+                  <div style={{ marginTop: 12 }}>
+                    <CampaignTrackingPanel projectId={p.id} brandId={p.brand_id} campaigns={campaigns} todayIso={todayIso} canEdit />
+                  </div>
+                </details>
               </Card>
             </>
           )}
         </div>
+      </div>
+
+      {/* Lifecycle, last and quiet — out of the working path. Completing is
+          reversible and archival; deleting is neither, so it stays behind its
+          own disclosure. */}
+      <div style={{ marginTop: 40, paddingTop: 20, borderTop: '1px solid var(--border)' }}>
+        {!p.is_complete && p.lp_stage === 'live' && p.creatives_stage === 'live' && (
+          <form action={markProjectComplete.bind(null, p.id, p.brand_id)} style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, maxWidth: '60ch' }}>
+              Both tracks are live. Marking complete archives the project and surfaces its deliverables — nothing is deleted.
+            </div>
+            <SubmitButton
+              pendingText="Marking complete…"
+              style={{ background: 'var(--complete)', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+            >
+              Mark complete
+            </SubmitButton>
+          </form>
+        )}
+
+        <details>
+          <summary style={{ fontSize: 11, color: 'var(--text-muted)', cursor: 'pointer' }}>Delete this project</summary>
+          <form action={deleteProject.bind(null, p.id, p.brand_id)} style={{ marginTop: 12 }}>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, maxWidth: '60ch' }}>
+              Permanent. Deletes the project and everything attached to it — creatives, comments, revisions.
+            </div>
+            <SubmitButton
+              pendingText="Deleting…"
+              style={{ background: 'none', color: 'var(--danger)', border: '1px solid var(--danger)', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+            >
+              Delete permanently
+            </SubmitButton>
+          </form>
+        </details>
       </div>
     </div>
   )

@@ -3,7 +3,9 @@ import { createClient, getCachedUser } from '@/lib/supabase/server'
 import { canEdit } from '@/lib/permissions'
 import { getCachedProfiles } from '@/lib/profiles'
 import { getRevisionsByAsset } from '@/lib/revisions'
-import type { Project, Brand, CreativeAsset, ProjectComment, BrandDna, ProjectImage } from '@/lib/types'
+import { easternToday } from '@/lib/eastern'
+import type { TrackedCampaign } from '@/lib/results'
+import type { Project, Brand, CreativeAsset, ProjectComment, BrandDna, ProjectImage, Journey } from '@/lib/types'
 import PreviewProjectView from '@/components/preview/PreviewProjectView'
 
 // PREVIEW ROUTE — deliberately not in the sidebar nav.
@@ -39,6 +41,8 @@ export default async function PreviewProjectPage({
     { data: imagesRaw },
     { data: dnaRaw },
     { data: journey },
+    { data: brandJourneysRaw },
+    { data: trackedCampaignsRaw },
     profiles,
   ] = await Promise.all([
     supabase.from('brands').select('id, name').eq('id', p.brand_id).single(),
@@ -51,6 +55,14 @@ export default async function PreviewProjectPage({
     p.journey_id
       ? supabase.from('journeys').select('name').eq('id', p.journey_id).maybeSingle()
       : Promise.resolve({ data: null }),
+    // The edit form needs every journey for the brand, not just this project's.
+    supabase.from('journeys').select('*').eq('brand_id', p.brand_id).order('created_at', { ascending: true }),
+    // Same tolerant select the live page uses — the table may not exist yet.
+    supabase
+      .from('tracked_campaigns')
+      .select('id, project_id, brand_id, meta_ad_account_id, meta_campaign_id, campaign_name, meta_adset_id, adset_name, moment_group_id, moment_group_label, launched_on, ended_on, created_at')
+      .eq('project_id', projectId)
+      .order('launched_on', { ascending: false }),
     getCachedProfiles(),
   ])
 
@@ -69,6 +81,10 @@ export default async function PreviewProjectPage({
       lpEditorName={profiles.find(x => x.id === p.lp_editor_id)?.full_name ?? null}
       creativeEditorName={profiles.find(x => x.id === p.creative_editor_id)?.full_name ?? null}
       journeyName={(journey as { name: string } | null)?.name ?? null}
+      journeys={(brandJourneysRaw ?? []) as Journey[]}
+      profiles={profiles}
+      campaigns={(trackedCampaignsRaw ?? []) as unknown as TrackedCampaign[]}
+      todayIso={easternToday()}
     />
   )
 }
