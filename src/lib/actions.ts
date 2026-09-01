@@ -2638,7 +2638,7 @@ export async function updateProjectLists(
   projectId: string,
   brandId: string,
   values: {
-    products?: { id?: string; name: string; url?: string | null; assets_url?: string | null; group?: string | null }[]
+    products?: { id?: string; name: string; url?: string | null; assets_url?: string | null; group?: string | null; image_url?: string | null }[]
     competitors?: { id?: string; name: string; site_url?: string | null; motion_url?: string | null }[]
     top_performers?: { id?: string; name: string; motion_url?: string | null; link?: string | null }[]
   },
@@ -2656,7 +2656,7 @@ export async function updateProjectLists(
 
   if (Array.isArray(values.products)) {
     const rows = values.products.slice(0, MAX_LIST_ROWS)
-      .map(r => ({ id: text(r.id) || newId(), name: text(r.name), url: link(r.url), assets_url: link(r.assets_url), group: text(r.group) || null }))
+      .map(r => ({ id: text(r.id) || newId(), name: text(r.name), url: link(r.url), assets_url: link(r.assets_url), group: text(r.group) || null, image_url: link(r.image_url) }))
       .filter(r => r.name.length > 0)  // an unnamed row is worse than no row
     patch.products = rows
     // The mirror. Several surfaces still read product_featured, including the
@@ -2772,4 +2772,59 @@ export async function proposeProjectProducts(
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : 'Could not read the brief.' }
   }
+}
+
+
+// Pull a thumbnail for every product that has a link, and cache it on the row.
+//
+// Fetched on demand and stored, never fetched on render: a project page must not
+// depend on someone else's storefront being up, and 179 products would otherwise
+// mean 179 outbound requests per page view.
+//
+// Products WITHOUT a link are left alone — there is nothing to look at. Products
+// whose link is a collection or campaign page are also left alone rather than
+// given the store logo, which is what og:image returns for those.
+export async function fetchProductThumbnails(
+  projectId: string,
+  brandId: string,
+): Promise<{ ok: true; found: number; checked: number; skipped: number } | { ok: false; error: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
+
+  const { data: project } = await supabase
+    .from('projects')
+    .select('products')
+    .eq('id', projectId)
+    .single()
+  if (!project) return { ok: false, error: 'Project not found.' }
+
+  const { readProducts } = await import('@/lib/products')
+  const products = readProducts(project as { products?: unknown })
+  const withLinks = products.filter(p => p.url)
+  if (!withLinks.length) {
+    return { ok: false, error: 'No product links to read yet — add a link to a product first.' }
+  }
+
+  const { fetchProductThumbnail } = await import('@/lib/product-thumbs')
+
+  // Sequential on purpose. This hits a client's live storefront; a burst of 20
+  // parallel requests from one IP is how you get rate-limited by their CDN.
+  let found = 0, skipped = 0
+  const next = [...products]
+  for (let i = 0; i < next.length; i++) {
+    const p = next[i]
+    if (!p.url) continue
+    const r = await fetchProductThumbnail(p.url)
+    if (r.image) { next[i] = { ...p, image_url: r.image }; found++ }
+    else if (r.reason === 'not-a-product-page') skipped++
+  }
+
+  const { error } = await supabase.from('projects').update({ products: next }).eq('id', projectId)
+  if (error) return { ok: false, error: `Found ${found} but could not save: ${error.message}` }
+
+  revalidatePath(`/preview/project/${projectId}`)
+  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+  return { ok: true, found, checked: withLinks.length, skipped }
 }

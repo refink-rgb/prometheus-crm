@@ -46,7 +46,7 @@ export default function ProductGroupEditor({
     setRows(prev => prev.map(r => (r._key === key ? { ...r, [field]: v } : r)))
 
   const addTo = (group: string | null) =>
-    setRows(prev => [...prev, { _key: newKey(), id: '', name: '', url: null, assets_url: null, group }])
+    setRows(prev => [...prev, { _key: newKey(), id: '', name: '', url: null, assets_url: null, group, image_url: null }])
 
   const renameGroup = (from: string | null, to: string) =>
     setRows(prev => prev.map(r => ((r.group || null) === from ? { ...r, group: to || null } : r)))
@@ -77,7 +77,7 @@ export default function ProductGroupEditor({
       const r = await proposeProjectProducts(projectId)
       if (!r.ok) { setErr(r.error); return }
       setRows(r.products.map(p => ({
-        _key: newKey(), id: '', name: p.name, url: p.url, assets_url: null, group: p.group,
+        _key: newKey(), id: '', name: p.name, url: p.url, assets_url: null, group: p.group, image_url: null,
       })))
       setNote(`Read ${r.products.length} product${r.products.length === 1 ? '' : 's'} from the brief. Nothing is saved until you press Save.`)
     } catch (e) {
@@ -126,7 +126,7 @@ export default function ProductGroupEditor({
       ))}
 
       <button
-        onClick={() => setRows(prev => [...prev, { _key: newKey(), id: '', name: '', url: null, assets_url: null, group: `Bundle ${groups.filter(Boolean).length + 1}` }])}
+        onClick={() => setRows(prev => [...prev, { _key: newKey(), id: '', name: '', url: null, assets_url: null, group: `Bundle ${groups.filter(Boolean).length + 1}`, image_url: null }])}
         style={{ ...ghostBtn, borderStyle: 'solid' }}
       >+ Add a group</button>
 

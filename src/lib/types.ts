@@ -240,6 +240,12 @@ export interface ProjectProduct {
    * null = ungrouped, which is what all 179 backfilled products are.
    */
   group: string | null
+  /**
+   * Thumbnail pulled from the product page, cached here so the Creatives tab
+   * has a visual reference without anyone uploading anything. Refreshed on
+   * demand, never on render — see fetchProductThumbnails.
+   */
+  image_url: string | null
 }
 
 /** The client's own best-performing creative, from Motion. Not a competitor. */

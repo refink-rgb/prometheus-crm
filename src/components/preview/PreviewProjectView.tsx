@@ -20,7 +20,7 @@ import CopyMarkdownButton from '@/components/CopyMarkdownButton'
 import ListEditor, { type ListRow } from '@/components/preview/ListEditor'
 import { readProducts, readCompetitors, readTopPerformers, groupProducts, productsDrifted, offerSource, splitSkus } from '@/lib/products'
 import ProductGroupEditor from '@/components/preview/ProductGroupEditor'
-import { summariseProjectOffer } from '@/lib/actions'
+import { summariseProjectOffer, fetchProductThumbnails } from '@/lib/actions'
 import { projectBriefMarkdown } from '@/lib/markdown-export'
 import { STAGE_COLORS } from '@/lib/stageColors'
 import { STAGE_LABELS, normalizeStage } from '@/lib/types'
@@ -227,6 +227,8 @@ export default function PreviewProjectView({
   const [summary, setSummary] = useState<string[] | null>(null)
   const [summarising, setSummarising] = useState(false)
   const [summaryErr, setSummaryErr] = useState('')
+  const [thumbing, setThumbing] = useState(false)
+  const [thumbNote, setThumbNote] = useState('')
 
   // Cached bullets are only shown while they still describe the CURRENT offer.
   // Editing the offer must not leave a confident summary of the previous one.
@@ -1352,8 +1354,19 @@ export default function PreviewProjectView({
                           )}
                           <div style={{ paddingLeft: group ? 12 : 0, borderLeft: group ? '2px solid var(--border)' : 'none' }}>
                             {items.map((prod, i) => (
-                              <div key={prod.id} style={{ display: 'flex', alignItems: 'baseline', gap: 10, padding: '8px 0', borderBottom: i < items.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                              <div key={prod.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: i < items.length - 1 ? '1px solid var(--border)' : 'none' }}>
                                 <span style={{ flexShrink: 0, width: 16, height: 16, borderRadius: 4, background: 'var(--surface-raised)', color: 'var(--text-secondary)', fontSize: 10, display: 'grid', placeItems: 'center' }}>{i + 1}</span>
+                                {/* contain, not cover — a cropped product is the
+                                    thing this whole tab exists to prevent. */}
+                                {prod.image_url ? (
+                                  <a href={prod.url ?? prod.image_url} target="_blank" rel="noreferrer" style={{ flexShrink: 0 }}>
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img src={prod.image_url} alt={prod.name} loading="lazy"
+                                      style={{ width: 44, height: 44, objectFit: 'contain', background: 'var(--surface-2)', borderRadius: 6, border: '1px solid var(--border)', display: 'block' }} />
+                                  </a>
+                                ) : (
+                                  <span style={{ flexShrink: 0, width: 44, height: 44, borderRadius: 6, background: 'var(--surface-2)', border: '1px dashed var(--border)' }} />
+                                )}
                                 <div style={{ minWidth: 0, flex: 1 }}>
                                   <div style={{ fontSize: 13, fontWeight: 600 }}>{isUrl(prod.name) ? hostOf(prod.name) : prod.name}</div>
                                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 3 }}>
@@ -1382,7 +1395,25 @@ export default function PreviewProjectView({
 
                     <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
                       <button onClick={() => setEditing('products')} style={editBtn}>{products.length ? 'Edit products & groups' : 'Add products'}</button>
+                      {products.some(x => x.url) && (
+                        <button
+                          disabled={thumbing}
+                          onClick={async () => {
+                            setThumbing(true); setThumbNote('')
+                            try {
+                              const r = await fetchProductThumbnails(p.id, p.brand_id)
+                              setThumbNote(r.ok
+                                ? `${r.found} of ${r.checked} found${r.skipped ? ` · ${r.skipped} link${r.skipped === 1 ? '' : 's'} point at a collection, not a product` : ''}`
+                                : r.error)
+                            } catch (e) {
+                              setThumbNote(e instanceof Error ? e.message : 'Could not fetch thumbnails.')
+                            } finally { setThumbing(false) }
+                          }}
+                          style={editBtn}
+                        >{thumbing ? 'Fetching…' : '⟳ Get thumbnails'}</button>
+                      )}
                     </div>
+                    {thumbNote && <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 8 }}>{thumbNote}</div>}
 
                     {(p.product_images_link || p.drive_folder_url) && (
                       <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border)' }}>

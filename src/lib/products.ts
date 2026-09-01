@@ -53,11 +53,12 @@ export function readProducts(p: ProductSource): ProjectProduct[] {
         url: safeUrl(el.url),
         assets_url: safeUrl(el.assets_url),
         group: str(el.group) || null,
+        image_url: safeUrl(el.image_url),
       }))
       .filter(x => x.name.length > 0)
   }
   return splitSkus(p.product_featured).map(name => ({
-    id: `legacy-${name}`, name, url: null, assets_url: null, group: null,
+    id: `legacy-${name}`, name, url: null, assets_url: null, group: null, image_url: null,
   }))
 }
 
