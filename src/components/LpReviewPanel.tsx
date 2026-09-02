@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useCallback, useEffect, useMemo, cloneElement } from 'react'
-import type { ReactElement, CSSProperties } from 'react'
+import type { ReactElement, CSSProperties, UIEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { addProjectComment, approveProject, deleteProjectComment } from '@/lib/actions'
 import { useConfirm } from '@/components/ConfirmDialog'
@@ -286,14 +286,14 @@ export default function LpReviewPanel({
       minHeight: 600,
       border: '1px solid var(--border)',
       borderRadius: 12,
-      overflow: 'hidden',
+      overflow: 'clip',
       background: 'var(--surface)',
     }}>
 
       {/* ══════════════════════════════════════════════════════════════
           LEFT: LP Preview
       ══════════════════════════════════════════════════════════════ */}
-      <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--surface-2)' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', overflow: 'clip', background: 'var(--surface-2)' }}>
 
         {/* Toolbar — matches Lucas's layout */}
         <div style={{
@@ -361,7 +361,7 @@ export default function LpReviewPanel({
         <div
           ref={embedRef}
           onMouseLeave={() => setFrameEngaged(false)}
-          style={{ flex: 1, overflow: 'hidden', position: 'relative', background: lpUrl ? 'var(--surface-2)' : 'var(--surface)' }}
+          style={{ flex: 1, overflow: 'clip', position: 'relative', background: lpUrl ? 'var(--surface-2)' : 'var(--surface)' }}
         >
           {lpUrl ? (
             loadState === 'error' ? (
@@ -692,6 +692,23 @@ export default function LpReviewPanel({
 // fit the measured area. Desktop = 1440px in a browser-chrome window; mobile =
 // 390×844 in a phone bezel. The child iframe keeps its ref (cloneElement only
 // merges style), so it never remounts when the device toggles.
+//
+// Every box around the iframe uses `overflow: clip`, not `hidden`. A transform
+// changes how the iframe is painted, not its layout box: the element is still
+// 1440×N logical pixels tall, so a `hidden` wrapper sized to the scaled height
+// has hundreds of pixels of scrollable overflow. `hidden` boxes can't be
+// scrolled by the reviewer, but scripts can scroll them — and when the landing
+// page scrolled one of its own elements into view (a footer signup form taking
+// focus, a chat widget, an anchor), Chrome carried the leftover scroll out of
+// the frame and into this wrapper. That shifted the iframe up inside the box,
+// leaving a short strip of page over a blank white area; the bridge's hold-top
+// then reset the page's own scroll, but not the wrapper's. `clip` forbids all
+// scrolling, programmatic included. The onScroll reset covers browsers that
+// still treat clip as hidden.
+const keepUnscrolled = (event: UIEvent<HTMLDivElement>) => {
+  event.currentTarget.scrollTop = 0
+  event.currentTarget.scrollLeft = 0
+}
 
 function DeviceFrame({
   device,
@@ -733,7 +750,7 @@ function DeviceFrame({
           background: '#0b0b0d',
           boxShadow: '0 24px 60px rgba(0,0,0,0.45)',
         }}>
-          <div style={{ position: 'relative', width: screenW, height: screenH, borderRadius: 40 * scale, overflow: 'hidden', background: '#fff' }}>
+          <div onScroll={keepUnscrolled} style={{ position: 'relative', width: screenW, height: screenH, borderRadius: 40 * scale, overflow: 'clip', background: '#fff' }}>
             {child}
             {/* Notch */}
             <div style={{
@@ -763,7 +780,7 @@ function DeviceFrame({
   try { host = url ? new URL(url).host : '' } catch { host = url ?? '' }
   return (
     <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: PAD }}>
-      <div style={{ width: frameW, borderRadius: 10, overflow: 'hidden', border: '1px solid var(--border)', boxShadow: '0 16px 48px rgba(0,0,0,0.4)', background: '#fff' }}>
+      <div onScroll={keepUnscrolled} style={{ width: frameW, borderRadius: 10, overflow: 'clip', border: '1px solid var(--border)', boxShadow: '0 16px 48px rgba(0,0,0,0.4)', background: '#fff' }}>
         {/* Browser chrome */}
         <div style={{ height: CHROME_H, background: 'var(--surface-raised)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10, padding: '0 12px', flexShrink: 0 }}>
           <div style={{ display: 'flex', gap: 6 }}>
@@ -782,7 +799,7 @@ function DeviceFrame({
             </div>
           )}
         </div>
-        <div style={{ width: frameW, height: viewportH, overflow: 'hidden', background: '#fff' }}>
+        <div onScroll={keepUnscrolled} style={{ width: frameW, height: viewportH, overflow: 'clip', background: '#fff' }}>
           {child}
         </div>
       </div>

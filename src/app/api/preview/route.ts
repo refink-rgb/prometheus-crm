@@ -428,7 +428,10 @@ const PREVIEW_BRIDGE_SCRIPT = String.raw`
   // the frame reads as blank. Hold the top until the reviewer scrolls, then get
   // out of the way.
   let reviewerScrolled = false
-  const noteInteraction = () => { reviewerScrolled = true }
+  const noteInteraction = () => {
+    reviewerScrolled = true
+    restoreScrollApis()
+  }
   for (const type of ['wheel', 'touchstart', 'keydown', 'pointerdown']) {
     window.addEventListener(type, noteInteraction, { passive: true, capture: true })
   }
@@ -437,6 +440,34 @@ const PREVIEW_BRIDGE_SCRIPT = String.raw`
     const scroller = document.scrollingElement || document.documentElement
     if (scroller && scroller.scrollTop) scroller.scrollTop = 0
     if (window.scrollY || window.scrollX) window.scrollTo(0, 0)
+  }
+  // Scrolling an element into view is not confined to this document: the
+  // browser also scrolls the review page around the frame to show the same
+  // spot, and resetting this document's scrollTop afterwards can't undo that.
+  // So until the reviewer interacts with the page, scroll-into-view calls are
+  // dropped and focus() keeps its position. A reviewer's own click on an anchor
+  // counts as interaction, so those still scroll as they should.
+  const nativeScrollIntoView = Element.prototype.scrollIntoView
+  const nativeScrollIntoViewIfNeeded = Element.prototype.scrollIntoViewIfNeeded
+  const nativeFocus = HTMLElement.prototype.focus
+  Element.prototype.scrollIntoView = function (...args) {
+    if (!reviewerScrolled) return
+    return nativeScrollIntoView.apply(this, args)
+  }
+  if (nativeScrollIntoViewIfNeeded) {
+    Element.prototype.scrollIntoViewIfNeeded = function (...args) {
+      if (!reviewerScrolled) return
+      return nativeScrollIntoViewIfNeeded.apply(this, args)
+    }
+  }
+  HTMLElement.prototype.focus = function (options) {
+    if (reviewerScrolled) return nativeFocus.call(this, options)
+    return nativeFocus.call(this, Object.assign({}, options, { preventScroll: true }))
+  }
+  const restoreScrollApis = () => {
+    Element.prototype.scrollIntoView = nativeScrollIntoView
+    if (nativeScrollIntoViewIfNeeded) Element.prototype.scrollIntoViewIfNeeded = nativeScrollIntoViewIfNeeded
+    HTMLElement.prototype.focus = nativeFocus
   }
   // A poll alongside the listeners: scroll events get coalesced, and some
   // scripts move the position without one firing in time to catch it.
