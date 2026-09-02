@@ -15,6 +15,18 @@ import { syncDriveImages } from '@/lib/actions'
 // itself; set, it is one quiet line with a re-sync. A permanent loud box on a
 // project that is already synced would be the same mistake in reverse.
 
+// Report what the sync actually DID, not just how many files it saw. "Synced 66
+// images" hid the fact that 30 of them were fixes attached to existing ads and
+// 2 were skipped as ambiguous.
+function describeSync(r: { total: number; added: number; revised: number; updated: number; hidden: number; skipped: string[] }): string {
+  const bits: string[] = []
+  if (r.added) bits.push(`${r.added} new`)
+  if (r.revised) bits.push(`${r.revised} revision${r.revised === 1 ? '' : 's'} attached`)
+  if (r.updated) bits.push(`${r.updated} unchanged`)
+  if (r.hidden) bits.push(`${r.hidden} no longer in the folder`)
+  return `${r.total} file${r.total === 1 ? '' : 's'}` + (bits.length ? ` — ${bits.join(', ')}` : '')
+}
+
 export default function DriveSyncBar({
   projectId, brandId, folderUrl, assetCount,
 }: {
@@ -36,8 +48,9 @@ export default function DriveSyncBar({
     if (!/^https?:\/\//i.test(u)) { setErr('That is not a link — it should start with https://'); return }
     setBusy(true); setErr(''); setMsg('')
     try {
-      const n = await syncDriveImages(projectId, brandId, u)
-      setMsg(`Synced ${n} image${n === 1 ? '' : 's'}.`)
+      const r = await syncDriveImages(projectId, brandId, u)
+      setMsg(describeSync(r))
+      if (r.skipped.length) setErr(`Skipped: ${r.skipped.join(' · ')}`)
       setEditing(false)
       router.refresh()
     } catch (e) {

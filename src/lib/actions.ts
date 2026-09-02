@@ -784,7 +784,22 @@ export async function toggleCommentResolved(
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)
 }
 
-export async function syncDriveImages(projectId: string, brandId: string, folderUrl: string): Promise<number> {
+export interface DriveSyncResult {
+  /** Files in the folder. */
+  total: number
+  /** Rows created — genuinely new ads. */
+  added: number
+  /** New Drive files recognised as fixes to a creative already here. */
+  revised: number
+  /** Existing rows refreshed in place. */
+  updated: number
+  /** Live creatives no longer in the folder. */
+  hidden: number
+  /** Named so the UI can say WHY something was left out. */
+  skipped: string[]
+}
+
+export async function syncDriveImages(projectId: string, brandId: string, folderUrl: string): Promise<DriveSyncResult> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
@@ -811,7 +826,7 @@ export async function syncDriveImages(projectId: string, brandId: string, folder
 
   const { data: existing } = await supabase
     .from('creative_assets')
-    .select('id, drive_file_id, is_hidden')
+    .select('id, drive_file_id, is_hidden, name')
     .eq('project_id', projectId)
   const live = (existing ?? []).filter(a => !a.is_hidden)
 
@@ -828,7 +843,7 @@ export async function syncDriveImages(projectId: string, brandId: string, folder
     await supabase.from('projects').update({ drive_folder_url: folderUrl }).eq('id', projectId)
     revalidatePath(`/brands/${brandId}/projects/${projectId}`)
     revalidatePath(`/preview/project/${projectId}`)
-    return 0
+    return { total: 0, added: 0, revised: 0, updated: 0, hidden: 0, skipped: [] }
   }
 
   const driveFileIds = imageFiles.map(f => f.id)
@@ -844,11 +859,60 @@ export async function syncDriveImages(projectId: string, brandId: string, folder
     )
   }
 
+  // ── Is a new file a NEW AD, or a FIX to one already here? ─────────────────
+  //
+  // Drive lets two files share a name in one folder — it asks "keep both or
+  // replace", and most people click through. "Keep both" gives the fix a new
+  // file ID, and keying the upsert on that ID turned every fix into a TWIN of
+  // the ad it fixed: same filename, no comments, no approval, no link between
+  // them. The grid, the comment feed and the bulk matcher all identify a
+  // creative by its filename, so nothing downstream could tell them apart.
+  //
+  // So: a new file whose name matches a live creative is that creative's
+  // revision, not a new ad. Same rule the bulk uploader uses, applied here.
+  const { normaliseAssetName } = await import('@/lib/asset-match')
+  const knownIds = new Set((existing ?? []).map(a => a.drive_file_id))
+  const byName = new Map<string, { id: string; drive_file_id: string }[]>()
+  for (const a of live) {
+    const key = normaliseAssetName(a.name ?? '')
+    if (!key) continue
+    const bucket = byName.get(key)
+    if (bucket) bucket.push(a as { id: string; drive_file_id: string })
+    else byName.set(key, [a as { id: string; drive_file_id: string }])
+  }
+
+  const skipped: string[] = []
+  const asNewAd: typeof imageFiles = []
+  const asRevision: { file: (typeof imageFiles)[number]; assetId: string }[] = []
+  const claimed = new Set<string>()
+
+  for (const f of imageFiles) {
+    if (knownIds.has(f.id)) continue                      // already a row; the upsert refreshes it
+    const candidates = byName.get(normaliseAssetName(f.name)) ?? []
+    if (candidates.length === 0) { asNewAd.push(f); continue }
+    if (candidates.length > 1) {
+      // The project already holds two creatives with that name, so there is no
+      // way to know which one this fixes. Never guess — a wrong attach buries a
+      // client's approved version under someone else's edit.
+      skipped.push(`${f.name}: matches ${candidates.length} existing creatives`)
+      continue
+    }
+    const target = candidates[0].id
+    if (claimed.has(target)) {
+      skipped.push(`${f.name}: another file in this folder already claimed that creative`)
+      continue
+    }
+    claimed.add(target)
+    asRevision.push({ file: f, assetId: target })
+  }
+
   // Upsert BEFORE hiding. If this fails the project still has everything it had.
+  // Revision files are excluded — they must not become rows of their own.
+  const revisionIds = new Set(asRevision.map(r => r.file.id))
   const { error } = await supabase
     .from('creative_assets')
     .upsert(
-      imageFiles.map((f, i) => ({
+      imageFiles.filter(f => !revisionIds.has(f.id)).map((f, i) => ({
         project_id: projectId,
         drive_file_id: f.id,
         name: f.name,
@@ -894,9 +958,40 @@ export async function syncDriveImages(projectId: string, brandId: string, folder
       .in('drive_file_id', newIds)
   }
 
+  // Attach the fixes to the creatives they belong to. The revision points at the
+  // Drive file rather than a copy in our storage — the ORIGINAL already renders
+  // from Drive, so this is the same dependency, and it avoids pulling every
+  // revised image through the server on each sync.
+  let revised = 0
+  if (asRevision.length > 0) {
+    const { recordAssetRevision } = await import('@/lib/revisions')
+    for (const { file, assetId } of asRevision) {
+      const url = driveThumb(file.id, 2048, file.modifiedTime)
+      // revision_url only, NOT published_url: the client keeps seeing whatever
+      // was published until someone sends the new one, exactly as an in-app
+      // upload behaves.
+      const { error: revErr } = await supabase
+        .from('creative_assets')
+        .update({ revision_url: url, revision_created_at: new Date().toISOString() })
+        .eq('id', assetId)
+      if (revErr) { skipped.push(`${file.name}: ${revErr.message}`); continue }
+      await recordAssetRevision(supabase, {
+        assetId, imageUrl: url, prompt: null, createdBy: 'Drive sync',
+      })
+      revised++
+    }
+  }
+
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)
   revalidatePath(`/preview/project/${projectId}`)
-  return imageFiles.length
+  return {
+    total: imageFiles.length,
+    added: asNewAd.length,
+    revised,
+    updated: imageFiles.length - asNewAd.length - asRevision.length,
+    hidden: toHide.length,
+    skipped,
+  }
 }
 
 function describePosition(x: number, y: number): string {

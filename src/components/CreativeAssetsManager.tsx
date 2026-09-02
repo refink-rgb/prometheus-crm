@@ -318,6 +318,18 @@ function InternalLightbox({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
+// Report what the sync actually DID, not just how many files it saw. "Synced 66
+// images" hid the fact that 30 of them were fixes attached to existing ads and
+// 2 were skipped as ambiguous.
+function describeSync(r: { total: number; added: number; revised: number; updated: number; hidden: number; skipped: string[] }): string {
+  const bits: string[] = []
+  if (r.added) bits.push(`${r.added} new`)
+  if (r.revised) bits.push(`${r.revised} revision${r.revised === 1 ? '' : 's'} attached`)
+  if (r.updated) bits.push(`${r.updated} unchanged`)
+  if (r.hidden) bits.push(`${r.hidden} no longer in the folder`)
+  return `${r.total} file${r.total === 1 ? '' : 's'}` + (bits.length ? ` — ${bits.join(', ')}` : '')
+}
+
 export default function CreativeAssetsManager({
   projectId,
   brandId,
@@ -346,8 +358,8 @@ export default function CreativeAssetsManager({
     setSyncing(true)
     setSyncMsg('')
     try {
-      const count = await syncDriveImages(projectId, brandId, folderUrl.trim())
-      setSyncMsg(`✓ Synced ${count} image${count !== 1 ? 's' : ''} from Drive`)
+      const r = await syncDriveImages(projectId, brandId, folderUrl.trim())
+      setSyncMsg(`✓ ${describeSync(r)}${r.skipped.length ? ` · skipped ${r.skipped.length}` : ''}`)
       router.refresh()
     } catch (err: unknown) {
       setSyncMsg(`Error: ${err instanceof Error ? err.message : 'Sync failed'}`)
