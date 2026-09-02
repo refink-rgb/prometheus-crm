@@ -1,7 +1,8 @@
 // The CTC logo mark used everywhere the app signs itself: sidebar, top nav,
 // login, and the client-facing review header. One place to change the asset.
-// The source is a circular badge on a white square, so it is cropped to a
-// circle to keep white corners off the dark chrome.
+// The badge is a square with the letters running close to the edges, so it
+// gets the same rounded-square treatment the old mark had rather than a
+// circular crop.
 export default function BrandMark({ size = 28 }: { size?: number }) {
   return (
     <img
@@ -13,7 +14,7 @@ export default function BrandMark({ size = 28 }: { size?: number }) {
       style={{
         width: size,
         height: size,
-        borderRadius: '50%',
+        borderRadius: Math.round(size * 0.22),
         objectFit: 'cover',
         flexShrink: 0,
         display: 'block',

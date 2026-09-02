@@ -361,8 +361,10 @@ export default function Sidebar({ email, showFinancials, capacity = null }: Side
 
         <div style={{ height: 1, background: 'var(--sidebar-border)', margin: '0 12px' }} />
 
-        <div style={{ padding: '14px 16px 18px' }}>
-          {email && (
+        {/* Collapsed rail: no room for the email or labels, so the three
+            controls become a centered column of 30px icon buttons. */}
+        <div style={{ padding: collapsed ? '14px 0 18px' : '14px 16px 18px' }}>
+          {email && !collapsed && (
             <div style={{
               fontSize: 11,
               color: 'var(--text-muted)',
@@ -374,25 +376,39 @@ export default function Sidebar({ email, showFinancials, capacity = null }: Side
               {email}
             </div>
           )}
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{
+            display: 'flex', gap: 6, alignItems: 'center',
+            flexDirection: collapsed ? 'column' : 'row',
+            flexWrap: collapsed ? 'nowrap' : 'wrap',
+            justifyContent: collapsed ? 'center' : 'flex-start',
+          }}>
             <NotificationBell />
-            <ThemeToggle />
+            <ThemeToggle compact={collapsed} />
             <form action={signOut}>
-              <button type="submit" style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                background: 'transparent',
-                color: 'var(--text-muted)',
-                border: '1px solid var(--sidebar-border)',
-                borderRadius: 6,
-                padding: '5px 10px',
-                fontSize: 11,
-                fontWeight: 500,
-                cursor: 'pointer',
-                transition: 'border-color 0.12s, color 0.12s',
-              }}>
-                Log out
+              <button
+                type="submit"
+                title={collapsed ? `Log out${email ? ` (${email})` : ''}` : undefined}
+                aria-label="Log out"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                  background: 'transparent',
+                  color: 'var(--text-muted)',
+                  border: '1px solid var(--sidebar-border)',
+                  borderRadius: 6,
+                  padding: collapsed ? 0 : '5px 10px',
+                  width: collapsed ? 30 : undefined,
+                  height: collapsed ? 30 : undefined,
+                  fontSize: 11,
+                  fontWeight: 500,
+                  whiteSpace: 'nowrap',
+                  cursor: 'pointer',
+                  transition: 'border-color 0.12s, color 0.12s',
+                }}
+              >
+                {collapsed ? <LogOutIcon /> : 'Log out'}
               </button>
             </form>
           </div>
@@ -440,5 +456,15 @@ export default function Sidebar({ email, showFinancials, capacity = null }: Side
         })}
       </nav>
     </>
+  )
+}
+
+function LogOutIcon() {
+  return (
+    <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <polyline points="16 17 21 12 16 7" />
+      <line x1="21" y1="12" x2="9" y2="12" />
+    </svg>
   )
 }
