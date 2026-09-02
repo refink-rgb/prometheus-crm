@@ -64,9 +64,21 @@ export default function CopyApprovalDeck({
   // Once anything has been approved, the deck shows the approved set by default.
   // Nothing is deleted — a verdict changes what you look at, not what exists —
   // so this is reversible with one click and there is nothing to confirm.
-  const anyApproved = counts.approved > 0
+  // Hiding is driven by what is SAVED, never by the draft.
+  //
+  // It used to key off `draft`, so ticking the first line instantly hid every
+  // other line — including the ones you had not read yet. You could not pick a
+  // few, because picking one removed the list you were picking from.
+  //
+  // Now the full deck stays up while you work, and collapses to the approved set
+  // only once you press Save.
+  const savedApproved = useMemo(
+    () => Object.values(saved).filter(v => v === 'approved').length,
+    [saved],
+  )
   const [showAll, setShowAll] = useState(false)
-  const hidden = anyApproved && !showAll ? total - counts.approved : 0
+  const collapsed = savedApproved > 0 && !dirty && !showAll
+  const hidden = collapsed ? total - savedApproved : 0
 
   function save() {
     setErr(''); setNote('')
@@ -104,12 +116,12 @@ export default function CopyApprovalDeck({
         {columns.filter(c => c.lines.length).map(col => (
           <div key={col.label}>
             <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: 6 }}>
-              {col.label} ({anyApproved && !showAll
-                ? col.lines.filter(l => (draft[l] ?? null) === 'approved').length
+              {col.label} ({collapsed
+                ? col.lines.filter(l => saved[l] === 'approved').length
                 : col.lines.length})
             </div>
             {col.lines
-              .filter(line => !(anyApproved && !showAll) || (draft[line] ?? null) === 'approved')
+              .filter(line => !collapsed || saved[line] === 'approved')
               .map((line, i) => {
               const v = draft[line] ?? null
               const who = verdictFor(approvals, line)
@@ -176,14 +188,12 @@ export default function CopyApprovalDeck({
           {counts.approved} approved · {counts.rejected} rejected
         </span>
 
-        {anyApproved && (
+        {savedApproved > 0 && !dirty && (
           <button
             onClick={() => setShowAll(v => !v)}
             style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--accent)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
           >
-            {showAll
-              ? 'Show approved only'
-              : `Show all ${total} · ${hidden} hidden`}
+            {collapsed ? `Show all ${total} · ${hidden} hidden` : 'Show approved only'}
           </button>
         )}
 
