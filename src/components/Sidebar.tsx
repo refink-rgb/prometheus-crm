@@ -7,6 +7,7 @@ import { signOut } from '@/lib/actions'
 import ThemeToggle from '@/components/ThemeToggle'
 import NotificationBell from '@/components/NotificationBell'
 import type { CapacitySummary } from '@/lib/capacity'
+import BrandMark from '@/components/BrandMark'
 
 interface SidebarProps {
   email?: string | null
@@ -245,22 +246,20 @@ export default function Sidebar({ email, showFinancials, capacity = null }: Side
         zIndex: 40,
       }}>
         <div style={{ padding: collapsed ? '20px 0 16px' : '20px 20px 16px', display: 'flex', justifyContent: 'center' }}>
-          <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none' }}>
-            <div style={{
-              width: 26, height: 26,
-              background: 'var(--accent)',
-              borderRadius: 6,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontWeight: 800, fontSize: 13, color: 'white', flexShrink: 0,
-            }}>P</div>
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.01em', lineHeight: 1.2 }}>
-                Prometheus
+          <Link href="/" title={collapsed ? 'Prometheus' : undefined} style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none' }}>
+            <BrandMark size={26} />
+            {/* Collapsed rail is 60px: only the mark fits. The wordmark used to
+                stay mounted and overflow the rail. */}
+            {!collapsed && (
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.01em', lineHeight: 1.2 }}>
+                  Prometheus
+                </div>
+                <div style={{ fontSize: 10, color: 'var(--text-muted)', letterSpacing: '0.06em' }}>
+                  Studio · CTC
+                </div>
               </div>
-              <div style={{ fontSize: 10, color: 'var(--text-muted)', letterSpacing: '0.06em' }}>
-                Studio · CTC
-              </div>
-            </div>
+            )}
           </Link>
         </div>
 

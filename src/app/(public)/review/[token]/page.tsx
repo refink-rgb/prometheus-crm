@@ -8,6 +8,7 @@ import ConfirmOfferButton from '@/components/ConfirmOfferButton'
 import ThemeToggle from '@/components/ThemeToggle'
 import type { Project, Brand, ProjectComment, CreativeAsset } from '@/lib/types'
 import { parseDueDate } from '@/lib/stageColors'
+import BrandMark from '@/components/BrandMark'
 
 export default async function ReviewPage({
   params,
@@ -75,13 +76,7 @@ export default async function ReviewPage({
         zIndex: 50,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{
-            width: 28, height: 28,
-            background: 'var(--accent)',
-            borderRadius: 6,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontWeight: 800, fontSize: 14, color: 'white', flexShrink: 0,
-          }}>P</div>
+          <BrandMark size={28} />
           <span style={{ fontWeight: 700, fontSize: 16, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
             Prometheus
           </span>

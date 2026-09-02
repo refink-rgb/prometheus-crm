@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { getCachedUser } from '@/lib/supabase/server'
 import ResetPasswordForm from '@/components/ResetPasswordForm'
+import BrandMark from '@/components/BrandMark'
 
 export default async function ResetPasswordPage() {
   const user = await getCachedUser()
@@ -10,18 +11,7 @@ export default async function ResetPasswordPage() {
       <div style={{ maxWidth: 400, width: '100%' }}>
         <div className="mb-10 text-center">
           <div className="inline-flex items-center gap-2 mb-4">
-            <div style={{
-              width: 36,
-              height: 36,
-              background: 'var(--accent)',
-              borderRadius: 8,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontWeight: 800,
-              fontSize: 18,
-              color: 'white',
-            }}>P</div>
+            <BrandMark size={36} />
             <span style={{ fontWeight: 700, fontSize: 20, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
               Prometheus
             </span>
