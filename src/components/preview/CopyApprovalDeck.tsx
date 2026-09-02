@@ -76,8 +76,13 @@ export default function CopyApprovalDeck({
     () => Object.values(saved).filter(v => v === 'approved').length,
     [saved],
   )
+  // The full deck is the DEFAULT, including on a fresh page load. Collapsing is
+  // something Save does, not a state the page wakes up in — an editor opening a
+  // project should see every line they have to choose from, not a filtered view
+  // of a decision made last week.
+  const [justSaved, setJustSaved] = useState(false)
   const [showAll, setShowAll] = useState(false)
-  const collapsed = savedApproved > 0 && !dirty && !showAll
+  const collapsed = justSaved && !dirty && !showAll && savedApproved > 0
   const hidden = collapsed ? total - savedApproved : 0
 
   function save() {
@@ -89,6 +94,9 @@ export default function CopyApprovalDeck({
           .map(([text, status]) => ({ text, status: status as 'approved' | 'rejected' }))
         const r = await saveCopyApprovals(projectId, brandId, verdicts)
         if (!r.ok) { setErr(r.error); return }
+        // Collapse now, and only now.
+        setJustSaved(true)
+        setShowAll(false)
         router.refresh()
       } catch (e) {
         setErr(e instanceof Error ? e.message : 'Could not save.')
@@ -193,7 +201,7 @@ export default function CopyApprovalDeck({
             onClick={() => setShowAll(v => !v)}
             style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--accent)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
           >
-            {collapsed ? `Show all ${total} · ${hidden} hidden` : 'Show approved only'}
+            {collapsed ? `Show all ${total} · ${hidden} hidden` : `Show approved only (${savedApproved})`}
           </button>
         )}
 
