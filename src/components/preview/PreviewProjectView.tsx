@@ -17,7 +17,7 @@ import { profileName } from '@/lib/types'
 import type { TrackedCampaign } from '@/lib/results'
 import { hypercareFor, hypercareCopyMessage } from '@/lib/hypercare'
 import ShareButton from '@/components/ShareButton'
-import { markProjectComplete, deleteProject } from '@/lib/actions'
+import { markProjectComplete, deleteProject, reopenProject } from '@/lib/actions'
 import SubmitButton from '@/components/SubmitButton'
 import type { AssetRevision } from '@/lib/revisions'
 import ReviewWorkspace from '@/components/preview/ReviewWorkspace'
@@ -508,8 +508,21 @@ export default function PreviewProjectView({
               title="Copy the brief as markdown"
               style={{ marginTop: 8 }}
             />
+            {/* Complete was a dead end: rails disabled, edit hidden, nothing
+                able to move. A client coming back a week later with one more
+                change had nowhere to go but a whole new project. */}
             {p.is_complete && (
-              <div style={{ fontSize: 11, color: 'var(--complete-text)', marginTop: 8 }}>Complete — locked</div>
+              <div style={{ marginTop: 8, textAlign: 'right' }}>
+                <div style={{ fontSize: 11, color: 'var(--complete-text)' }}>Complete — locked</div>
+                <form action={reopenProject.bind(null, p.id, p.brand_id, 'creatives_stage')}>
+                  <SubmitButton
+                    pendingText="Reopening…"
+                    style={{ marginTop: 6, fontSize: 11.5, fontWeight: 600, padding: '5px 11px', borderRadius: 7, border: '1px solid var(--border)', background: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}
+                  >
+                    Reopen to internal review
+                  </SubmitButton>
+                </form>
+              </div>
             )}
             {!p.is_complete && (
             <button

@@ -3249,3 +3249,56 @@ export async function deleteBrandComment(
   if (projectId) revalidatePath(`/brands/${brandId}/projects/${projectId}`)
   return { ok: true }
 }
+
+
+// Take a completed project back into the flow.
+//
+// markProjectComplete had no inverse. is_complete was written once and after
+// that both stage rails were disabled, the edit form was hidden and nothing on
+// the project could move — 22 of 68 projects are in that state. A client coming
+// back a week later with one more change had nowhere to go but a new project.
+//
+// Reopening does NOT try to guess where the work should resume. It clears the
+// flag and puts the named track back to internal_review, which is where a
+// revisit starts: someone has to look at it before it goes out again. The other
+// track is left at whatever it was, because reopening the creatives says nothing
+// about the landing page.
+export async function reopenProject(
+  projectId: string,
+  brandId: string,
+  track: 'lp_stage' | 'creatives_stage' = 'creatives_stage',
+) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
+
+  const prev = eventsEnabled()
+    ? (await supabase.from('projects').select('lp_stage, creatives_stage, marketing_moment').eq('id', projectId).single()).data
+    : null
+
+  const { error } = await supabase
+    .from('projects')
+    .update({ is_complete: false, [track]: 'internal_review' })
+    .eq('id', projectId)
+  if (error) throw new Error(error.message)
+
+  // Logged like any other stage move, so the reopen is visible in the timeline
+  // rather than the project silently un-completing itself.
+  if (prev) {
+    await logEvents([{
+      event_type: 'stage_changed',
+      card_kind: 'production',
+      card_id: projectId,
+      brand_id: brandId,
+      track: track === 'lp_stage' ? 'lp' : 'creative',
+      from_stage: (prev as Record<string, string>)[track] ?? 'live',
+      to_stage: 'internal_review',
+      ...actorFromUser(user),
+    }])
+  }
+
+  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+  revalidatePath(`/preview/project/${projectId}`)
+  revalidatePath('/')
+}
