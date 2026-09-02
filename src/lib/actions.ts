@@ -3184,3 +3184,68 @@ export async function attachRevisionUpload(
   revalidatePath(`/preview/project/${projectId}`)
   return { ok: true, revisionNumber }
 }
+
+
+// ── The brand context thread ────────────────────────────────────────────────
+//
+// Brand-level, so what one editor learns is there for whoever picks the brand up
+// next — including on projects that do not exist yet.
+
+export async function addBrandComment(
+  brandId: string,
+  content: string,
+  projectId?: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
+
+  const text = content.trim()
+  if (!text) return { ok: false, error: 'Nothing to post.' }
+
+  const { getCachedProfiles } = await import('@/lib/profiles')
+  const profiles = await getCachedProfiles()
+  const me = profiles.find(x => x.email.toLowerCase() === (user.email ?? '').toLowerCase())
+
+  const { error } = await supabase.from('brand_comments').insert({
+    brand_id: brandId,
+    // Stored, not joined: the name as it was when written. A join would rewrite
+    // history on a rename and lose the author entirely if they leave.
+    author_name: me?.full_name || user.email || 'Unknown',
+    author_id: user.id,
+    content: text,
+  })
+  if (error) return { ok: false, error: `Could not post: ${error.message}` }
+
+  revalidatePath(`/brands/${brandId}`)
+  if (projectId) revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+  return { ok: true }
+}
+
+export async function deleteBrandComment(
+  commentId: string,
+  brandId: string,
+  projectId?: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
+
+  // Your own posts only. Everyone in this app has full edit rights, so without
+  // this anyone could quietly remove a colleague's warning about a client.
+  const { data: row } = await supabase
+    .from('brand_comments').select('author_id').eq('id', commentId).single()
+  if (!row) return { ok: false, error: 'That note is already gone.' }
+  if ((row as { author_id: string | null }).author_id !== user.id) {
+    return { ok: false, error: 'You can only delete your own notes.' }
+  }
+
+  const { error } = await supabase.from('brand_comments').delete().eq('id', commentId)
+  if (error) return { ok: false, error: `Could not delete: ${error.message}` }
+
+  revalidatePath(`/brands/${brandId}`)
+  if (projectId) revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+  return { ok: true }
+}

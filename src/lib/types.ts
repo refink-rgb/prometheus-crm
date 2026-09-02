@@ -299,6 +299,16 @@ export interface CopyApprovals {
   removed: CopyApprovalRemoved[]
 }
 
+/** One post in a brand's running context thread. Brand-level, not project. */
+export interface BrandComment {
+  id: string
+  brand_id: string
+  author_name: string
+  author_id: string | null
+  content: string
+  created_at: string
+}
+
 export interface ProjectImage {
   id: string
   project_id: string

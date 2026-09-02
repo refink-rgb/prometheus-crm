@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import type { Project, Brand, CreativeAsset, ProjectComment, BrandDna, ProjectImage, Journey, Profile } from '@/lib/types'
+import type { Project, Brand, CreativeAsset, ProjectComment, BrandDna, ProjectImage, Journey, Profile, BrandComment } from '@/lib/types'
 import ProjectEditForm from '@/components/ProjectEditForm'
 import StageTracker from '@/components/StageTracker'
 import CopyDeckPanel from '@/components/CopyDeckPanel'
@@ -31,6 +31,7 @@ import BrandBrief from '@/components/preview/BrandBrief'
 import DriveSyncBar from '@/components/preview/DriveSyncBar'
 import NextStep from '@/components/preview/NextStep'
 import BrandGuidelines from '@/components/preview/BrandGuidelines'
+import BrandThread from '@/components/preview/BrandThread'
 import { summariseProjectOffer, fetchProductThumbnails } from '@/lib/actions'
 import { projectBriefMarkdown } from '@/lib/markdown-export'
 import { STAGE_COLORS } from '@/lib/stageColors'
@@ -208,7 +209,7 @@ function CommentList({ comments, empty }: { comments: ProjectComment[]; empty: s
 }
 
 export default function PreviewProjectView({
-  project: p, brand, assets, comments, images, dna, revisionsByAsset, lpEditorName, creativeEditorName, journeyName, journeys, profiles, campaigns, todayIso, authorName, brandLandingPages,
+  project: p, brand, assets, comments, images, dna, revisionsByAsset, lpEditorName, creativeEditorName, journeyName, journeys, profiles, campaigns, todayIso, authorName, brandLandingPages, brandComments, currentUserId,
 }: {
   project: Project; brand: Brand; assets: CreativeAsset[]; comments: ProjectComment[]
   images: ProjectImage[]; dna: BrandDna | null
@@ -216,6 +217,8 @@ export default function PreviewProjectView({
   lpEditorName: string | null; creativeEditorName: string | null; journeyName: string | null
   journeys: Journey[]; profiles: Profile[]; campaigns: TrackedCampaign[]; todayIso: string
   brandLandingPages: BrandLandingPage[]
+  brandComments: BrandComment[]
+  currentUserId: string | null
   /** Who a note typed here is attributed to. */
   authorName: string
 }) {
@@ -689,6 +692,16 @@ export default function PreviewProjectView({
                   projectId={p.id}
                   notes={brand.brand_notes ?? null}
                   sensitivity={brand.ai_sensitivity ?? null}
+                />
+              )}
+
+              {brand?.id && (
+                <BrandThread
+                  brandId={brand.id}
+                  brandName={brand.name}
+                  projectId={p.id}
+                  comments={brandComments}
+                  currentUserId={currentUserId}
                 />
               )}
 
@@ -1352,6 +1365,17 @@ export default function PreviewProjectView({
 
           {tab === 'creatives' && (
             <>
+              {brand?.id && (
+                <BrandThread
+                  brandId={brand.id}
+                  brandName={brand.name}
+                  projectId={p.id}
+                  comments={brandComments}
+                  currentUserId={currentUserId}
+                  compact
+                />
+              )}
+
               {/* First thing on the tab, because it is the first thing an editor
                   does — nothing below works until the folder is synced. It was
                   behind a disclosure in the last card. */}
