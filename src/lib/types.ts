@@ -197,6 +197,7 @@ export interface Project {
   products: ProjectProduct[] | null
   competitors: ProjectCompetitor[] | null
   top_performers: ProjectTopPerformer[] | null
+  asset_folders: ProjectAssetFolder[] | null
   copy_approvals: CopyApprovals | null
   offer_summary: string[] | null
   offer_summary_source: string | null
@@ -259,6 +260,13 @@ export interface ProjectTopPerformer {
   name: string
   motion_url: string | null
   link: string | null
+}
+
+/** A folder covering the whole job — Air, Cloudinary, Drive, a font pack. */
+export interface ProjectAssetFolder {
+  id: string
+  label: string
+  url: string | null
 }
 
 export interface ProjectCompetitor {

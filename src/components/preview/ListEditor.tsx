@@ -23,7 +23,7 @@ export default function ListEditor({
 }: {
   projectId: string
   brandId: string
-  kind: 'competitors' | 'top_performers'
+  kind: 'competitors' | 'top_performers' | 'asset_folders'
   rows: ListRow[]
   labels: { name: string; a: string; b: string; add: string }
   onDone: () => void
@@ -57,7 +57,9 @@ export default function ListEditor({
         await updateProjectLists(projectId, brandId,
           kind === 'competitors'
             ? { competitors: payload.map(r => ({ id: r.id, name: r.name, site_url: r.a || null, motion_url: r.b || null })) }
-            : { top_performers: payload.map(r => ({ id: r.id, name: r.name, motion_url: r.a || null, link: r.b || null })) })
+            : kind === 'top_performers'
+            ? { top_performers: payload.map(r => ({ id: r.id, name: r.name, motion_url: r.a || null, link: r.b || null })) }
+            : { asset_folders: payload.map(r => ({ id: r.id, label: r.name, url: r.a || null })) })
         router.refresh()
         onDone()
       } catch (e) {
@@ -75,10 +77,12 @@ export default function ListEditor({
   return (
     <div>
       {rows.map((r, i) => (
-        <div key={r.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr) auto', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+        <div key={r.id} style={{ display: 'grid', gridTemplateColumns: kind === 'asset_folders' ? 'minmax(0,1fr) minmax(0,1.4fr) auto' : 'minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr) auto', gap: 8, marginBottom: 8, alignItems: 'center' }}>
           <input value={r.name} placeholder={labels.name} onChange={e => set(i, 'name', e.target.value)} style={input(r.name, true)} />
           <input value={r.a} placeholder={labels.a} onChange={e => set(i, 'a', e.target.value)} style={input(r.a, isLink(r.a))} />
-          <input value={r.b} placeholder={labels.b} onChange={e => set(i, 'b', e.target.value)} style={input(r.b, isLink(r.b))} />
+          {kind !== 'asset_folders' && (
+            <input value={r.b} placeholder={labels.b} onChange={e => set(i, 'b', e.target.value)} style={input(r.b, isLink(r.b))} />
+          )}
           <div style={{ display: 'flex', gap: 4 }}>
             <button onClick={() => move(i, -1)} disabled={i === 0} title="Move up" style={miniBtn}>↑</button>
             <button onClick={() => move(i, 1)} disabled={i === rows.length - 1} title="Move down" style={miniBtn}>↓</button>

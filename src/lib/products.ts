@@ -1,4 +1,4 @@
-import type { ProjectProduct, ProjectCompetitor, ProjectTopPerformer, CopyApprovals, CopyApprovalLine, CopyApprovalLog, CopyApprovalRemoved } from './types'
+import type { ProjectProduct, ProjectCompetitor, ProjectTopPerformer, ProjectAssetFolder, CopyApprovals, CopyApprovalLine, CopyApprovalLog, CopyApprovalRemoved } from './types'
 
 // Reading the Creatives tab's two repeating lists.
 //
@@ -113,6 +113,15 @@ export function groupProducts(list: ProjectProduct[]): { group: string | null; i
     ...named.map(([group, items]) => ({ group, items })),
     ...(loose ? [{ group: null, items: loose }] : []),
   ]
+}
+
+export function readAssetFolders(p: { asset_folders?: unknown }): ProjectAssetFolder[] {
+  const raw = p.asset_folders as unknown
+  if (!Array.isArray(raw)) return []
+  return raw
+    .filter((el): el is Record<string, unknown> => !!el && typeof el === 'object')
+    .map(el => ({ id: str(el.id) || mintId(), label: str(el.label), url: safeUrl(el.url) }))
+    .filter(x => x.label.length > 0)
 }
 
 /** What the writer mirrors back into product_featured. */

@@ -2707,6 +2707,7 @@ export async function updateProjectLists(
     products?: { id?: string; name: string; url?: string | null; assets_url?: string | null; group?: string | null; image_url?: string | null }[]
     competitors?: { id?: string; name: string; site_url?: string | null; motion_url?: string | null }[]
     top_performers?: { id?: string; name: string; motion_url?: string | null; link?: string | null }[]
+    asset_folders?: { id?: string; label: string; url?: string | null }[]
   },
 ) {
   const supabase = await createClient()
@@ -2747,6 +2748,13 @@ export async function updateProjectLists(
     patch.top_performers = values.top_performers.slice(0, MAX_LIST_ROWS)
       .map(r => ({ id: text(r.id) || newId(), name: text(r.name), motion_url: link(r.motion_url), link: link(r.link) }))
       .filter(r => r.name.length > 0)
+  }
+
+  if (Array.isArray(values.asset_folders)) {
+    // Folders covering the whole job, as opposed to a link on one product.
+    patch.asset_folders = values.asset_folders.slice(0, MAX_LIST_ROWS)
+      .map(r => ({ id: text(r.id) || newId(), label: text(r.label), url: link(r.url) }))
+      .filter(r => r.label.length > 0)
   }
 
   if (Object.keys(patch).length === 0) return

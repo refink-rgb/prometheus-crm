@@ -24,7 +24,7 @@ import ReviewWorkspace from '@/components/preview/ReviewWorkspace'
 import Link from 'next/link'
 import CopyMarkdownButton from '@/components/CopyMarkdownButton'
 import ListEditor, { type ListRow } from '@/components/preview/ListEditor'
-import { readProducts, readCompetitors, readTopPerformers, readCopyApprovals, groupProducts, productsDrifted, offerSource, splitSkus } from '@/lib/products'
+import { readProducts, readCompetitors, readTopPerformers, readCopyApprovals, readAssetFolders, groupProducts, productsDrifted, offerSource, splitSkus } from '@/lib/products'
 import ProductGroupEditor from '@/components/preview/ProductGroupEditor'
 import CopyApprovalDeck from '@/components/preview/CopyApprovalDeck'
 import BrandBrief from '@/components/preview/BrandBrief'
@@ -277,12 +277,13 @@ export default function PreviewProjectView({
   const products = useMemo(() => readProducts(p), [p])
   const competitors = useMemo(() => readCompetitors(p), [p])
   const topPerformers = useMemo(() => readTopPerformers(p), [p])
+  const assetFolders = useMemo(() => readAssetFolders(p), [p])
   const grouped = useMemo(() => groupProducts(products), [products])
   const copyApprovals = useMemo(() => readCopyApprovals(p), [p])
   const drifted = productsDrifted(p)
   const skus = useMemo(() => products.map(x => x.name), [products])
 
-  const [editing, setEditing] = useState<null | 'products' | 'competitors' | 'top'>(null)
+  const [editing, setEditing] = useState<null | 'products' | 'competitors' | 'top' | 'folders'>(null)
   // Noble never generates AI copy — Lucas Dias writes it. Checked here as well
   // as in the action so the button is never even offered.
   const hypercareRule = hypercareFor(brand?.name)
@@ -1674,17 +1675,40 @@ export default function PreviewProjectView({
                     </div>
                     {thumbNote && <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 8 }}>{thumbNote}</div>}
 
-                    {(p.product_images_link || p.drive_folder_url) && (
-                      <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
-                        <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: 6 }}>
-                          Whole project, not one product
-                        </div>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-                          {p.product_images_link && <a href={p.product_images_link} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--accent)' }}>Project product photos ↗</a>}
-                          {p.drive_folder_url && <a href={p.drive_folder_url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--accent)' }}>Drive folder ↗</a>}
-                        </div>
+                    {/* Folders covering the whole job — the client's Air
+                        workspace, a Cloudinary collection, raw photography,
+                        a font pack. Previously one read-only column pretending
+                        to be a list. */}
+                    <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+                      <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: 8 }}>
+                        Folders — whole project, not one product
                       </div>
-                    )}
+
+                      {editing === 'folders' ? (
+                        <ListEditor
+                          projectId={p.id} brandId={p.brand_id} kind="asset_folders"
+                          rows={assetFolders.map(f => ({ id: f.id, name: f.label, a: f.url ?? '', b: '' })) as ListRow[]}
+                          labels={{ name: 'What it is', a: 'Folder link', b: '', add: 'Add folder' }}
+                          onDone={() => setEditing(null)}
+                        />
+                      ) : (
+                        <>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: assetFolders.length || p.product_images_link || p.drive_folder_url ? 10 : 0 }}>
+                            {assetFolders.map(f => (
+                              f.url
+                                ? <a key={f.id} href={f.url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--accent)' }}>{f.label} ↗</a>
+                                : <span key={f.id} style={{ fontSize: 12, color: 'var(--text-muted)' }}>{f.label} — no link</span>
+                            ))}
+                            {/* The two that predate this list, still written elsewhere. */}
+                            {p.product_images_link && <a href={p.product_images_link} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--accent)' }}>Product photos ↗</a>}
+                            {p.drive_folder_url && <a href={p.drive_folder_url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--accent)' }}>Final output — Drive ↗</a>}
+                          </div>
+                          <button onClick={() => setEditing('folders')} style={editBtn}>
+                            {assetFolders.length ? 'Edit folders' : 'Add a folder'}
+                          </button>
+                        </>
+                      )}
+                    </div>
 
                     {/* The whole set at a glance. The 44px thumbnails in the rows
                         are an identity check while you read a line; this is for
