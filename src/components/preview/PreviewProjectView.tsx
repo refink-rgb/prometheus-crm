@@ -574,9 +574,20 @@ export default function PreviewProjectView({
           {/* The pills above say where the project IS. This is how it MOVES.
               Behind a disclosure because advancing a stage is a once-a-week act
               and the two 7-step rails cost ~240px of permanent header. */}
-          <details style={{ marginTop: 12 }}>
-            <summary style={{ fontSize: 11, color: 'var(--text-secondary)', cursor: 'pointer' }}>Move a stage</summary>
-            <div style={{ marginTop: 8 }}>
+          <details className="stage-moves" style={{ marginTop: 14 }}>
+            {/* Styled as a button bar, not an 11px line of text: the one-line
+                summary was easy to miss, and this is the only way to move a
+                card sideways or back. Still collapsed by default — see above. */}
+            <summary>
+              <svg className="stage-moves-chev" width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <polyline points="9 6 15 12 9 18" />
+              </svg>
+              <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Move a stage</span>
+              <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>
+                Advance, send back, or jump either track
+              </span>
+            </summary>
+            <div style={{ display: 'grid', gap: 12, marginTop: 12 }}>
               {/* Locked once complete, like the live page. A finished project
                   should not quietly move backwards. */}
               <StageTracker projectId={p.id} brandId={p.brand_id} track="lp_stage" currentStage={p.lp_stage} label="Landing Page" disabled={p.is_complete} />
@@ -587,11 +598,11 @@ export default function PreviewProjectView({
           {/* Present-only. 16 of 66 projects have no stage dates at all and used
               to get a row of five em-dashes as the first thing on the tab. */}
           {stageDates.length > 0 && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, fontSize: 11, color: 'var(--text-secondary)', borderTop: '1px solid var(--border)', paddingTop: 10, marginTop: 12 }}>
-              {stageDates.map((d, i) => (
-                <span key={d.label}>
-                  {i > 0 && <span style={{ color: 'var(--text-muted)' }}> · </span>}
-                  {d.label} <span style={{ color: d.tone }}>{d.date}</span>
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, fontSize: 11, borderTop: '1px solid var(--border)', paddingTop: 14, marginTop: 14 }}>
+              <span style={{ color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', fontSize: 10 }}>Due</span>
+              {stageDates.map(d => (
+                <span key={d.label} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 999, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text-secondary)' }}>
+                  {d.label} <span style={{ color: d.tone, fontWeight: 700 }}>{d.date}</span>
                 </span>
               ))}
             </div>

@@ -492,3 +492,28 @@ label {
   animation: tabLoad 0.9s ease-in-out infinite;
   pointer-events: none;
 }
+
+/* ── Stage moves: the "Move a stage" disclosure and its rails ───────────── */
+.stage-moves > summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-raised);
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 0.12s, background 0.12s;
+}
+.stage-moves > summary::-webkit-details-marker { display: none; }
+.stage-moves > summary:hover { border-color: var(--border-hover); }
+.stage-moves > summary:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.stage-moves[open] > summary { border-bottom-left-radius: 10px; border-bottom-right-radius: 10px; }
+.stage-moves-chev { color: var(--text-muted); transition: transform 0.15s; flex-shrink: 0; }
+.stage-moves[open] .stage-moves-chev { transform: rotate(90deg); }
+.stage-step:not(:disabled):hover { transform: scale(1.15); box-shadow: 0 0 0 4px var(--hover-ring); }
+.stage-step:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
