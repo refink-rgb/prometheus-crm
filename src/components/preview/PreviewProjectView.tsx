@@ -449,7 +449,7 @@ export default function PreviewProjectView({
   // capped at 68-80ch, so widening the shell gives the grids and the review
   // panel room without turning body text into unreadable full-width lines.
   return (
-    <div className="project-view" style={{ padding: '20px 32px 60px', maxWidth: 1760, margin: '0 auto' }}>
+    <div className="page-contrast" style={{ padding: '20px 32px 60px', maxWidth: 1760, margin: '0 auto' }}>
       {/* Brand-wide, above everything. The preview had lost this entirely, so a
           Noble project looked like any other and an editor would generate copy
           Lucas is supposed to write. */}
