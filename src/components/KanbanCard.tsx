@@ -8,18 +8,23 @@ import { STAGE_ORDER, STAGE_LABELS, profileName, type Stage, type Project, type 
 import { isProjectOverdue, parseAndDaysUntil, parseDueDate, phaseDueTone, STAGE_COLORS, STAGE_DUE_FIELD, type PhaseDueTone } from '@/lib/stageColors'
 import { updateProjectStageDueDate } from '@/lib/actions'
 import Avatar from '@/components/Avatar'
+import { ChevronLeft, ChevronRight, GripVertical, AlertTriangle, Check, Hourglass } from 'lucide-react'
 
 type PipelineProject = Project & { brands: { id: string; name: string } }
 
-const moveBtnStyle: React.CSSProperties = {
+// The card's controls — move back, move forward, drag — share one 20px square
+// so they read as a single cluster in the top-right corner.
+const ctrlStyle: React.CSSProperties = {
+  width: 20,
+  height: 20,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  borderRadius: 5,
   background: 'transparent',
-  border: '1px solid var(--border)',
+  border: '1px solid transparent',
   color: 'var(--text-muted)',
-  borderRadius: 6,
-  width: 22,
-  height: 18,
-  lineHeight: 1,
-  fontSize: 'var(--text-sm)',
+  padding: 0,
   cursor: 'pointer',
 }
 
@@ -90,43 +95,52 @@ function KanbanCardInner({ p, isGhost = false, columnStage, onMove, editorsById 
         transform: CSS.Translate.toString(transform),
       }}
     >
-      {/* Drag handle — deliberately NOT on the same node as the Link below.
-          dnd-kit's pointer sensor swallows the click event on whatever
-          element its listeners are attached to, even for a plain click that
-          never crosses the activation distance, which silently ate every
-          first click on a card (confirmed live: click did nothing, a second
-          click then navigated). Keeping listeners off the Link fixes that. */}
+      {/* Controls cluster: move back / move forward / drag. The drag handle is
+          deliberately NOT on the same node as the Link below — dnd-kit's
+          pointer sensor swallows the click event on whatever element its
+          listeners are attached to, even for a plain click that never crosses
+          the activation distance, which silently ate every first click on a
+          card (confirmed live). The move buttons are the keyboard-operable
+          equivalent of the drag, and stop pointerdown so they never engage it. */}
       {!isGhost && (
-        <div
-          {...listeners}
-          {...attributes}
-          aria-hidden="true"
-          tabIndex={-1}
-          title="Drag to move"
-          style={{
-            position: 'absolute',
-            top: 8,
-            right: 8,
-            width: 20,
-            height: 20,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            borderRadius: 5,
-            cursor: isDragging ? 'grabbing' : 'grab',
-            touchAction: 'none',
-            color: 'var(--text-muted)',
-            zIndex: 1,
-          }}
-        >
-          <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor">
-            <circle cx="2" cy="2" r="1.4" />
-            <circle cx="8" cy="2" r="1.4" />
-            <circle cx="2" cy="7" r="1.4" />
-            <circle cx="8" cy="7" r="1.4" />
-            <circle cx="2" cy="12" r="1.4" />
-            <circle cx="8" cy="12" r="1.4" />
-          </svg>
+        <div style={{ position: 'absolute', top: 7, right: 7, display: 'flex', alignItems: 'center', gap: 1, zIndex: 1 }}>
+          {onMove && columnStage && (
+            <div onPointerDown={e => e.stopPropagation()} style={{ display: 'flex', gap: 1 }}>
+              <button
+                type="button"
+                className="focus-ring-pill kanban-ctrl"
+                aria-label={prevStage ? `Move to ${STAGE_LABELS[prevStage]}` : 'Already in the first stage'}
+                title={prevStage ? `Move to ${STAGE_LABELS[prevStage]}` : undefined}
+                disabled={!prevStage}
+                onClick={() => prevStage && onMove(p, prevStage)}
+                style={ctrlStyle}
+              >
+                <ChevronLeft size={14} strokeWidth={2} aria-hidden />
+              </button>
+              <button
+                type="button"
+                className="focus-ring-pill kanban-ctrl"
+                aria-label={nextStage ? `Move to ${STAGE_LABELS[nextStage]}` : 'Already in the last stage'}
+                title={nextStage ? `Move to ${STAGE_LABELS[nextStage]}` : undefined}
+                disabled={!nextStage}
+                onClick={() => nextStage && onMove(p, nextStage)}
+                style={ctrlStyle}
+              >
+                <ChevronRight size={14} strokeWidth={2} aria-hidden />
+              </button>
+            </div>
+          )}
+          <div
+            {...listeners}
+            {...attributes}
+            aria-hidden="true"
+            tabIndex={-1}
+            title="Drag to move"
+            className="kanban-ctrl"
+            style={{ ...ctrlStyle, cursor: isDragging ? 'grabbing' : 'grab', touchAction: 'none' }}
+          >
+            <GripVertical size={14} strokeWidth={2} aria-hidden />
+          </div>
         </div>
       )}
 
@@ -146,7 +160,7 @@ function KanbanCardInner({ p, isGhost = false, columnStage, onMove, editorsById 
           <div style={{
             fontSize: 11, color: 'var(--text-muted)',
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-            paddingRight: 20,
+            paddingRight: 68,
           }}>
             {p.brands.name}
           </div>
@@ -169,11 +183,13 @@ function KanbanCardInner({ p, isGhost = false, columnStage, onMove, editorsById 
           {/* Misalignment warning */}
           {laggingMsg && (
             <div style={{
+              display: 'flex', alignItems: 'flex-start', gap: 5,
               fontSize: 10, color: 'var(--warning)', lineHeight: 1.4,
               background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.2)',
               borderRadius: 6, padding: '4px 8px',
             }}>
-              ⚠ {laggingMsg}
+              <AlertTriangle size={11} strokeWidth={2} aria-hidden style={{ flexShrink: 0, marginTop: 1 }} />
+              <span>{laggingMsg}</span>
             </div>
           )}
 
@@ -229,37 +245,6 @@ function KanbanCardInner({ p, isGhost = false, columnStage, onMove, editorsById 
               )}
             </div>
           )}
-        </div>
-      )}
-
-      {/* Keyboard-operable move controls — equivalent to mouse/touch drag.
-          Sits outside the Link (not nested inside an anchor) and stops
-          pointerdown propagation so it never engages the drag sensor. */}
-      {onMove && (prevStage || nextStage) && !isGhost && (
-        <div
-          onPointerDown={e => e.stopPropagation()}
-          style={{ display: 'flex', justifyContent: 'space-between', padding: '0 8px 8px' }}
-        >
-          <button
-            type="button"
-            className="focus-ring-pill"
-            aria-label={prevStage ? `Move to ${STAGE_LABELS[prevStage]}` : 'Already in the first stage'}
-            disabled={!prevStage}
-            onClick={() => prevStage && onMove(p, prevStage)}
-            style={moveBtnStyle}
-          >
-            ‹
-          </button>
-          <button
-            type="button"
-            className="focus-ring-pill"
-            aria-label={nextStage ? `Move to ${STAGE_LABELS[nextStage]}` : 'Already in the last stage'}
-            disabled={!nextStage}
-            onClick={() => nextStage && onMove(p, nextStage)}
-            style={moveBtnStyle}
-          >
-            ›
-          </button>
         </div>
       )}
 
@@ -385,7 +370,7 @@ function PhaseDueControl({
       }}
     >
       <ClockIcon />
-      <span style={{ color: 'var(--text-muted)' }}>Leave {label} by</span>
+      <span style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Leave by</span>
       <span style={{
         marginLeft: 'auto', flexShrink: 0,
         fontWeight: 600, color,
@@ -422,16 +407,20 @@ function RocketIcon() {
 function TrackBadge({ label, stage, approved }: { label: string; stage: Stage; approved: boolean }) {
   const color = STAGE_COLORS[stage]
   const inReview = stage === 'client_review'
-  const icon = inReview ? (approved ? ' ✓' : ' ⏳') : ''
   return (
-    <span style={{
-      fontSize: 'var(--text-2xs)', fontWeight: 600, color: color.text,
-      background: color.bg,
-      border: `1px solid color-mix(in srgb, ${color.border} 25%, transparent)`,
-      borderRadius: 5, padding: '2px 6px',
-      whiteSpace: 'nowrap',
-    }}>
-      {label} · {STAGE_LABELS[stage]}{icon}
+    <span
+      title={inReview ? (approved ? 'Client approved' : 'Waiting on the client') : undefined}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 4,
+        fontSize: 'var(--text-2xs)', fontWeight: 600, color: color.text,
+        background: color.bg,
+        border: `1px solid color-mix(in srgb, ${color.border} 25%, transparent)`,
+        borderRadius: 5, padding: '2px 6px',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {label} · {STAGE_LABELS[stage]}
+      {inReview && (approved ? <Check size={10} strokeWidth={2.5} aria-hidden /> : <Hourglass size={10} strokeWidth={2} aria-hidden />)}
     </span>
   )
 }

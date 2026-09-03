@@ -544,3 +544,10 @@ html.theme-light .page-contrast .btn-secondary {
   background-color: #fff;
 }
 
+/* Kanban card controls: quiet until the card is hovered or a control focused. */
+.kanban-ctrl { opacity: 0.55; transition: opacity 0.12s, background 0.12s, border-color 0.12s; }
+.kanban-card:hover .kanban-ctrl, .kanban-ctrl:focus-visible { opacity: 1; }
+.kanban-ctrl:not(:disabled):hover { background: var(--surface-raised); border-color: var(--border-strong); color: var(--text-primary); }
+.kanban-ctrl:disabled { opacity: 0.2; cursor: default; }
+.kanban-card:hover { border-color: var(--border-hover); }
+

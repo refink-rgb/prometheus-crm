@@ -15,6 +15,7 @@ import { isProjectOverdue, phaseDueTone, STAGE_COLORS, STAGE_DUE_FIELD } from '@
 import KanbanCard from './KanbanCard'
 import CopyMarkdownButton from '@/components/CopyMarkdownButton'
 import { pipelineMarkdown } from '@/lib/markdown-export'
+import { Search, Hourglass, UserRound, X } from 'lucide-react'
 
 type PipelineProject = Project & { brands: { id: string; name: string } }
 type StatusFilter = 'all' | 'overdue' | 'in_review'
@@ -26,6 +27,16 @@ type TrackView = 'combined' | 'lp' | 'creatives'
 // A profile id, or one of the two sentinels. Was a hardcoded union of designer
 // names; now driven by the profiles roster.
 type EditorFilter = 'all' | 'unassigned' | (string & {})
+
+const FILTERS_KEY = 'prometheus-pipeline-filters'
+type SavedFilters = {
+  search: string
+  trackView: TrackView
+  status: StatusFilter
+  filterWaiting: boolean
+  editor: EditorFilter
+  mineOnly: boolean
+}
 
 function isEditedBy(p: PipelineProject, profileId: string): boolean {
   return p.lp_editor_id === profileId || p.creative_editor_id === profileId
@@ -71,10 +82,42 @@ export default function KanbanView({
   const [mineOnly, setMineOnly] = useState(false)
   const deferredSearch = useDeferredValue(search)
 
+  // Filters survive a refresh. Kept in localStorage rather than the URL so a
+  // shared project link never carries someone's board state. Hydrated in an
+  // effect so the server render stays deterministic; nothing is written back
+  // until that first read has happened, or the defaults would overwrite it.
+  const [filtersReady, setFiltersReady] = useState(false)
+  useEffect(() => {
+    /* eslint-disable react-hooks/set-state-in-effect */
+    try {
+      const raw = localStorage.getItem(FILTERS_KEY)
+      if (raw) {
+        const saved = JSON.parse(raw) as Partial<SavedFilters>
+        if (typeof saved.search === 'string') setSearch(saved.search)
+        if (saved.trackView === 'combined' || saved.trackView === 'lp' || saved.trackView === 'creatives') setTrackView(saved.trackView)
+        if (saved.status === 'all' || saved.status === 'overdue' || saved.status === 'in_review') setStatus(saved.status)
+        if (typeof saved.filterWaiting === 'boolean') setFilterWaiting(saved.filterWaiting)
+        if (typeof saved.mineOnly === 'boolean') setMineOnly(saved.mineOnly)
+        // An editor who has since left the roster would filter to an empty board.
+        if (typeof saved.editor === 'string' && (saved.editor === 'all' || saved.editor === 'unassigned' || editors.some(e => e.id === saved.editor))) setEditor(saved.editor)
+      }
+    } catch { /* private window or unreadable value — start clean */ }
+    setFiltersReady(true)
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [editors])
+  useEffect(() => {
+    if (!filtersReady) return
+    const snapshot: SavedFilters = { search, trackView, status, filterWaiting, editor, mineOnly }
+    try { localStorage.setItem(FILTERS_KEY, JSON.stringify(snapshot)) } catch { /* ignore */ }
+  }, [filtersReady, search, trackView, status, filterWaiting, editor, mineOnly])
+
   const myCount = useMemo(
     () => (currentProfileId ? localProjects.filter(p => isEditedBy(p, currentProfileId)).length : 0),
     [localProjects, currentProfileId]
   )
+  // "My work" is only offered to someone with a profile who is on something;
+  // a restored mineOnly must not silently empty the board when it is hidden.
+  const mineActive = mineOnly && !!currentProfileId && myCount > 0
 
   // Memoized so KanbanCard's memo() holds: a Map built inline would be a new
   // reference on every render and re-render every card on the board.
@@ -100,12 +143,12 @@ export default function KanbanView({
       if (status === 'overdue' && !isProjectOverdue(p.due_date, p.is_complete, p.lp_stage, p.creatives_stage)) return false
       if (status === 'in_review' && !(p.lp_stage === 'client_review' || p.creatives_stage === 'client_review')) return false
       if (filterWaiting && !isWaitingOnClient(p)) return false
-      if (mineOnly && (!currentProfileId || !isEditedBy(p, currentProfileId))) return false
+      if (mineActive && !isEditedBy(p, currentProfileId!)) return false
       if (editor === 'unassigned' && (p.lp_editor_id || p.creative_editor_id)) return false
       if (editor !== 'all' && editor !== 'unassigned' && !isEditedBy(p, editor)) return false
       return true
     })
-  }, [localProjects, deferredSearch, status, filterWaiting, editor, mineOnly, currentProfileId])
+  }, [localProjects, deferredSearch, status, filterWaiting, editor, mineActive, currentProfileId])
 
   // Names the active filters in the exported header, so a pasted table is not
   // mistaken for the whole pipeline.
@@ -115,7 +158,7 @@ export default function KanbanView({
     if (status === 'overdue') parts.push('overdue only')
     if (status === 'in_review') parts.push('in client review')
     if (filterWaiting) parts.push('waiting on client')
-    if (mineOnly) parts.push('my projects')
+    if (mineActive) parts.push('my projects')
     if (editor === 'unassigned') parts.push('unassigned')
     else if (editor !== 'all') {
       const e = editors.find(p => p.id === editor)
@@ -190,96 +233,65 @@ export default function KanbanView({
     moveCard(card, targetStage)
   }
 
-  const pillBase: React.CSSProperties = {
-    padding: 'var(--space-2) var(--space-3)', borderRadius: 20, fontSize: 'var(--text-sm)',
-    cursor: 'pointer', transition: 'all 0.15s', border: '1px solid',
+  // The track view is a way of reading the board, not a filter; it is left
+  // alone by Clear.
+  const filterCount = [deferredSearch.trim() !== '', status !== 'all', filterWaiting, mineActive, editor !== 'all'].filter(Boolean).length
+  function clearFilters() {
+    setSearch(''); setStatus('all'); setFilterWaiting(false); setMineOnly(false); setEditor('all')
   }
 
   return (
     <section style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-      {/* Filter bar */}
-      <div style={{ display: 'flex', gap: 'var(--space-3)', alignItems: 'center', marginBottom: 'var(--space-4)', flexWrap: 'wrap', flexShrink: 0 }}>
-        <input
-          type="text"
-          placeholder="Search by brand…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          style={{ width: 190, fontSize: 'var(--text-base)' }}
+      {/* Toolbar — one row: what to search, how to column, what to show.
+          Mutually exclusive choices are segmented controls, on/off ones are
+          toggle chips, so the shape of a control says how it behaves. */}
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', flexShrink: 0 }}>
+        <label style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+          <Search size={14} strokeWidth={2} aria-hidden style={{ position: 'absolute', left: 12, color: 'var(--text-muted)', pointerEvents: 'none' }} />
+          <input
+            type="search"
+            placeholder="Search brands"
+            aria-label="Search by brand"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{ width: 220, fontSize: 'var(--text-sm)', padding: '7px 12px 7px 34px', borderRadius: 20, background: 'var(--surface)' }}
+          />
+        </label>
+
+        {/* Which track's stage the board columns by */}
+        <Segmented
+          ariaLabel="Column cards by"
+          value={trackView}
+          onChange={setTrackView}
+          options={[
+            { value: 'combined', label: 'Combined', title: 'Column = the earlier of the two tracks' },
+            { value: 'lp', label: 'LP', title: "Column = the LP track's own stage" },
+            { value: 'creatives', label: 'Creatives', title: "Column = the Creatives track's own stage" },
+          ]}
         />
 
-        {/* Track view: which track's stage the board columns by */}
-        <div style={{ display: 'flex', gap: 0, border: '1px solid var(--border)', borderRadius: 20, overflow: 'hidden' }}>
-          {(['combined', 'lp', 'creatives'] as const).map(opt => {
-            const active = trackView === opt
-            const labels = { combined: 'Combined', lp: 'LP', creatives: 'Creatives' }
-            return (
-              <button
-                key={opt}
-                onClick={() => setTrackView(opt)}
-                className="focus-ring-pill"
-                title={
-                  opt === 'combined'
-                    ? 'Column = the earlier of the two tracks'
-                    : `Column = the ${labels[opt]} track's own stage`
-                }
-                style={{
-                  padding: 'var(--space-2) var(--space-3)',
-                  fontSize: 'var(--text-sm)',
-                  cursor: 'pointer',
-                  border: 'none',
-                  fontWeight: active ? 600 : 400,
-                  background: active ? 'var(--accent-muted)' : 'transparent',
-                  color: active ? 'var(--accent)' : 'var(--text-muted)',
-                  transition: 'all 0.15s',
-                }}
-              >
-                {labels[opt]}
-              </button>
-            )
-          })}
-        </div>
-
-        <div style={{ display: 'flex', gap: 4 }}>
-          {(['all', 'overdue', 'in_review'] as const).map(opt => {
-            const active = status === opt
-            const labels = { all: 'All', overdue: 'Overdue', in_review: 'In Review' }
-            return (
-              <button
-                key={opt}
-                onClick={() => setStatus(opt)}
-                className="focus-ring-pill"
-                style={{
-                  ...pillBase,
-                  fontWeight: active ? 600 : 400,
-                  borderColor: active ? 'var(--accent)' : 'var(--border)',
-                  background: active ? 'var(--accent-muted)' : 'transparent',
-                  color: active ? 'var(--accent)' : 'var(--text-muted)',
-                }}
-              >
-                {labels[opt]}
-              </button>
-            )
-          })}
-        </div>
+        <Segmented
+          ariaLabel="Status"
+          value={status}
+          onChange={setStatus}
+          options={[
+            { value: 'all', label: 'All' },
+            { value: 'overdue', label: 'Overdue' },
+            { value: 'in_review', label: 'In review' },
+          ]}
+        />
 
         {/* Only offer "My work" to someone who has a profile and is actually on
             something — otherwise it's a button that always yields an empty board. */}
         {currentProfileId && myCount > 0 && (
-          <button
-            onClick={() => setMineOnly(v => !v)}
-            className="focus-ring-pill"
-            aria-pressed={mineOnly}
-            style={{
-              ...pillBase,
-              fontWeight: mineOnly ? 600 : 400,
-              borderColor: mineOnly ? 'var(--accent)' : 'var(--border)',
-              background: mineOnly ? 'var(--accent-muted)' : 'transparent',
-              color: mineOnly ? 'var(--accent)' : 'var(--text-muted)',
-            }}
-          >
-            My work ({myCount})
-          </button>
+          <ToggleChip active={mineOnly} onClick={() => setMineOnly(v => !v)} icon={<UserRound size={13} strokeWidth={2} aria-hidden />} count={myCount}>
+            My work
+          </ToggleChip>
         )}
+
+        <ToggleChip active={filterWaiting} onClick={() => setFilterWaiting(v => !v)} tone="warning" icon={<Hourglass size={13} strokeWidth={2} aria-hidden />} count={waitingCount || undefined}>
+          Waiting on client
+        </ToggleChip>
 
         <select
           value={editor}
@@ -287,12 +299,12 @@ export default function KanbanView({
           aria-label="Filter by editor"
           style={{
             fontSize: 'var(--text-sm)',
-            padding: 'var(--space-2) var(--space-3)',
+            padding: '6px 30px 6px 12px',
             borderRadius: 20,
             border: `1px solid ${editor === 'all' ? 'var(--border)' : 'var(--editor-creative)'}`,
-            background: editor === 'all' ? 'transparent' : 'color-mix(in srgb, var(--editor-creative) 10%, transparent)',
-            color: editor === 'all' ? 'var(--text-muted)' : 'var(--editor-creative)',
-            fontWeight: editor === 'all' ? 400 : 600,
+            background: editor === 'all' ? 'var(--surface)' : 'color-mix(in srgb, var(--editor-creative) 10%, var(--surface))',
+            color: editor === 'all' ? 'var(--text-secondary)' : 'var(--editor-creative)',
+            fontWeight: editor === 'all' ? 500 : 600,
             cursor: 'pointer',
           }}
         >
@@ -303,43 +315,32 @@ export default function KanbanView({
           ))}
         </select>
 
-        <button
-          onClick={() => setFilterWaiting(!filterWaiting)}
-          className="focus-ring-pill"
-          style={{
-            ...pillBase,
-            display: 'inline-flex', alignItems: 'center', gap: 6,
-            fontWeight: 600,
-            borderColor: filterWaiting ? 'rgba(234,179,8,0.4)' : 'var(--border)',
-            background: filterWaiting ? 'rgba(234,179,8,0.1)' : 'transparent',
-            color: filterWaiting ? 'var(--warning)' : 'var(--text-muted)',
-          }}
-        >
-          <span style={{ fontSize: 10 }}>⏳</span>
-          Waiting on client
-          {waitingCount > 0 && (
-            <span style={{
-              fontSize: 10, fontWeight: 700,
-              background: filterWaiting ? 'rgba(234,179,8,0.2)' : 'var(--border)',
-              color: filterWaiting ? 'var(--warning)' : 'var(--text-secondary)',
-              borderRadius: 10, padding: '1px 6px',
-            }}>
-              {waitingCount}
-            </span>
-          )}
-        </button>
+        {filterCount > 0 && (
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="focus-ring-pill"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 'var(--text-sm)', fontWeight: 500, cursor: 'pointer', padding: '6px 8px' }}
+          >
+            <X size={13} strokeWidth={2} aria-hidden /> Clear filters
+          </button>
+        )}
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', marginBottom: 'var(--space-4)', flexShrink: 0 }}>
-        <h2 style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-          Active Pipeline — {displayed.length}{displayed.length !== localProjects.length ? ` of ${localProjects.length}` : ''} project{displayed.length !== 1 ? 's' : ''}
-        </h2>
+      {/* Count and export. The page heading above already says "Active
+          Pipeline"; this line says what the filters left of it. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexShrink: 0 }}>
+        <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+          Showing <strong style={{ color: 'var(--text-primary)' }}>{displayed.length}</strong>
+          {displayed.length !== localProjects.length ? ` of ${localProjects.length}` : ''} project{displayed.length !== 1 ? 's' : ''}
+          {filterCount > 0 && <span style={{ color: 'var(--text-muted)' }}> · {filterCount} filter{filterCount === 1 ? '' : 's'} on</span>}
+        </span>
         {displayed.length > 0 && (
           <CopyMarkdownButton
             markdown={() => pipelineMarkdown(displayed, filterNote())}
             label="Copy pipeline"
             title="Copy the cards currently shown as a markdown table"
-            style={{ marginLeft: 'auto' }}
+            style={{ marginLeft: 'auto', padding: '6px 12px' }}
           />
         )}
       </div>
@@ -356,7 +357,7 @@ export default function KanbanView({
             display: 'grid',
             // Derived from STAGE_ORDER so adding a stage never leaves an orphan
             // column wrapping to a second row.
-            gridTemplateColumns: `repeat(${STAGE_ORDER.length}, minmax(260px, 1fr))`,
+            gridTemplateColumns: `repeat(${STAGE_ORDER.length}, minmax(272px, 1fr))`,
             gridTemplateRows: 'minmax(0, 1fr)',
             gap: 12,
             height: '100%',
@@ -423,25 +424,31 @@ function KanbanColumnInner({
     : 0
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, height: '100%' }}>
+    // The column is a soft panel a shade off the page, so cards sit in a lane
+    // rather than floating; the panel lights up as the drop target.
+    <div style={{
+      display: 'flex', flexDirection: 'column', minWidth: 0, height: '100%',
+      background: isOver ? 'color-mix(in srgb, var(--accent) 6%, var(--surface))' : 'color-mix(in srgb, var(--surface) 55%, var(--background))',
+      border: `1px solid ${isOver ? 'color-mix(in srgb, var(--accent) 50%, transparent)' : 'var(--border)'}`,
+      borderRadius: 12,
+      padding: 8,
+      transition: 'background 0.15s, border-color 0.15s',
+    }}>
       {/* Column header */}
       <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '9px 14px', marginBottom: 10,
-        background: 'var(--surface)',
-        border: '1px solid var(--border)',
-        borderTop: `2px solid ${color.border}`,
-        borderRadius: 8,
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+        padding: '6px 6px 12px',
         flexShrink: 0,
-        position: 'sticky',
-        top: 0,
-        zIndex: 2,
       }}>
-        <span style={{
-          fontSize: 'var(--text-xs)', fontWeight: 700, color: color.text,
-          textTransform: 'uppercase', letterSpacing: '0.08em',
-        }}>
-          {STAGE_LABELS[stage]}
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+          <span aria-hidden style={{ width: 8, height: 8, borderRadius: '50%', background: color.border, flexShrink: 0 }} />
+          <span style={{
+            fontSize: 'var(--text-xs)', fontWeight: 700, color: color.text,
+            textTransform: 'uppercase', letterSpacing: '0.08em',
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}>
+            {STAGE_LABELS[stage]}
+          </span>
         </span>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           {overdueCount > 0 && (
@@ -475,11 +482,7 @@ function KanbanColumnInner({
           minHeight: 0,
           overflowY: 'auto',
           borderRadius: 8,
-          background: isOver
-            ? 'color-mix(in srgb, var(--accent) 4%, transparent)'
-            : 'transparent',
-          transition: 'background 0.15s',
-          padding: isOver ? '6px' : '0 0 4px',
+          padding: '0 0 4px',
         }}
       >
         {/* Placeholder when dragging over this column */}
@@ -495,11 +498,11 @@ function KanbanColumnInner({
 
         {cards.length === 0 && !isOver ? (
           <div style={{
-            border: '1px dashed var(--border)', borderRadius: 10,
-            padding: '28px 12px', textAlign: 'center',
+            border: '1px dashed var(--border-strong)', borderRadius: 10,
+            padding: '26px 12px', textAlign: 'center',
             color: 'var(--text-muted)', fontSize: 12,
           }}>
-            No projects in {STAGE_LABELS[stage]}
+            Nothing in {STAGE_LABELS[stage]}
           </div>
         ) : (
           cards
@@ -514,3 +517,85 @@ function KanbanColumnInner({
     </div>
   )
 }
+
+// One control for a set of mutually exclusive options.
+function Segmented<T extends string>({
+  value, onChange, options, ariaLabel,
+}: {
+  value: T
+  onChange: (value: T) => void
+  options: { value: T; label: string; title?: string }[]
+  ariaLabel: string
+}) {
+  return (
+    <div role="group" aria-label={ariaLabel} style={{ display: 'inline-flex', padding: 3, gap: 2, border: '1px solid var(--border)', borderRadius: 20, background: 'var(--surface)' }}>
+      {options.map(o => {
+        const active = o.value === value
+        return (
+          <button
+            key={o.value}
+            type="button"
+            onClick={() => onChange(o.value)}
+            className="focus-ring-pill"
+            aria-pressed={active}
+            title={o.title}
+            style={{
+              padding: '5px 12px', borderRadius: 16, border: 'none',
+              fontSize: 'var(--text-sm)', fontWeight: active ? 600 : 500, cursor: 'pointer', whiteSpace: 'nowrap',
+              background: active ? 'var(--accent-muted)' : 'transparent',
+              color: active ? 'var(--accent)' : 'var(--text-secondary)',
+              transition: 'all 0.15s',
+            }}
+          >
+            {o.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+// An on/off filter with an optional count.
+function ToggleChip({
+  active, onClick, icon, count, tone = 'accent', children,
+}: {
+  active: boolean
+  onClick: () => void
+  icon?: React.ReactNode
+  count?: number
+  tone?: 'accent' | 'warning'
+  children: React.ReactNode
+}) {
+  const color = tone === 'warning' ? 'var(--warning)' : 'var(--accent)'
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className="focus-ring-pill"
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 6,
+        padding: '6px 12px', borderRadius: 20,
+        fontSize: 'var(--text-sm)', fontWeight: active ? 600 : 500, cursor: 'pointer', whiteSpace: 'nowrap',
+        border: `1px solid ${active ? `color-mix(in srgb, ${color} 45%, transparent)` : 'var(--border)'}`,
+        background: active ? `color-mix(in srgb, ${color} 12%, var(--surface))` : 'var(--surface)',
+        color: active ? color : 'var(--text-secondary)',
+        transition: 'all 0.15s',
+      }}
+    >
+      {icon}
+      {children}
+      {count !== undefined && (
+        <span style={{
+          fontSize: 10, fontWeight: 700, borderRadius: 10, padding: '1px 6px',
+          background: active ? `color-mix(in srgb, ${color} 20%, transparent)` : 'var(--surface-raised)',
+          border: active ? '1px solid transparent' : '1px solid var(--border)',
+          color: active ? color : 'var(--text-secondary)',
+        }}>
+          {count}
+        </span>
+      )}
+    </button>
+  )
+}
+
