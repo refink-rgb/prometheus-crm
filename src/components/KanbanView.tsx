@@ -15,7 +15,7 @@ import { isProjectOverdue, phaseDueTone, STAGE_COLORS, STAGE_DUE_FIELD } from '@
 import KanbanCard from './KanbanCard'
 import CopyMarkdownButton from '@/components/CopyMarkdownButton'
 import { pipelineMarkdown } from '@/lib/markdown-export'
-import { Search, Hourglass, UserRound, X } from 'lucide-react'
+import { Search, Hourglass, UserRound, Users, ChevronDown, X } from 'lucide-react'
 
 type PipelineProject = Project & { brands: { id: string; name: string } }
 type StatusFilter = 'all' | 'overdue' | 'in_review'
@@ -246,7 +246,7 @@ export default function KanbanView({
           Mutually exclusive choices are segmented controls, on/off ones are
           toggle chips, so the shape of a control says how it behaves. */}
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', flexShrink: 0 }}>
-        <label style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+        <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
           <Search size={14} strokeWidth={2} aria-hidden style={{ position: 'absolute', left: 12, color: 'var(--text-muted)', pointerEvents: 'none' }} />
           <input
             type="search"
@@ -256,7 +256,7 @@ export default function KanbanView({
             onChange={e => setSearch(e.target.value)}
             style={{ width: 220, fontSize: 'var(--text-sm)', padding: '7px 12px 7px 34px', borderRadius: 20, background: 'var(--surface)' }}
           />
-        </label>
+        </div>
 
         {/* Which track's stage the board columns by */}
         <Segmented
@@ -293,27 +293,53 @@ export default function KanbanView({
           Waiting on client
         </ToggleChip>
 
-        <select
-          value={editor}
-          onChange={e => setEditor(e.target.value)}
-          aria-label="Filter by editor"
-          style={{
-            fontSize: 'var(--text-sm)',
-            padding: '6px 30px 6px 12px',
-            borderRadius: 20,
-            border: `1px solid ${editor === 'all' ? 'var(--border)' : 'var(--editor-creative)'}`,
-            background: editor === 'all' ? 'var(--surface)' : 'color-mix(in srgb, var(--editor-creative) 10%, var(--surface))',
-            color: editor === 'all' ? 'var(--text-secondary)' : 'var(--editor-creative)',
-            fontWeight: editor === 'all' ? 500 : 600,
-            cursor: 'pointer',
-          }}
-        >
-          <option value="all">All editors</option>
-          <option value="unassigned">Unassigned</option>
-          {editors.map(p => (
-            <option key={p.id} value={p.id}>{profileName(p)}</option>
-          ))}
-        </select>
+        {/* Editor filter, dressed as a chip like its neighbours. The global
+            select rule is width:100%, which put this on a row of its own;
+            sized to its content here. Lit in the editor colour when one is
+            picked so an active person filter is never mistaken for the
+            default. */}
+        {(() => {
+          const picked = editor !== 'all'
+          const tint = 'var(--editor-creative)'
+          return (
+            <div
+              style={{
+                position: 'relative', display: 'inline-flex', alignItems: 'center',
+                borderRadius: 20,
+                border: `1px solid ${picked ? `color-mix(in srgb, ${tint} 55%, transparent)` : 'var(--border)'}`,
+                background: picked ? `color-mix(in srgb, ${tint} 14%, var(--surface))` : 'var(--surface)',
+                color: picked ? tint : 'var(--text-secondary)',
+                transition: 'all 0.15s',
+              }}
+            >
+              <Users size={13} strokeWidth={2} aria-hidden style={{ position: 'absolute', left: 12, pointerEvents: 'none' }} />
+              <select
+                value={editor}
+                onChange={e => setEditor(e.target.value)}
+                aria-label="Filter by editor"
+                style={{
+                  width: 'auto',
+                  appearance: 'none', WebkitAppearance: 'none',
+                  fontSize: 'var(--text-sm)',
+                  fontWeight: picked ? 600 : 500,
+                  padding: '6px 30px 6px 32px',
+                  borderRadius: 20,
+                  border: 'none',
+                  background: 'transparent',
+                  color: 'inherit',
+                  cursor: 'pointer',
+                }}
+              >
+                <option value="all">All editors</option>
+                <option value="unassigned">Unassigned</option>
+                {editors.map(p => (
+                  <option key={p.id} value={p.id}>{profileName(p)}</option>
+                ))}
+              </select>
+              <ChevronDown size={13} strokeWidth={2} aria-hidden style={{ position: 'absolute', right: 11, pointerEvents: 'none' }} />
+            </div>
+          )
+        })()}
 
         {filterCount > 0 && (
           <button
