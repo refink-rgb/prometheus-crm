@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { Link2, Check, RotateCcw } from 'lucide-react'
 import { generateShareToken } from '@/lib/actions'
 
 export default function ShareButton({
@@ -41,7 +42,7 @@ export default function ShareButton({
         className="btn-secondary"
         style={{ fontSize: 13 }}
       >
-        {generating ? 'Generating…' : '🔗 Generate client link'}
+        {generating ? 'Generating…' : <><Link2 size={14} strokeWidth={2} aria-hidden /> Generate client link</>}
       </button>
     )
   }
@@ -70,7 +71,7 @@ export default function ShareButton({
           className="btn-primary"
           style={{ fontSize: 13, flexShrink: 0, padding: '8px 16px' }}
         >
-          {copied ? '✓ Copied!' : 'Copy link'}
+          {copied ? <><Check size={14} strokeWidth={2} aria-hidden /> Copied</> : 'Copy link'}
         </button>
       </div>
       <button
@@ -86,7 +87,7 @@ export default function ShareButton({
           padding: 0,
         }}
       >
-        {generating ? 'Regenerating…' : '↺ Regenerate link (invalidates old one)'}
+        {generating ? 'Regenerating…' : <><RotateCcw size={12} strokeWidth={2} aria-hidden style={{ verticalAlign: '-2px', marginRight: 4 }} />Regenerate link (invalidates old one)</>}
       </button>
     </div>
   )

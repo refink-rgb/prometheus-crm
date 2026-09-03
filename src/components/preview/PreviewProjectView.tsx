@@ -18,6 +18,7 @@ import { profileName } from '@/lib/types'
 import type { TrackedCampaign } from '@/lib/results'
 import { hypercareFor, hypercareCopyMessage } from '@/lib/hypercare'
 import ShareButton from '@/components/ShareButton'
+import { Pencil } from 'lucide-react'
 import { markProjectComplete, deleteProject, reopenProject } from '@/lib/actions'
 import SubmitButton from '@/components/SubmitButton'
 import type { AssetRevision } from '@/lib/revisions'
@@ -532,7 +533,7 @@ export default function PreviewProjectView({
                 onClick={() => window.dispatchEvent(new Event('prometheus-open-edit'))}
                 className="btn-secondary"
                 style={{ fontSize: 'var(--text-sm)', whiteSpace: 'nowrap' }}
-              >✏ Edit details</button>
+              ><Pencil size={14} strokeWidth={2} aria-hidden /> Edit details</button>
             )}
             {/* The client review link. The visibility switches in Review decide
                 WHAT the client sees; this is the URL they see it at, and without

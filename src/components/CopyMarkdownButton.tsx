@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { Copy, Check, AlertCircle } from 'lucide-react'
 
 /**
  * Copy a block of markdown to the clipboard.
@@ -47,7 +48,11 @@ export default function CopyMarkdownButton({
       title={title ?? 'Copy every filled-in field as markdown'}
       style={{ fontSize: 'var(--text-sm)', whiteSpace: 'nowrap', ...style }}
     >
-      {failed ? 'Copy failed' : copied ? 'Copied ✓' : `⧉ ${label}`}
+      {failed
+        ? <><AlertCircle size={14} strokeWidth={2} aria-hidden /> Copy failed</>
+        : copied
+          ? <><Check size={14} strokeWidth={2} aria-hidden /> Copied</>
+          : <><Copy size={14} strokeWidth={2} aria-hidden /> {label}</>}
     </button>
   )
 }
