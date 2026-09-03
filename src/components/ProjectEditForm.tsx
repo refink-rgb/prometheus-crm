@@ -280,13 +280,10 @@ export default function ProjectEditForm({ projectId, brandId, journeys, profiles
   }
 
   if (!editing) {
-    return (
-      <div ref={containerRef} style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 24 }}>
-        <button onClick={() => setEditing(true)} className="btn-secondary btn-sm">
-          ✏ Edit details
-        </button>
-      </div>
-    )
+    // Closed, the form is only an anchor: the header's "Edit details" button
+    // opens it through the prometheus-open-edit event, and the second button
+    // that used to sit here duplicated it a few hundred pixels lower.
+    return <div ref={containerRef} />
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
