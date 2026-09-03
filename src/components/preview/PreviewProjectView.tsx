@@ -11,6 +11,7 @@ import CampaignTrackingPanel from '@/components/CampaignTrackingPanel'
 import NotesThread from '@/components/NotesThread'
 import ConfirmDeleteForm from '@/components/ConfirmDeleteForm'
 import RevisionsToggle from '@/components/RevisionsToggle'
+import FinalOutputField from '@/components/FinalOutputField'
 import EditorPicker from '@/components/EditorPicker'
 import { editorsFor } from '@/lib/types'
 import { profileName } from '@/lib/types'
@@ -983,7 +984,13 @@ export default function PreviewProjectView({
                     <a href={p.lp_url} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: 'var(--accent)' }}>
                       {hostOf(p.lp_url)}<span style={{ color: 'var(--text-muted)' }}>{pathOf(p.lp_url)}</span> ↗
                     </a>
-                  ) : <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No landing page URL yet.</div>}
+                  ) : p.is_complete ? (
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No landing page URL.</div>
+                  ) : (
+                    // The "No LP URL" chip at the top lands here, so here is
+                    // where the URL gets submitted — not a sentence about its absence.
+                    <FinalOutputField field="lp_url" projectId={p.id} brandId={p.brand_id} currentValue={null} />
+                  )}
                 </div>
 
                 {/* Present-only. motion_link is set on 2 of 66 projects and held a
@@ -1060,9 +1067,20 @@ export default function PreviewProjectView({
                       color: p.lp_approved ? 'var(--complete-text)' : 'var(--text-secondary)',
                       border: p.lp_approved ? 'none' : '1px solid var(--border)',
                     }}>{p.lp_approved ? 'Client approved' : 'Not yet approved'}</span>
+                    {!p.is_complete && <FinalOutputField field="lp_url" projectId={p.id} brandId={p.brand_id} currentValue={p.lp_url} />}
                   </div>
                 ) : (
-                  <Missing tone="muted">No page yet. This is a build, not a revision.</Missing>
+                  <>
+                    <Missing tone="muted">No page yet. This is a build, not a revision.</Missing>
+                    {/* The submit box, right where the absence is announced. It
+                        used to live only inside Edit details, which nobody
+                        looked in for "where do I hand in the page". */}
+                    {!p.is_complete && (
+                      <div style={{ marginTop: 12 }}>
+                        <FinalOutputField field="lp_url" projectId={p.id} brandId={p.brand_id} currentValue={null} />
+                      </div>
+                    )}
+                  </>
                 )}
 
                 {p.lp_url && (
@@ -1084,6 +1102,24 @@ export default function PreviewProjectView({
                     )}
                   </div>
                 )}
+
+                {/* The discount code the page runs with, handed in alongside the
+                    URL. Also moved here from Edit details. */}
+                <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Discount code</div>
+                  {p.shopify_coupon_code ? (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>
+                      <code style={{ fontSize: 13, fontWeight: 700, padding: '4px 10px', borderRadius: 6, background: 'var(--surface-2)', border: '1px solid var(--border)', color: 'var(--text-primary)', letterSpacing: '0.04em' }}>
+                        {p.shopify_coupon_code}
+                      </code>
+                      {!p.is_complete && <FinalOutputField field="shopify_coupon_code" projectId={p.id} brandId={p.brand_id} currentValue={p.shopify_coupon_code} />}
+                    </div>
+                  ) : p.is_complete ? (
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No discount code.</div>
+                  ) : (
+                    <FinalOutputField field="shopify_coupon_code" projectId={p.id} brandId={p.brand_id} currentValue={null} />
+                  )}
+                </div>
 
                 {/* The only toggle for needs_revisions in the app lived on the
                     page being retired, which made the column write-only. */}
@@ -1108,9 +1144,6 @@ export default function PreviewProjectView({
                     ))}
                 </div>
 
-                {/* Self-hiding, which is all 66 rows today. It appears the day one
-                    is entered rather than holding a permanent empty slot. */}
-                <div style={{ marginTop: 12 }}><Field label="Coupon code">{p.shopify_coupon_code}</Field></div>
               </Card>
 
               {/* Every page built for this brand, so an LP editor can open what
