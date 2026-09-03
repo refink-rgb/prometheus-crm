@@ -8,6 +8,7 @@ import ThemeToggle from '@/components/ThemeToggle'
 import NotificationBell from '@/components/NotificationBell'
 import type { CapacitySummary } from '@/lib/capacity'
 import BrandMark from '@/components/BrandMark'
+import { PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 
 interface SidebarProps {
   email?: string | null
@@ -245,34 +246,48 @@ export default function Sidebar({ email, showFinancials, capacity = null }: Side
         flexDirection: 'column',
         zIndex: 40,
       }}>
-        <div style={{ padding: collapsed ? '20px 0 16px' : '20px 20px 16px', display: 'flex', justifyContent: 'center' }}>
-          <Link href="/" title={collapsed ? 'Prometheus' : undefined} style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none' }}>
-            <BrandMark size={26} />
+        {/* Header: mark + wordmark on the left at the same inset as the nav
+            icons below, collapse control on the right of the same row. It used
+            to centre the wordmark and park the button on its own row beneath,
+            which read as three loose pieces. Collapsed, the mark stacks over
+            the button, both centred in the 60px rail. */}
+        <div style={{
+          display: 'flex',
+          flexDirection: collapsed ? 'column' : 'row',
+          alignItems: 'center',
+          justifyContent: collapsed ? 'center' : 'space-between',
+          gap: collapsed ? 10 : 8,
+          padding: collapsed ? '16px 0 12px' : '16px 10px 14px 16px',
+        }}>
+          <Link href="/" title={collapsed ? 'Prometheus' : undefined} style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', minWidth: 0 }}>
+            <BrandMark size={28} />
             {/* Collapsed rail is 60px: only the mark fits. The wordmark used to
                 stay mounted and overflow the rail. */}
             {!collapsed && (
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.01em', lineHeight: 1.2 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.01em', lineHeight: 1.2, whiteSpace: 'nowrap' }}>
                   Prometheus
                 </div>
-                <div style={{ fontSize: 10, color: 'var(--text-muted)', letterSpacing: '0.06em' }}>
+                <div style={{ fontSize: 10, color: 'var(--text-muted)', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>
                   Studio · CTC
                 </div>
               </div>
             )}
           </Link>
-        </div>
 
-        <button
-          onClick={() => setCollapsed(v => !v)}
-          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          style={{
-            margin: collapsed ? '0 auto 8px' : '0 12px 8px auto', display: 'block',
-            width: 26, height: 26, borderRadius: 6, cursor: 'pointer', fontSize: 12,
-            border: '1px solid var(--sidebar-border)', background: 'transparent', color: 'var(--text-muted)',
-          }}
-        >{collapsed ? '›' : '‹'}</button>
+          <button
+            onClick={() => setCollapsed(v => !v)}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            style={{
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+              width: 28, height: 28, borderRadius: 7, cursor: 'pointer',
+              border: '1px solid var(--sidebar-border)', background: 'transparent', color: 'var(--text-muted)',
+            }}
+          >
+            {collapsed ? <PanelLeftOpen size={15} strokeWidth={2} aria-hidden /> : <PanelLeftClose size={15} strokeWidth={2} aria-hidden />}
+          </button>
+        </div>
 
         <div style={{ height: 1, background: 'var(--sidebar-border)', margin: '0 12px' }} />
 
