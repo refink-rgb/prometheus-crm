@@ -549,5 +549,5 @@ html.theme-light .page-contrast .btn-secondary {
 .kanban-card:hover .kanban-ctrl, .kanban-ctrl:focus-visible { opacity: 1; }
 .kanban-ctrl:not(:disabled):hover { background: var(--surface-raised); border-color: var(--border-strong); color: var(--text-primary); }
 .kanban-ctrl:disabled { opacity: 0.2; cursor: default; }
-.kanban-card:hover { border-color: var(--border-hover); }
+.kanban-card:hover { border-color: var(--border-hover); box-shadow: 0 8px 24px var(--hover-shadow); }
 

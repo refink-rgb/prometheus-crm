@@ -78,6 +78,10 @@ function KanbanCardInner({ p, isGhost = false, columnStage, onMove, editorsById 
       : `Creatives at ${STAGE_LABELS[p.creatives_stage]} — advance to match LP`
     : null
 
+  const brandInitial = (p.brands.name.trim()[0] ?? '?').toUpperCase()
+  const SEGMENTS = STAGE_ORDER.length - 1
+  const filledSegments = Math.round((progress / 100) * SEGMENTS)
+
   return (
     <div
       ref={setNodeRef}
@@ -85,16 +89,21 @@ function KanbanCardInner({ p, isGhost = false, columnStage, onMove, editorsById 
       style={{
         position: 'relative',
         background: isOverdue
-          ? 'color-mix(in srgb, var(--danger) 5%, var(--surface))'
+          ? 'color-mix(in srgb, var(--danger) 4%, var(--surface))'
           : 'var(--surface)',
-        border: `1px solid ${isOverdue ? 'rgba(239,68,68,0.35)' : 'var(--border)'}`,
-        borderLeft: `3px solid ${leftBorderColor}`,
-        borderRadius: 10,
+        border: `1px solid ${isOverdue ? 'color-mix(in srgb, var(--danger) 40%, transparent)' : 'var(--border)'}`,
+        borderRadius: 12,
+        boxShadow: '0 1px 2px rgba(0,0,0,0.25)',
         overflow: 'hidden',
         opacity: isDragging ? 0.35 : 1,
         transform: CSS.Translate.toString(transform),
       }}
     >
+      {/* Stage rail: the colour of the constraining track's stage, red when
+          the go-live is past. Inset rather than a full-height border so the
+          card's rounded corners stay clean. */}
+      <span aria-hidden style={{ position: 'absolute', left: 0, top: 12, bottom: 12, width: 3, borderRadius: '0 3px 3px 0', background: leftBorderColor }} />
+
       {/* Controls cluster: move back / move forward / drag. The drag handle is
           deliberately NOT on the same node as the Link below — dnd-kit's
           pointer sensor swallows the click event on whatever element its
@@ -103,7 +112,7 @@ function KanbanCardInner({ p, isGhost = false, columnStage, onMove, editorsById 
           card (confirmed live). The move buttons are the keyboard-operable
           equivalent of the drag, and stop pointerdown so they never engage it. */}
       {!isGhost && (
-        <div style={{ position: 'absolute', top: 7, right: 7, display: 'flex', alignItems: 'center', gap: 1, zIndex: 1 }}>
+        <div style={{ position: 'absolute', top: 9, right: 9, display: 'flex', alignItems: 'center', gap: 1, zIndex: 1 }}>
           {onMove && columnStage && (
             <div onPointerDown={e => e.stopPropagation()} style={{ display: 'flex', gap: 1 }}>
               <button
@@ -150,24 +159,33 @@ function KanbanCardInner({ p, isGhost = false, columnStage, onMove, editorsById 
           display: 'block',
           textDecoration: 'none',
           color: 'inherit',
-          padding: '12px 14px',
+          padding: '12px 14px 10px 16px',
         }}
       >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
 
-          {/* Brand name — right-padded so the drag handle never overlaps a
-              long, ellipsis-truncated name. */}
-          <div style={{
-            fontSize: 11, color: 'var(--text-muted)',
-            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-            paddingRight: 68,
-          }}>
-            {p.brands.name}
+          {/* Brand: a lettered mark and the name, right-padded so the controls
+              never overlap a long, ellipsis-truncated name. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, paddingRight: 68, minWidth: 0 }}>
+            <span aria-hidden style={{
+              width: 18, height: 18, borderRadius: 5, flexShrink: 0,
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)',
+              background: 'var(--surface-raised)', border: '1px solid var(--border)',
+            }}>
+              {brandInitial}
+            </span>
+            <span style={{
+              fontSize: 11, fontWeight: 500, color: 'var(--text-secondary)',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
+              {p.brands.name}
+            </span>
           </div>
 
           {/* Project name */}
           <div style={{
-            fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1.35,
+            fontSize: 13.5, fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1.35, letterSpacing: '-0.005em',
             display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
             overflow: 'hidden',
           }}>
@@ -184,9 +202,10 @@ function KanbanCardInner({ p, isGhost = false, columnStage, onMove, editorsById 
           {laggingMsg && (
             <div style={{
               display: 'flex', alignItems: 'flex-start', gap: 5,
-              fontSize: 10, color: 'var(--warning)', lineHeight: 1.4,
-              background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.2)',
-              borderRadius: 6, padding: '4px 8px',
+              fontSize: 10.5, color: 'var(--warning)', lineHeight: 1.4,
+              background: 'color-mix(in srgb, var(--warning) 8%, transparent)',
+              border: '1px solid color-mix(in srgb, var(--warning) 22%, transparent)',
+              borderRadius: 7, padding: '5px 8px',
             }}>
               <AlertTriangle size={11} strokeWidth={2} aria-hidden style={{ flexShrink: 0, marginTop: 1 }} />
               <span>{laggingMsg}</span>
@@ -196,15 +215,19 @@ function KanbanCardInner({ p, isGhost = false, columnStage, onMove, editorsById 
         </div>
       </Link>
 
-      {/* Deadline zone — two distinct dates, two visual languages. Sits OUTSIDE
-          the Link so the inline date editor's controls aren't nested in an
-          anchor, and stops pointerdown so editing never engages the drag
-          sensor. Phase target = the actionable deadline (flares amber/red);
-          go-live = the calm green anchor. */}
+      {/* Footer — two distinct dates, two visual languages, under a hairline.
+          Sits OUTSIDE the Link so the inline date editor's controls aren't
+          nested in an anchor, and stops pointerdown so editing never engages
+          the drag sensor. Phase target = the actionable deadline (flares
+          amber/red); go-live = the calm green anchor. */}
       {!isGhost && (
         <div
           onPointerDown={e => e.stopPropagation()}
-          style={{ padding: '0 14px 10px', display: 'flex', flexDirection: 'column', gap: 6 }}
+          style={{
+            margin: '0 14px 0 16px', padding: '9px 0 10px',
+            borderTop: '1px solid color-mix(in srgb, var(--border) 70%, transparent)',
+            display: 'flex', flexDirection: 'column', gap: 7,
+          }}
         >
           {/* Phase target — editable inline. Hidden for live/done columns. */}
           {phaseField && columnStage && (
@@ -216,15 +239,15 @@ function KanbanCardInner({ p, isGhost = false, columnStage, onMove, editorsById 
             />
           )}
 
-          {/* Bottom row: editors left, go-live anchor right. */}
+          {/* Editors left, go-live anchor right. */}
           {(p.due_date || lpEditor || creativeEditor) && (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
               <div style={{ display: 'flex', gap: 3, flexShrink: 0 }}>
                 {lpEditor && (
-                  <Avatar name={profileName(lpEditor)} size={18} title={`LP: ${profileName(lpEditor)}`} />
+                  <Avatar name={profileName(lpEditor)} size={20} title={`LP: ${profileName(lpEditor)}`} />
                 )}
                 {creativeEditor && (
-                  <Avatar name={profileName(creativeEditor)} size={18} title={`Creative: ${profileName(creativeEditor)}`} />
+                  <Avatar name={profileName(creativeEditor)} size={20} title={`Creative: ${profileName(creativeEditor)}`} />
                 )}
               </div>
               {p.due_date && (
@@ -234,8 +257,8 @@ function KanbanCardInner({ p, isGhost = false, columnStage, onMove, editorsById 
                     fontSize: 11,
                     fontWeight: 600,
                     color: isOverdue ? 'var(--danger)' : STAGE_COLORS.live.text,
-                    background: isOverdue ? 'rgba(239,68,68,0.1)' : STAGE_COLORS.live.bg,
-                    borderRadius: 20, padding: '2px 8px',
+                    background: isOverdue ? 'color-mix(in srgb, var(--danger) 12%, transparent)' : STAGE_COLORS.live.bg,
+                    borderRadius: 20, padding: '3px 9px',
                     display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0,
                   }}
                 >
@@ -245,20 +268,27 @@ function KanbanCardInner({ p, isGhost = false, columnStage, onMove, editorsById 
               )}
             </div>
           )}
+
+          {/* Progress: one segment per stage transition, filled for the
+              distance both tracks have covered on average. */}
+          <div
+            role="img"
+            aria-label={`${progress}% through the pipeline`}
+            title={`${progress}% through the pipeline`}
+            style={{ display: 'flex', gap: 3, marginTop: 1 }}
+          >
+            {Array.from({ length: SEGMENTS }, (_, i) => (
+              <span key={i} style={{
+                flex: 1, height: 3, borderRadius: 2,
+                background: i < filledSegments
+                  ? progress === 100 ? 'var(--success)' : 'var(--accent)'
+                  : 'var(--border)',
+                transition: 'background 0.3s',
+              }} />
+            ))}
+          </div>
         </div>
       )}
-
-      {/* Progress bar — full width at bottom */}
-      <div style={{ height: 3, background: 'var(--border)' }}>
-        <div style={{
-          height: '100%',
-          width: `${progress}%`,
-          background: progress === 100
-            ? 'var(--success)'
-            : progress >= 50 ? 'var(--accent)' : 'color-mix(in srgb, var(--accent) 60%, var(--text-muted))',
-          transition: 'width 0.3s',
-        }} />
-      </div>
     </div>
   )
 }
@@ -415,10 +445,11 @@ function TrackBadge({ label, stage, approved }: { label: string; stage: Stage; a
         fontSize: 'var(--text-2xs)', fontWeight: 600, color: color.text,
         background: color.bg,
         border: `1px solid color-mix(in srgb, ${color.border} 25%, transparent)`,
-        borderRadius: 5, padding: '2px 6px',
+        borderRadius: 6, padding: '3px 7px',
         whiteSpace: 'nowrap',
       }}
     >
+      <span aria-hidden style={{ width: 5, height: 5, borderRadius: '50%', background: color.border, flexShrink: 0 }} />
       {label} · {STAGE_LABELS[stage]}
       {inReview && (approved ? <Check size={10} strokeWidth={2.5} aria-hidden /> : <Hourglass size={10} strokeWidth={2} aria-hidden />)}
     </span>

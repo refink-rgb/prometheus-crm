@@ -454,20 +454,20 @@ function KanbanColumnInner({
     // rather than floating; the panel lights up as the drop target.
     <div style={{
       display: 'flex', flexDirection: 'column', minWidth: 0, height: '100%',
-      background: isOver ? 'color-mix(in srgb, var(--accent) 6%, var(--surface))' : 'color-mix(in srgb, var(--surface) 55%, var(--background))',
-      border: `1px solid ${isOver ? 'color-mix(in srgb, var(--accent) 50%, transparent)' : 'var(--border)'}`,
-      borderRadius: 12,
+      background: isOver ? 'color-mix(in srgb, var(--accent) 6%, var(--surface))' : 'color-mix(in srgb, var(--surface) 45%, var(--background))',
+      border: `1px solid ${isOver ? 'color-mix(in srgb, var(--accent) 50%, transparent)' : 'color-mix(in srgb, var(--border) 75%, transparent)'}`,
+      borderRadius: 14,
       padding: 8,
       transition: 'background 0.15s, border-color 0.15s',
     }}>
       {/* Column header */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
-        padding: '6px 6px 12px',
+        padding: '7px 8px 13px',
         flexShrink: 0,
       }}>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-          <span aria-hidden style={{ width: 8, height: 8, borderRadius: '50%', background: color.border, flexShrink: 0 }} />
+          <span aria-hidden style={{ width: 8, height: 8, borderRadius: '50%', background: color.border, boxShadow: `0 0 0 3px color-mix(in srgb, ${color.border} 22%, transparent)`, flexShrink: 0 }} />
           <span style={{
             fontSize: 'var(--text-xs)', fontWeight: 700, color: color.text,
             textTransform: 'uppercase', letterSpacing: '0.08em',
@@ -503,7 +503,7 @@ function KanbanColumnInner({
       <div
         ref={setNodeRef}
         style={{
-          display: 'flex', flexDirection: 'column', gap: 8,
+          display: 'flex', flexDirection: 'column', gap: 10,
           flex: 1,
           minHeight: 0,
           overflowY: 'auto',
@@ -524,11 +524,11 @@ function KanbanColumnInner({
 
         {cards.length === 0 && !isOver ? (
           <div style={{
-            border: '1px dashed var(--border-strong)', borderRadius: 10,
-            padding: '26px 12px', textAlign: 'center',
+            border: '1px dashed color-mix(in srgb, var(--border-strong) 70%, transparent)', borderRadius: 10,
+            padding: '30px 12px', textAlign: 'center',
             color: 'var(--text-muted)', fontSize: 12,
           }}>
-            Nothing in {STAGE_LABELS[stage]}
+            Nothing here
           </div>
         ) : (
           cards
