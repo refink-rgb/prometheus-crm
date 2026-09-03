@@ -517,3 +517,29 @@ label {
 .stage-step:not(:disabled):hover { transform: scale(1.15); box-shadow: 0 0 0 4px var(--hover-ring); }
 .stage-step:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
+/* ── Project page contrast ──────────────────────────────────────────────────
+   The dark theme's muted (#555) and secondary (#888) text sit at ~2.4:1 and
+   ~5:1 against the card surface, and outline buttons draw a #2a2a2a border on
+   #161616 — grey on grey. Lifted here for the project page only; the tokens
+   are re-declared on the page root so every label, hint and chip inside picks
+   them up without touching the rest of the app. Light theme is fine as is. */
+html:not(.theme-light) .project-view {
+  --text-secondary: #b4b4b4;   /* ~9:1 on the card */
+  --text-muted: #8e8e8e;       /* ~6:1 on the card */
+  --border: #303030;
+  --border-strong: #4a4a4a;
+  --border-hover: #5a5a5a;
+}
+.project-view .btn-secondary {
+  background-color: var(--surface-raised);
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+.project-view .btn-secondary:hover:not(:disabled) {
+  background-color: var(--surface-2);
+  border-color: var(--border-hover);
+}
+html.theme-light .project-view .btn-secondary {
+  background-color: #fff;
+}
+
