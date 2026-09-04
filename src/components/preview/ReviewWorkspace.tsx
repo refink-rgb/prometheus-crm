@@ -14,6 +14,7 @@ import EditableNoteBody from './EditableNoteBody'
 import {
   updateAssetStatusInternal,
   editInternalComment,
+  deleteInternalNote,
   setAssetClientVisible,
   publishAssets,
   toggleCommentResolved,
@@ -722,6 +723,15 @@ export default function ReviewWorkspace({
                     editedAt={c.edited_at ?? null}
                     canEditNote={c.audience === 'internal' && !!currentUserId && c.author_id === currentUserId}
                     onSave={t => editInternalComment(c.id, projectId, brandId, t)}
+                    onDelete={
+                      // Same gate as editing, so the pair reads as one rule:
+                      // your own internal notes, never a colleague's and never
+                      // a client's words. Client feedback is cleared by ticking
+                      // it off, which keeps the record of what was asked for.
+                      c.audience === 'internal' && !!currentUserId && c.author_id === currentUserId
+                        ? () => deleteInternalNote(c.id, projectId, brandId)
+                        : undefined
+                    }
                     style={{ fontSize: 12, lineHeight: 1.5, whiteSpace: 'pre-wrap', textDecoration: done ? 'line-through' : 'none' }}
                   />
                 </div>

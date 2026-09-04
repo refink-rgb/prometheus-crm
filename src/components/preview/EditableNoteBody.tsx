@@ -15,13 +15,16 @@ import { useRouter } from 'next/navigation'
 // refusal. That is what lets one component sit over both project_comments
 // (whose action throws) and brand_comments (whose action returns { ok }).
 export default function EditableNoteBody({
-  content, canEditNote, editedAt = null, onSave, style, render,
+  content, canEditNote, editedAt = null, onSave, onDelete, style, render,
 }: {
   content: string
   /** The caller resolves ownership: currentUserId != null && author_id === currentUserId. */
   canEditNote: boolean
   editedAt?: string | null
   onSave: (text: string) => Promise<void>
+  /** Omit to hide the control. Same ownership gate as editing — you can undo
+   *  your own note, never someone else's, and never a client's words. */
+  onDelete?: () => Promise<void>
   style?: React.CSSProperties
   /** NotesThread renders @mentions; everywhere else is plain text. */
   render?: (text: string) => React.ReactNode
@@ -50,6 +53,19 @@ export default function EditableNoteBody({
   }
 
   function cancel() { setDraft(content); setErr(''); setEditing(false) }
+
+  function remove() {
+    if (!onDelete) return
+    // window.confirm, not useConfirm: this component also renders inside
+    // NotesThread on the public /review/[token] page, which is outside
+    // ConfirmDialogHost — the hook would throw there.
+    if (!window.confirm('Delete this note? It is gone for everyone.')) return
+    setErr('')
+    startTransition(async () => {
+      try { await onDelete(); router.refresh() }
+      catch (e) { setErr(e instanceof Error ? e.message : 'Could not delete.') }
+    })
+  }
 
   if (editing) {
     return (
@@ -101,11 +117,21 @@ export default function EditableNoteBody({
         )}
       </div>
       {canEditNote && (
-        <button onClick={() => setEditing(true)} style={{
-          fontSize: 11, color: 'var(--text-muted)', background: 'none',
-          border: 'none', padding: '3px 0 0', cursor: 'pointer',
-        }}>Edit</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingTop: 3 }}>
+          <button onClick={() => setEditing(true)} disabled={pending} style={actionBtn}>Edit</button>
+          {onDelete && (
+            <button onClick={remove} disabled={pending} style={{ ...actionBtn, color: 'var(--danger)' }}>
+              {pending ? 'Working…' : 'Delete'}
+            </button>
+          )}
+        </div>
       )}
+      {!editing && err && <div style={{ fontSize: 11, color: 'var(--danger)', marginTop: 4 }}>{err}</div>}
     </>
   )
+}
+
+const actionBtn: React.CSSProperties = {
+  fontSize: 11, color: 'var(--text-muted)', background: 'none',
+  border: 'none', padding: 0, cursor: 'pointer',
 }

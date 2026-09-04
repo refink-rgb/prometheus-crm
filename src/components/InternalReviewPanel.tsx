@@ -8,6 +8,7 @@ import {
   addInternalAssetComment,
   updateAssetStatusInternal,
   editInternalComment,
+  deleteInternalNote,
   applyAiEdits,
   applyDirectPrompt,
   approveAndPublishRevision,
@@ -983,6 +984,11 @@ function AssetView({
                   editedAt={c.edited_at ?? null}
                   canEditNote={c.audience === 'internal' && !!currentUserId && c.author_id === currentUserId}
                   onSave={t => editInternalComment(c.id, projectId, brandId, t)}
+                  onDelete={
+                    c.audience === 'internal' && !!currentUserId && c.author_id === currentUserId
+                      ? () => deleteInternalNote(c.id, projectId, brandId)
+                      : undefined
+                  }
                   style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.55, margin: 0, whiteSpace: 'pre-wrap', textDecoration: done ? 'line-through' : 'none' }}
                 />
               </div>
