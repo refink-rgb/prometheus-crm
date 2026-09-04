@@ -1123,14 +1123,35 @@ export default function ReviewWorkspace({
           {/* Stage column */}
           <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', padding: '18px 20px 14px' }}>
             <div style={{ flexShrink: 0, marginBottom: 12 }}>
-              <div
-                title={active.name ?? undefined}
-                style={{
-                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-                  fontSize: 18, fontWeight: 600, color: 'var(--text-primary)',
-                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                }}
-              >{active.name ?? 'untitled'}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                <div
+                  title={active.name ?? undefined}
+                  style={{
+                    flex: 1, minWidth: 0,
+                    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                    fontSize: 18, fontWeight: 600, color: 'var(--text-primary)',
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  }}
+                >{active.name ?? 'untitled'}</div>
+                {/* Beside the filename, not floating over the artwork. The
+                    previous attempt was a dark ring on a near-black background,
+                    flush in the corner — invisible, and reported as missing.
+                    Solid accent fill, a word, and a keyboard hint. */}
+                <button
+                  onClick={() => chooseView('tile')}
+                  title="Back to the grid"
+                  aria-label="Close gallery view"
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 7, flexShrink: 0,
+                    padding: '8px 16px 8px 13px', borderRadius: 999,
+                    fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                    border: 'none', background: 'var(--accent)', color: '#fff',
+                  }}
+                >
+                  <XIcon s={15} />Close gallery
+                  <span style={{ fontSize: 10.5, fontWeight: 600, opacity: 0.75, marginLeft: 2 }}>esc</span>
+                </button>
+              </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 6, flexWrap: 'wrap' }}>
                 <StatusChip status={statusOf(active)} size="md" />
                 {/* Three states, not two. "Live on client" and "hidden" would
@@ -1166,21 +1187,6 @@ export default function ReviewWorkspace({
               {shown.length > 1 && (
                 <button onClick={() => step(1)} title="Next (→)" aria-label="Next creative" style={{ ...galleryNavBtn, right: 0 }}>›</button>
               )}
-              {/* Second exit, over the artwork. The rail is 380px from where
-                  the eye actually is on a wide monitor. */}
-              <button
-                onClick={() => chooseView('tile')}
-                title="Back to the grid (Esc)"
-                aria-label="Close gallery view"
-                style={{
-                  position: 'absolute', top: 0, right: 0, zIndex: 2,
-                  width: 34, height: 34, borderRadius: '50%', display: 'grid', placeItems: 'center',
-                  cursor: 'pointer', border: '1px solid var(--border-strong)',
-                  background: 'var(--surface-2)', color: 'var(--text-secondary)',
-                }}
-              >
-                <XIcon s={15} />
-              </button>
             </div>
 
             {/* Filmstrip. Maps `shown`, so it respects both filter axes and the
