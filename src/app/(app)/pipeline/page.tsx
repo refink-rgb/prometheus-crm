@@ -32,7 +32,9 @@ export default async function PipelinePage() {
   const currentProfileId = profiles.find(p => p.email === user.email?.toLowerCase())?.id ?? null
 
   return (
-    <div style={{
+    // page-contrast: lifts muted text and outline buttons for the dark theme
+    // — see the block at the end of globals.css.
+    <div className="page-contrast" style={{
       display: 'flex',
       flexDirection: 'column',
       height: '100dvh',

@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { signOut } from '@/lib/actions'
 import SignOutButton from './SignOutButton'
+import BrandMark from '@/components/BrandMark'
 
 interface NavProps {
   email?: string | null
@@ -21,13 +22,7 @@ export default function Nav({ email }: NavProps) {
       zIndex: 50,
     }}>
       <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none' }}>
-        <div style={{
-          width: 28, height: 28,
-          background: 'var(--accent)',
-          borderRadius: 6,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontWeight: 800, fontSize: 14, color: 'white', flexShrink: 0,
-        }}>P</div>
+        <BrandMark size={28} />
         <span style={{ fontWeight: 700, fontSize: 16, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
           Prometheus
         </span>

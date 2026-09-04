@@ -492,3 +492,62 @@ label {
   animation: tabLoad 0.9s ease-in-out infinite;
   pointer-events: none;
 }
+
+/* ── Stage moves: the "Move a stage" disclosure and its rails ───────────── */
+.stage-moves > summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-raised);
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 0.12s, background 0.12s;
+}
+.stage-moves > summary::-webkit-details-marker { display: none; }
+.stage-moves > summary:hover { border-color: var(--border-hover); }
+.stage-moves > summary:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.stage-moves[open] > summary { border-bottom-left-radius: 10px; border-bottom-right-radius: 10px; }
+.stage-moves-chev { color: var(--text-muted); transition: transform 0.15s; flex-shrink: 0; }
+.stage-moves[open] .stage-moves-chev { transform: rotate(90deg); }
+.stage-step:not(:disabled):hover { transform: scale(1.15); box-shadow: 0 0 0 4px var(--hover-ring); }
+.stage-step:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+/* ── Page contrast lift (project page, pipeline) ──────────────────────────────────────────────────
+   The dark theme's muted (#555) and secondary (#888) text sit at ~2.4:1 and
+   ~5:1 against the card surface, and outline buttons draw a #2a2a2a border on
+   #161616 — grey on grey. Lifted on the pages that opt in with .page-contrast
+   (project page, pipeline); the tokens are re-declared on the page root so
+   every label, hint and chip inside picks them up without touching the rest
+   of the app. Light theme is fine as is. */
+html:not(.theme-light) .page-contrast {
+  --text-secondary: #b4b4b4;   /* ~9:1 on the card */
+  --text-muted: #8e8e8e;       /* ~6:1 on the card */
+  --border: #303030;
+  --border-strong: #4a4a4a;
+  --border-hover: #5a5a5a;
+}
+.page-contrast .btn-secondary {
+  background-color: var(--surface-raised);
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+.page-contrast .btn-secondary:hover:not(:disabled) {
+  background-color: var(--surface-2);
+  border-color: var(--border-hover);
+}
+html.theme-light .page-contrast .btn-secondary {
+  background-color: #fff;
+}
+
+/* Kanban card controls: quiet until the card is hovered or a control focused. */
+.kanban-ctrl { opacity: 0.55; transition: opacity 0.12s, background 0.12s, border-color 0.12s; }
+.kanban-card:hover .kanban-ctrl, .kanban-ctrl:focus-visible { opacity: 1; }
+.kanban-ctrl:not(:disabled):hover { background: var(--surface-raised); border-color: var(--border-strong); color: var(--text-primary); }
+.kanban-ctrl:disabled { opacity: 0.2; cursor: default; }
+.kanban-card:hover { border-color: var(--border-hover); box-shadow: 0 8px 24px var(--hover-shadow); }
+

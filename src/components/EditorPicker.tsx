@@ -5,13 +5,14 @@ import { useRouter } from 'next/navigation'
 import { assignProjectEditor } from '@/lib/actions'
 import { useToast } from '@/components/Toast'
 import { EDITOR_TRACK_META, profileName, type EditorTrack, type Profile } from '@/lib/types'
+import { ChevronDown } from 'lucide-react'
 
 const TRACK_COLOR: Record<EditorTrack, string> = {
   lp: 'var(--editor-lp)',
   creative: 'var(--editor-creative)',
 }
 
-function selectStyle(track: EditorTrack, hasValue: boolean, full: boolean, pending = false): React.CSSProperties {
+function selectStyle(track: EditorTrack, hasValue: boolean, full: boolean): React.CSSProperties {
   const color = TRACK_COLOR[track]
   return {
     fontSize: 13,
@@ -21,8 +22,7 @@ function selectStyle(track: EditorTrack, hasValue: boolean, full: boolean, pendi
     border: `1px solid ${hasValue ? `color-mix(in srgb, ${color} 30%, transparent)` : 'var(--border)'}`,
     borderRadius: 7,
     padding: '5px 10px',
-    cursor: pending ? 'progress' : 'pointer',
-    opacity: pending ? 0.6 : 1,
+    cursor: 'pointer',
     width: full ? '100%' : 'fit-content',
   }
 }
@@ -73,18 +73,45 @@ function InstantEditorPicker({
     })
   }
 
+  // Dressed as a pill so it sits in the project header's chip row as one of
+  // the chips ("LP · Internal Review", "CR · Brief") rather than a form field.
+  const color = TRACK_COLOR[track]
+  const hasValue = !!value
+  const tag = track === 'lp' ? 'LP' : 'CR'
   return (
-    <select
-      value={value}
-      onChange={handleChange}
-      disabled={isPending}
-      aria-label={label}
-      style={selectStyle(track, !!value, false, isPending)}
+    <span
+      style={{
+        position: 'relative', display: 'inline-flex', alignItems: 'center',
+        borderRadius: 999,
+        fontSize: 11, fontWeight: 600,
+        color: hasValue ? color : 'var(--text-secondary)',
+        background: hasValue ? `color-mix(in srgb, ${color} 14%, transparent)` : 'var(--surface-raised)',
+        border: `1px solid ${hasValue ? `color-mix(in srgb, ${color} 35%, transparent)` : 'var(--border)'}`,
+        opacity: isPending ? 0.6 : 1,
+        transition: 'all 0.15s',
+      }}
     >
-      <option value="">Unassigned</option>
-      {options.map(p => <option key={p.id} value={p.id}>{profileName(p)}</option>)}
-      <StaleOption value={value} options={options} label={label} />
-    </select>
+      <span aria-hidden style={{ paddingLeft: 10, pointerEvents: 'none', opacity: 0.8 }}>{tag} ·</span>
+      <select
+        value={value}
+        onChange={handleChange}
+        disabled={isPending}
+        aria-label={label}
+        style={{
+          appearance: 'none', WebkitAppearance: 'none',
+          width: 'auto',
+          fontSize: 11, fontWeight: 600,
+          color: 'inherit', background: 'transparent', border: 'none',
+          padding: '4px 24px 4px 5px',
+          cursor: isPending ? 'progress' : 'pointer',
+        }}
+      >
+        <option value="">Unassigned</option>
+        {options.map(p => <option key={p.id} value={p.id}>{profileName(p)}</option>)}
+        <StaleOption value={value} options={options} label={label} />
+      </select>
+      <ChevronDown size={12} strokeWidth={2.2} aria-hidden style={{ position: 'absolute', right: 8, pointerEvents: 'none' }} />
+    </span>
   )
 }
 

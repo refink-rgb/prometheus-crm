@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import BrandMark from '@/components/BrandMark'
 
 type Mode = 'magic' | 'password'
 
@@ -98,18 +99,7 @@ export default function LoginPage() {
         {/* Logo / Wordmark */}
         <div className="mb-10 text-center">
           <div className="inline-flex items-center gap-2 mb-4">
-            <div style={{
-              width: 36,
-              height: 36,
-              background: 'var(--accent)',
-              borderRadius: 8,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontWeight: 800,
-              fontSize: 18,
-              color: 'white',
-            }}>P</div>
+            <BrandMark size={36} />
             <span style={{ fontWeight: 700, fontSize: 20, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
               Prometheus
             </span>

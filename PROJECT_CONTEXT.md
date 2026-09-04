@@ -131,6 +131,23 @@ Ten blocks — see file changes on `main`:
    optional; user hasn't asked for it.
 10. Turbopack in dev script.
 
+## LP preview (client review) — scroll gotcha (2026-09-02)
+
+The client-facing landing page preview (`LpReviewPanel.tsx` → `DeviceFrame`)
+renders the LP in a sandboxed iframe at a true 1440px viewport and CSS-scales
+it down. A transform only changes painting, not layout: the iframe's layout
+box stays ~1500px tall inside a wrapper sized to the scaled height. A wrapper
+with `overflow: hidden` is still a scroll container that scripts can scroll,
+and Chrome carries scroll-into-view requests out of the sandboxed frame into
+the parent's scroll containers. When an LP script focused or scrolled to an
+element in its last screenful (footer signup forms, chat widgets), the wrapper
+was scrolled by the leftover ~700px, shifting the iframe up: reviewers saw a
+short strip of page over a blank white box. Fix: every box around the iframe
+uses `overflow: clip` (forbids programmatic scrolling) with an `onScroll`
+reset as fallback, and the preview bridge drops `scrollIntoView` / scrolling
+`focus()` calls until the reviewer interacts with the page. Keep it that way
+when touching the frame markup; do not switch those wrappers back to `hidden`.
+
 ## Open pending items
 
 - **Apply the index migration** (blocking bigger perf wins).

@@ -12,7 +12,8 @@ function readInitialTheme(): Theme {
   return document.documentElement.classList.contains('theme-light') ? 'light' : 'dark'
 }
 
-export default function ThemeToggle() {
+// `compact` renders a 30px icon-only square for the collapsed sidebar rail.
+export default function ThemeToggle({ compact = false }: { compact?: boolean } = {}) {
   // Start with 'dark' during SSR and on the very first client render to keep
   // hydration deterministic; then sync from the DOM in an effect.
   const [theme, setTheme] = useState<Theme>('dark')
@@ -53,7 +54,9 @@ export default function ThemeToggle() {
         color: 'var(--text-muted)',
         border: '1px solid var(--sidebar-border)',
         borderRadius: 6,
-        padding: '5px 10px',
+        padding: compact ? 0 : '5px 10px',
+        width: compact ? 30 : undefined,
+        height: compact ? 30 : undefined,
         fontSize: 11,
         fontWeight: 500,
         cursor: 'pointer',
@@ -61,7 +64,7 @@ export default function ThemeToggle() {
       }}
     >
       {isLight ? <SunIcon /> : <MoonIcon />}
-      <span>{isLight ? 'Light' : 'Dark'}</span>
+      {!compact && <span>{isLight ? 'Light' : 'Dark'}</span>}
     </button>
   )
 }

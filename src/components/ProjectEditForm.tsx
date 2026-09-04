@@ -256,10 +256,8 @@ export default function ProjectEditForm({ projectId, brandId, journeys, profiles
     putText('ad_copy_description')
     putText('ad_copy_url')
     putText('product_images_link')
-    putText('lp_url')
     putText('creatives_notes')
     putText('motion_link')
-    putText('shopify_coupon_code')
 
     putBank('ad_headlines')
     putBank('ad_subcopies')
@@ -282,13 +280,10 @@ export default function ProjectEditForm({ projectId, brandId, journeys, profiles
   }
 
   if (!editing) {
-    return (
-      <div ref={containerRef} style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 24 }}>
-        <button onClick={() => setEditing(true)} className="btn-secondary btn-sm">
-          ✏ Edit details
-        </button>
-      </div>
-    )
+    // Closed, the form is only an anchor: the header's "Edit details" button
+    // opens it through the prometheus-open-edit event, and the second button
+    // that used to sit here duplicated it a few hundred pixels lower.
+    return <div ref={containerRef} />
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
@@ -485,19 +480,10 @@ export default function ProjectEditForm({ projectId, brandId, journeys, profiles
         </Section>
 
         {/* ── Final output ── */}
+        {/* The landing page URL and discount code are submitted from the
+            Final output card on the Landing Page tab, where "No page yet" is
+            shown, not from here. */}
         <Section title="Final output">
-          <Field label="Landing page — final URL" optional>
-            <input type="url" name="lp_url" defaultValue={initial.lp_url ?? ''} placeholder="https://…" />
-          </Field>
-          <Field label="Shopify coupon code" optional>
-            <input
-              type="text"
-              name="shopify_coupon_code"
-              defaultValue={initial.shopify_coupon_code ?? ''}
-              placeholder="e.g. SUMMER20"
-              style={{ textTransform: 'uppercase' }}
-            />
-          </Field>
           <Field label="Creatives link / notes" optional>
             <textarea name="creatives_notes" defaultValue={initial.creatives_notes ?? ''} rows={2} style={{ resize: 'vertical' }} />
           </Field>

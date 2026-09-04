@@ -7,6 +7,8 @@ import { signOut } from '@/lib/actions'
 import ThemeToggle from '@/components/ThemeToggle'
 import NotificationBell from '@/components/NotificationBell'
 import type { CapacitySummary } from '@/lib/capacity'
+import BrandMark from '@/components/BrandMark'
+import { PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 
 interface SidebarProps {
   email?: string | null
@@ -244,36 +246,48 @@ export default function Sidebar({ email, showFinancials, capacity = null }: Side
         flexDirection: 'column',
         zIndex: 40,
       }}>
-        <div style={{ padding: collapsed ? '20px 0 16px' : '20px 20px 16px', display: 'flex', justifyContent: 'center' }}>
-          <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none' }}>
-            <div style={{
-              width: 26, height: 26,
-              background: 'var(--accent)',
-              borderRadius: 6,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontWeight: 800, fontSize: 13, color: 'white', flexShrink: 0,
-            }}>P</div>
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.01em', lineHeight: 1.2 }}>
-                Prometheus
+        {/* Header: mark + wordmark on the left at the same inset as the nav
+            icons below, collapse control on the right of the same row. It used
+            to centre the wordmark and park the button on its own row beneath,
+            which read as three loose pieces. Collapsed, the mark stacks over
+            the button, both centred in the 60px rail. */}
+        <div style={{
+          display: 'flex',
+          flexDirection: collapsed ? 'column' : 'row',
+          alignItems: 'center',
+          justifyContent: collapsed ? 'center' : 'space-between',
+          gap: collapsed ? 10 : 8,
+          padding: collapsed ? '16px 0 12px' : '16px 10px 14px 16px',
+        }}>
+          <Link href="/" title={collapsed ? 'Prometheus' : undefined} style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', minWidth: 0 }}>
+            <BrandMark size={28} />
+            {/* Collapsed rail is 60px: only the mark fits. The wordmark used to
+                stay mounted and overflow the rail. */}
+            {!collapsed && (
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.01em', lineHeight: 1.2, whiteSpace: 'nowrap' }}>
+                  Prometheus
+                </div>
+                <div style={{ fontSize: 10, color: 'var(--text-muted)', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>
+                  Studio · CTC
+                </div>
               </div>
-              <div style={{ fontSize: 10, color: 'var(--text-muted)', letterSpacing: '0.06em' }}>
-                Studio · CTC
-              </div>
-            </div>
+            )}
           </Link>
-        </div>
 
-        <button
-          onClick={() => setCollapsed(v => !v)}
-          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          style={{
-            margin: collapsed ? '0 auto 8px' : '0 12px 8px auto', display: 'block',
-            width: 26, height: 26, borderRadius: 6, cursor: 'pointer', fontSize: 12,
-            border: '1px solid var(--sidebar-border)', background: 'transparent', color: 'var(--text-muted)',
-          }}
-        >{collapsed ? '›' : '‹'}</button>
+          <button
+            onClick={() => setCollapsed(v => !v)}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            style={{
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+              width: 28, height: 28, borderRadius: 7, cursor: 'pointer',
+              border: '1px solid var(--sidebar-border)', background: 'transparent', color: 'var(--text-muted)',
+            }}
+          >
+            {collapsed ? <PanelLeftOpen size={15} strokeWidth={2} aria-hidden /> : <PanelLeftClose size={15} strokeWidth={2} aria-hidden />}
+          </button>
+        </div>
 
         <div style={{ height: 1, background: 'var(--sidebar-border)', margin: '0 12px' }} />
 
@@ -362,8 +376,10 @@ export default function Sidebar({ email, showFinancials, capacity = null }: Side
 
         <div style={{ height: 1, background: 'var(--sidebar-border)', margin: '0 12px' }} />
 
-        <div style={{ padding: '14px 16px 18px' }}>
-          {email && (
+        {/* Collapsed rail: no room for the email or labels, so the three
+            controls become a centered column of 30px icon buttons. */}
+        <div style={{ padding: collapsed ? '14px 0 18px' : '14px 16px 18px' }}>
+          {email && !collapsed && (
             <div style={{
               fontSize: 11,
               color: 'var(--text-muted)',
@@ -375,25 +391,39 @@ export default function Sidebar({ email, showFinancials, capacity = null }: Side
               {email}
             </div>
           )}
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{
+            display: 'flex', gap: 6, alignItems: 'center',
+            flexDirection: collapsed ? 'column' : 'row',
+            flexWrap: collapsed ? 'nowrap' : 'wrap',
+            justifyContent: collapsed ? 'center' : 'flex-start',
+          }}>
             <NotificationBell />
-            <ThemeToggle />
+            <ThemeToggle compact={collapsed} />
             <form action={signOut}>
-              <button type="submit" style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                background: 'transparent',
-                color: 'var(--text-muted)',
-                border: '1px solid var(--sidebar-border)',
-                borderRadius: 6,
-                padding: '5px 10px',
-                fontSize: 11,
-                fontWeight: 500,
-                cursor: 'pointer',
-                transition: 'border-color 0.12s, color 0.12s',
-              }}>
-                Log out
+              <button
+                type="submit"
+                title={collapsed ? `Log out${email ? ` (${email})` : ''}` : undefined}
+                aria-label="Log out"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                  background: 'transparent',
+                  color: 'var(--text-muted)',
+                  border: '1px solid var(--sidebar-border)',
+                  borderRadius: 6,
+                  padding: collapsed ? 0 : '5px 10px',
+                  width: collapsed ? 30 : undefined,
+                  height: collapsed ? 30 : undefined,
+                  fontSize: 11,
+                  fontWeight: 500,
+                  whiteSpace: 'nowrap',
+                  cursor: 'pointer',
+                  transition: 'border-color 0.12s, color 0.12s',
+                }}
+              >
+                {collapsed ? <LogOutIcon /> : 'Log out'}
               </button>
             </form>
           </div>
@@ -441,5 +471,15 @@ export default function Sidebar({ email, showFinancials, capacity = null }: Side
         })}
       </nav>
     </>
+  )
+}
+
+function LogOutIcon() {
+  return (
+    <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <polyline points="16 17 21 12 16 7" />
+      <line x1="21" y1="12" x2="9" y2="12" />
+    </svg>
   )
 }

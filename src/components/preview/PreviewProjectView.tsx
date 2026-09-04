@@ -11,12 +11,14 @@ import CampaignTrackingPanel from '@/components/CampaignTrackingPanel'
 import NotesThread from '@/components/NotesThread'
 import ConfirmDeleteForm from '@/components/ConfirmDeleteForm'
 import RevisionsToggle from '@/components/RevisionsToggle'
+import FinalOutputField from '@/components/FinalOutputField'
 import EditorPicker from '@/components/EditorPicker'
 import { editorsFor } from '@/lib/types'
 import { profileName } from '@/lib/types'
 import type { TrackedCampaign } from '@/lib/results'
 import { hypercareFor, hypercareCopyMessage } from '@/lib/hypercare'
 import ShareButton from '@/components/ShareButton'
+import { Pencil } from 'lucide-react'
 import { markProjectComplete, deleteProject, reopenProject } from '@/lib/actions'
 import SubmitButton from '@/components/SubmitButton'
 import type { AssetRevision } from '@/lib/revisions'
@@ -472,6 +474,11 @@ export default function PreviewProjectView({
   const due = p.due_date ? new Date(p.due_date + 'T00:00:00') : null
   const daysLeft = due ? Math.ceil((due.getTime() - Date.now()) / 86400000) : null
 
+  // Tiny uppercase label that names a group of chips, so the status row reads
+  // as "Status: … Owners: …" instead of one undifferentiated run of pills.
+  const groupLabel = (text: string) => (
+    <span key={`label-${text}`} style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', marginRight: 2 }}>{text}</span>
+  )
   const chip = (text: string, tone: 'muted' | 'lp' | 'cre' = 'muted') => (
     <span key={text} style={{
       fontSize: 11, fontWeight: 600, padding: '4px 8px', borderRadius: 999, whiteSpace: 'nowrap',
@@ -485,7 +492,7 @@ export default function PreviewProjectView({
   // capped at 68-80ch, so widening the shell gives the grids and the review
   // panel room without turning body text into unreadable full-width lines.
   return (
-    <div style={{ padding: '20px 32px 60px', maxWidth: 1760, margin: '0 auto' }}>
+    <div className="page-contrast" style={{ padding: '20px 32px 60px', maxWidth: 1760, margin: '0 auto' }}>
       {/* Brand-wide, above everything. The preview had lost this entirely, so a
           Noble project looked like any other and an editor would generate copy
           Lucas is supposed to write. */}
@@ -514,31 +521,32 @@ export default function PreviewProjectView({
       </div>
 
       {/* Header */}
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20, flexWrap: 'wrap', marginBottom: 12 }}>
-          <div style={{ minWidth: 0 }}>
-            {/* Chips live on one line below, with the stage pills. This row used
-                to repeat moment, page type and both owners immediately above
-                them — and page_type now sits in "Where it goes", next to the
-                person who needs it. */}
-            <h1 style={{ fontSize: 23, fontWeight: 800, letterSpacing: '-0.02em' }}>{p.name}</h1>
+      <div className="card" style={{ marginBottom: 16, padding: '20px 24px 22px' }}>
+        {/* Title with one line of facts under it; every action in a single row
+            on the right. The old layout stacked three buttons under a "Due"
+            block and left the title floating beside 150px of empty space. */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 20, flexWrap: 'wrap' }}>
+          <div style={{ minWidth: 0, flex: '1 1 320px' }}>
+            <h1 style={{ fontSize: 23, fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1.2, margin: 0 }}>{p.name}</h1>
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 6px', marginTop: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
+              <span>
+                <span style={{ color: 'var(--text-muted)' }}>Due </span>
+                <strong style={{ color: 'var(--text-primary)' }}>
+                  {due ? due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}
+                </strong>
+                {daysLeft !== null && (
+                  <span style={{ marginLeft: 6, fontWeight: 600, color: daysLeft < 0 ? 'var(--danger)' : daysLeft <= 3 ? 'var(--warning)' : 'var(--text-muted)' }}>
+                    {daysLeft < 0 ? `${Math.abs(daysLeft)}d over` : daysLeft === 0 ? 'today' : `${daysLeft}d left`}
+                  </span>
+                )}
+              </span>
+              {journeyName && <><span style={{ color: 'var(--text-muted)' }}>·</span><span>{journeyName}</span></>}
+              {p.marketing_moment ? <><span style={{ color: 'var(--text-muted)' }}>·</span><span>Moment {p.marketing_moment}</span></> : null}
+              {p.is_complete && <><span style={{ color: 'var(--text-muted)' }}>·</span><span style={{ color: 'var(--complete-text)', fontWeight: 600 }}>Complete — locked</span></>}
+            </div>
           </div>
-          <div style={{ textAlign: 'right', flexShrink: 0 }}>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Due</div>
-            <div style={{ fontSize: 13, fontWeight: 700 }}>
-              {due ? due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}
-              {daysLeft !== null && (
-                <span style={{ marginLeft: 8, fontWeight: 600, color: daysLeft < 0 ? 'var(--danger)' : daysLeft <= 3 ? 'var(--warning)' : 'var(--text-muted)' }}>
-                  {daysLeft < 0 ? `${Math.abs(daysLeft)}d over` : `${daysLeft}d`}
-                </span>
-              )}
-            </div>
-            {/* The client review link. The visibility switches in Review decide
-                WHAT the client sees; this is the URL they see it at, and without
-                it those switches have no reachable payoff. */}
-            <div style={{ marginTop: 8 }}>
-              <ShareButton projectId={p.id} initialToken={p.share_token} />
-            </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end', flexShrink: 0 }}>
             {/* Same exporter the live page uses, so an editor copying from
                 either screen pastes byte-identical markdown. */}
             <CopyMarkdownButton
@@ -550,39 +558,50 @@ export default function PreviewProjectView({
               })}
               label="Copy brief"
               title="Copy the brief as markdown"
-              style={{ marginTop: 8 }}
             />
-            {/* Complete was a dead end: rails disabled, edit hidden, nothing
-                able to move. A client coming back a week later with one more
-                change had nowhere to go but a whole new project. */}
-            {p.is_complete && (
-              <div style={{ marginTop: 8, textAlign: 'right' }}>
-                <div style={{ fontSize: 11, color: 'var(--complete-text)' }}>Complete — locked</div>
-                <form action={reopenProject.bind(null, p.id, p.brand_id, 'creatives_stage')}>
-                  <SubmitButton
-                    pendingText="Reopening…"
-                    style={{ marginTop: 6, fontSize: 11.5, fontWeight: 600, padding: '5px 11px', borderRadius: 7, border: '1px solid var(--border)', background: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}
-                  >
-                    Reopen to internal review
-                  </SubmitButton>
-                </form>
-              </div>
+            {p.is_complete ? (
+              // Complete was a dead end: rails disabled, edit hidden, nothing
+              // able to move. A client coming back a week later with one more
+              // change had nowhere to go but a whole new project.
+              <form action={reopenProject.bind(null, p.id, p.brand_id, 'creatives_stage')}>
+                <SubmitButton
+                  pendingText="Reopening…"
+                  style={{ fontSize: 'var(--text-sm)', fontWeight: 600, padding: '6px 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'none', color: 'var(--text-secondary)', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                >
+                  Reopen to internal review
+                </SubmitButton>
+              </form>
+            ) : (
+              <button
+                onClick={() => window.dispatchEvent(new Event('prometheus-open-edit'))}
+                className="btn-secondary"
+                style={{ fontSize: 'var(--text-sm)', whiteSpace: 'nowrap' }}
+              ><Pencil size={14} strokeWidth={2} aria-hidden /> Edit details</button>
             )}
-            {!p.is_complete && (
-            <button
-              onClick={() => window.dispatchEvent(new Event('prometheus-open-edit'))}
-              style={{ marginTop: 8, marginLeft: 8, fontSize: 12, fontWeight: 600, padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}
-            >✏ Edit details</button>
-            )}
+            {/* The client review link. The visibility switches in Review decide
+                WHAT the client sees; this is the URL they see it at, and without
+                it those switches have no reachable payoff. Until one exists it
+                is a single button here; once generated it needs a full row. */}
+            {!p.share_token && <ShareButton projectId={p.id} initialToken={p.share_token} />}
           </div>
         </div>
+
+        {p.share_token && (
+          <div style={{ marginTop: 14 }}>
+            {groupLabel('Client review link')}
+            <div style={{ marginTop: 6 }}>
+              <ShareButton projectId={p.id} initialToken={p.share_token} />
+            </div>
+          </div>
+        )}
         {/* Two inert 7-step rails cost ~240px and rendered the pipeline at a
             granularity the old Timeline section disagreed with — Revisions and
             Ready have no dates, Internal and Client were abbreviated differently,
             so two adjacent renderings of the same pipeline visibly contradicted
             each other. One line of stage state, plus the dates that exist. */}
-        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12, marginTop: 12 }}>
+        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, marginTop: 16 }}>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+            {groupLabel('Status')}
             {([['LP', p.lp_stage], ['CRE', p.creatives_stage]] as const).map(([k, st]) => {
               const norm = normalizeStage(st)
               const c = STAGE_COLORS[norm]
@@ -592,7 +611,8 @@ export default function PreviewProjectView({
                 </span>
               )
             })}
-            {p.marketing_moment ? chip(`Moment ${p.marketing_moment}`) : null}
+            <span aria-hidden style={{ width: 1, height: 18, background: 'var(--border)', margin: '0 6px' }} />
+            {groupLabel('Owners')}
             {/* Instant mode, like the live page: guards the capability flag,
                 logs an `assigned` pipeline event and notifies the editor. The
                 edit form's plain select writes the FK and none of that, so
@@ -608,17 +628,26 @@ export default function PreviewProjectView({
                 {chip(`CR · ${creativeEditorName ?? 'unassigned'}`, 'cre')}
               </>
             )}
-            {journeyName ? chip(journeyName) : null}
             {p.offer_locked ? <span style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, background: 'var(--complete-bg)', color: 'var(--complete-text)' }}>Offer locked</span> : null}
-            {p.is_complete ? <span style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, background: 'var(--complete-bg)', color: 'var(--complete-text)' }}>Complete</span> : null}
           </div>
 
           {/* The pills above say where the project IS. This is how it MOVES.
               Behind a disclosure because advancing a stage is a once-a-week act
               and the two 7-step rails cost ~240px of permanent header. */}
-          <details style={{ marginTop: 12 }}>
-            <summary style={{ fontSize: 11, color: 'var(--text-secondary)', cursor: 'pointer' }}>Move a stage</summary>
-            <div style={{ marginTop: 8 }}>
+          <details className="stage-moves" style={{ marginTop: 14 }}>
+            {/* Styled as a button bar, not an 11px line of text: the one-line
+                summary was easy to miss, and this is the only way to move a
+                card sideways or back. Still collapsed by default — see above. */}
+            <summary>
+              <svg className="stage-moves-chev" width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <polyline points="9 6 15 12 9 18" />
+              </svg>
+              <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Move a stage</span>
+              <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>
+                Advance, send back, or jump either track
+              </span>
+            </summary>
+            <div style={{ display: 'grid', gap: 12, marginTop: 12 }}>
               {/* Locked once complete, like the live page. A finished project
                   should not quietly move backwards. */}
               <StageTracker projectId={p.id} brandId={p.brand_id} track="lp_stage" currentStage={p.lp_stage} label="Landing Page" disabled={p.is_complete} />
@@ -629,11 +658,11 @@ export default function PreviewProjectView({
           {/* Present-only. 16 of 66 projects have no stage dates at all and used
               to get a row of five em-dashes as the first thing on the tab. */}
           {stageDates.length > 0 && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, fontSize: 11, color: 'var(--text-secondary)', borderTop: '1px solid var(--border)', paddingTop: 10, marginTop: 12 }}>
-              {stageDates.map((d, i) => (
-                <span key={d.label}>
-                  {i > 0 && <span style={{ color: 'var(--text-muted)' }}> · </span>}
-                  {d.label} <span style={{ color: d.tone }}>{d.date}</span>
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, fontSize: 11, borderTop: '1px solid var(--border)', paddingTop: 14, marginTop: 14 }}>
+              <span style={{ color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', fontSize: 10 }}>Stage dates</span>
+              {stageDates.map(d => (
+                <span key={d.label} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 999, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text-secondary)' }}>
+                  {d.label} <span style={{ color: d.tone, fontWeight: 700 }}>{d.date}</span>
                 </span>
               ))}
             </div>
@@ -1086,7 +1115,13 @@ export default function PreviewProjectView({
                     <a href={p.lp_url} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: 'var(--accent)' }}>
                       {hostOf(p.lp_url)}<span style={{ color: 'var(--text-muted)' }}>{pathOf(p.lp_url)}</span> ↗
                     </a>
-                  ) : <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No landing page URL yet.</div>}
+                  ) : p.is_complete ? (
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No landing page URL.</div>
+                  ) : (
+                    // The "No LP URL" chip at the top lands here, so here is
+                    // where the URL gets submitted — not a sentence about its absence.
+                    <FinalOutputField field="lp_url" projectId={p.id} brandId={p.brand_id} currentValue={null} />
+                  )}
                 </div>
 
                 {/* Present-only. motion_link is set on 2 of 66 projects and held a
@@ -1163,9 +1198,20 @@ export default function PreviewProjectView({
                       color: p.lp_approved ? 'var(--complete-text)' : 'var(--text-secondary)',
                       border: p.lp_approved ? 'none' : '1px solid var(--border)',
                     }}>{p.lp_approved ? 'Client approved' : 'Not yet approved'}</span>
+                    {!p.is_complete && <FinalOutputField field="lp_url" projectId={p.id} brandId={p.brand_id} currentValue={p.lp_url} />}
                   </div>
                 ) : (
-                  <Missing tone="muted">No page yet. This is a build, not a revision.</Missing>
+                  <>
+                    <Missing tone="muted">No page yet. This is a build, not a revision.</Missing>
+                    {/* The submit box, right where the absence is announced. It
+                        used to live only inside Edit details, which nobody
+                        looked in for "where do I hand in the page". */}
+                    {!p.is_complete && (
+                      <div style={{ marginTop: 12 }}>
+                        <FinalOutputField field="lp_url" projectId={p.id} brandId={p.brand_id} currentValue={null} />
+                      </div>
+                    )}
+                  </>
                 )}
 
                 {p.lp_url && (
@@ -1187,6 +1233,24 @@ export default function PreviewProjectView({
                     )}
                   </div>
                 )}
+
+                {/* The discount code the page runs with, handed in alongside the
+                    URL. Also moved here from Edit details. */}
+                <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Discount code</div>
+                  {p.shopify_coupon_code ? (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>
+                      <code style={{ fontSize: 13, fontWeight: 700, padding: '4px 10px', borderRadius: 6, background: 'var(--surface-2)', border: '1px solid var(--border)', color: 'var(--text-primary)', letterSpacing: '0.04em' }}>
+                        {p.shopify_coupon_code}
+                      </code>
+                      {!p.is_complete && <FinalOutputField field="shopify_coupon_code" projectId={p.id} brandId={p.brand_id} currentValue={p.shopify_coupon_code} />}
+                    </div>
+                  ) : p.is_complete ? (
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No discount code.</div>
+                  ) : (
+                    <FinalOutputField field="shopify_coupon_code" projectId={p.id} brandId={p.brand_id} currentValue={null} />
+                  )}
+                </div>
 
                 {/* The only toggle for needs_revisions in the app lived on the
                     page being retired, which made the column write-only. */}
@@ -1211,9 +1275,6 @@ export default function PreviewProjectView({
                     ))}
                 </div>
 
-                {/* Self-hiding, which is all 66 rows today. It appears the day one
-                    is entered rather than holding a permanent empty slot. */}
-                <div style={{ marginTop: 12 }}><Field label="Coupon code">{p.shopify_coupon_code}</Field></div>
               </Card>
 
               {/* Every page built for this brand, so an LP editor can open what
