@@ -10,7 +10,6 @@ import ClientFeedbackPanel from '@/components/ClientFeedbackPanel'
 import CampaignTrackingPanel from '@/components/CampaignTrackingPanel'
 import NotesThread from '@/components/NotesThread'
 import ConfirmDeleteForm from '@/components/ConfirmDeleteForm'
-import RevisionsToggle from '@/components/RevisionsToggle'
 import FinalOutputField from '@/components/FinalOutputField'
 import EditorPicker from '@/components/EditorPicker'
 import { editorsFor } from '@/lib/types'
@@ -1234,28 +1233,29 @@ export default function PreviewProjectView({
                   </div>
                 )}
 
-                {/* The discount code the page runs with, handed in alongside the
-                    URL. Also moved here from Edit details. */}
+                {/* The discount setup guide for the page, handed in alongside
+                    the URL: free text on how the discount is configured in
+                    Shopify (the column is still named shopify_coupon_code from
+                    when it held a bare code). Also moved here from Edit details. */}
                 <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
-                  <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Discount code</div>
+                  <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Discount setup guide</div>
                   {p.shopify_coupon_code ? (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>
-                      <code style={{ fontSize: 13, fontWeight: 700, padding: '4px 10px', borderRadius: 6, background: 'var(--surface-2)', border: '1px solid var(--border)', color: 'var(--text-primary)', letterSpacing: '0.04em' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
+                      <div style={{
+                        fontSize: 13, lineHeight: 1.6, color: 'var(--text-primary)', whiteSpace: 'pre-wrap',
+                        padding: '10px 14px', borderRadius: 8, width: '100%',
+                        background: 'var(--surface-2)', border: '1px solid var(--border)',
+                        maxWidth: '80ch',
+                      }}>
                         {p.shopify_coupon_code}
-                      </code>
+                      </div>
                       {!p.is_complete && <FinalOutputField field="shopify_coupon_code" projectId={p.id} brandId={p.brand_id} currentValue={p.shopify_coupon_code} />}
                     </div>
                   ) : p.is_complete ? (
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No discount code.</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No discount setup guide.</div>
                   ) : (
                     <FinalOutputField field="shopify_coupon_code" projectId={p.id} brandId={p.brand_id} currentValue={null} />
                   )}
-                </div>
-
-                {/* The only toggle for needs_revisions in the app lived on the
-                    page being retired, which made the column write-only. */}
-                <div style={{ marginTop: 16 }}>
-                  <RevisionsToggle projectId={p.id} brandId={p.brand_id} currentValue={p.needs_revisions} />
                 </div>
 
                 {p.lp_approved && !p.offer_locked && (
@@ -1265,15 +1265,6 @@ export default function PreviewProjectView({
                     </Missing>
                   </div>
                 )}
-
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 16 }}>
-                  {([['Drive folder ↗', p.drive_folder_url], ['Ad copy doc ↗', p.ad_copy_url]] as const)
-                    .filter(([, href]) => !!href)
-                    .map(([label, href]) => (
-                      <a key={label} href={href as string} target="_blank" rel="noreferrer"
-                        style={{ fontSize: 12, fontWeight: 600, padding: '8px 12px', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', textDecoration: 'none' }}>{label}</a>
-                    ))}
-                </div>
 
               </Card>
 

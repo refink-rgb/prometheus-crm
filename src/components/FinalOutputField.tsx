@@ -9,8 +9,10 @@ import { updateProjectDetails } from '@/lib/actions'
 // These inputs live on that card instead. Each saves one column through the
 // same partial update the edit form uses, so nothing else on the project moves.
 //
-// Two fields share this: the live page URL and the Shopify discount code the
-// page runs with. Both are "final output" — handed in when the build is done.
+// Two fields share this: the live page URL and the discount setup guide for
+// the page — free text describing how the discount is configured in Shopify,
+// which the column name (shopify_coupon_code) predates. Both are "final
+// output" — handed in when the build is done.
 
 type FieldName = 'lp_url' | 'shopify_coupon_code'
 
@@ -19,7 +21,7 @@ const CONFIG: Record<FieldName, {
   placeholder: string
   submitLabel: string
   hint: string
-  inputType: 'url' | 'text'
+  inputType: 'url' | 'text' | 'textarea'
   normalize: (raw: string) => string
   validate: (value: string) => string | null
 }> = {
@@ -34,13 +36,13 @@ const CONFIG: Record<FieldName, {
       /^https?:\/\/\S+$/i.test(value) ? null : 'Paste the full address, starting with https://',
   },
   shopify_coupon_code: {
-    label: 'Discount code',
-    placeholder: 'e.g. SUMMER20',
-    submitLabel: 'Save code',
-    hint: 'The Shopify discount code this page runs with, so anyone checking the page can test it.',
-    inputType: 'text',
-    normalize: raw => raw.trim().toUpperCase(),
-    validate: value => (/\s/.test(value) ? 'A discount code has no spaces.' : null),
+    label: 'Discount setup guide',
+    placeholder: 'How the discount is set up in Shopify — the code or automatic discount, what it applies to, and any steps the client needs to follow.',
+    submitLabel: 'Save guide',
+    hint: 'Free text. Written for whoever sets the discount up in Shopify. ⌘↵ to save.',
+    inputType: 'textarea',
+    normalize: raw => raw.trim(),
+    validate: () => null,
   },
 }
 
@@ -97,21 +99,30 @@ export default function FinalOutputField({
       onSubmit={e => { e.preventDefault(); save() }}
       style={{ display: 'flex', flexDirection: 'column', gap: 6 }}
     >
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <input
-          type={cfg.inputType}
-          inputMode={cfg.inputType === 'url' ? 'url' : 'text'}
-          value={value}
-          onChange={e => setValue(e.target.value)}
-          placeholder={cfg.placeholder}
-          aria-label={cfg.label}
-          disabled={pending}
-          autoCapitalize={field === 'shopify_coupon_code' ? 'characters' : undefined}
-          style={{
-            flex: '1 1 320px', minWidth: 0, fontSize: 13,
-            textTransform: field === 'shopify_coupon_code' ? 'uppercase' : undefined,
-          }}
-        />
+      <div style={{ display: 'flex', gap: 8, alignItems: cfg.inputType === 'textarea' ? 'flex-end' : 'center', flexWrap: 'wrap' }}>
+        {cfg.inputType === 'textarea' ? (
+          <textarea
+            value={value}
+            onChange={e => setValue(e.target.value)}
+            onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); save() } }}
+            placeholder={cfg.placeholder}
+            aria-label={cfg.label}
+            disabled={pending}
+            rows={4}
+            style={{ flex: '1 1 100%', minWidth: 0, fontSize: 13, lineHeight: 1.55, resize: 'vertical' }}
+          />
+        ) : (
+          <input
+            type={cfg.inputType}
+            inputMode={cfg.inputType === 'url' ? 'url' : 'text'}
+            value={value}
+            onChange={e => setValue(e.target.value)}
+            placeholder={cfg.placeholder}
+            aria-label={cfg.label}
+            disabled={pending}
+            style={{ flex: '1 1 320px', minWidth: 0, fontSize: 13 }}
+          />
+        )}
         <button type="submit" className="btn-primary btn-sm" disabled={pending || (!value.trim() && !currentValue)}>
           {pending ? 'Saving…' : currentValue ? 'Save' : cfg.submitLabel}
         </button>
