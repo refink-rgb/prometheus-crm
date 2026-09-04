@@ -2,7 +2,11 @@ import Link from 'next/link'
 import type { Brand, Project } from '@/lib/types'
 
 interface BrandCardProps {
-  brand: Brand & { projects?: Project[] }
+  brand: Brand & {
+    projects?: Project[]
+    /** Editors on the brand's LATEST project, not every editor it has ever had. */
+    editors?: { names: string[]; from: string | null } | null
+  }
   canEdit: boolean
 }
 
@@ -38,6 +42,7 @@ export default function BrandCard({ brand, canEdit }: BrandCardProps) {
       ? { label: 'Active',   color: 'var(--success)' }
       : { label: 'Inactive', color: 'var(--danger)' }
   const avatarColor = hashToColor(brand.name)
+  const editors = brand.editors ?? null
 
   return (
     <Link href={`/brands/${brand.id}`} style={{ textDecoration: 'none', display: 'block' }}>
@@ -82,6 +87,26 @@ export default function BrandCard({ brand, canEdit }: BrandCardProps) {
         }}>
           {billing.label}
         </span>
+
+        {/* Who is on this brand. From the latest project only — a union across
+            three years of projects names six people and answers nothing. */}
+        {editors && editors.names.length > 0 && (
+          <div
+            title={
+              (editors.from ? `Latest project: ${editors.from}\n` : '') +
+              `Editors: ${editors.names.join(', ')}`
+            }
+            style={{
+              display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 10,
+              fontSize: 11.5, color: 'var(--text-secondary)', minWidth: 0,
+            }}
+          >
+            <span style={{ color: 'var(--text-muted)', flexShrink: 0 }}>Editors</span>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {editors.names.join(' · ')}
+            </span>
+          </div>
+        )}
 
         <div style={{ height: 1, background: 'var(--border)', margin: '14px 0 12px' }} />
 

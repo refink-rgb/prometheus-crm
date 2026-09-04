@@ -4,8 +4,10 @@ import { useState, useMemo, useDeferredValue } from 'react'
 import type { Brand, Project } from '@/lib/types'
 import BrandCard from './BrandCard'
 
+export type BrandEditors = { names: string[]; from: string | null } | null
+
 interface BrandsGridProps {
-  brands: (Brand & { projects?: Project[] })[]
+  brands: (Brand & { projects?: Project[]; editors?: BrandEditors })[]
   canEdit: boolean
 }
 
@@ -17,7 +19,13 @@ export default function BrandsGrid({ brands, canEdit }: BrandsGridProps) {
     const q = deferred.trim().toLowerCase()
     const sorted = [...brands].sort((a, b) => a.name.localeCompare(b.name))
     if (!q) return sorted
-    return sorted.filter(b => b.name.toLowerCase().includes(q))
+    // Editor names are searchable too: "which brands is Janella on" is the
+    // question this row exists to answer, and typing her name is the obvious
+    // way to ask it.
+    return sorted.filter(b =>
+      b.name.toLowerCase().includes(q) ||
+      (b.editors?.names ?? []).some(n => n.toLowerCase().includes(q)),
+    )
   }, [brands, deferred])
 
   return (
@@ -25,7 +33,7 @@ export default function BrandsGrid({ brands, canEdit }: BrandsGridProps) {
       <div style={{ marginBottom: 20, maxWidth: 320 }}>
         <input
           type="text"
-          placeholder="Search brands…"
+          placeholder="Search brands or editors…"
           value={search}
           onChange={e => setSearch(e.target.value)}
           style={{ fontSize: 13 }}
