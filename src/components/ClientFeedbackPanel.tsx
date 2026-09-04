@@ -12,6 +12,7 @@ const STATUS_META: Record<CreativeAsset['status'], { label: string; color: strin
   approved: { label: '✓ Approved', color: 'var(--success)' },
   needs_revision: { label: '↩ Revision requested', color: 'var(--danger)' },
   rejected: { label: '✕ Rejected', color: '#fca5a5' },
+  revised: { label: '↻ Revised', color: '#60a5fa' },
 }
 
 export default function ClientFeedbackPanel({

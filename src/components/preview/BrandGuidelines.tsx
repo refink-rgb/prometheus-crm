@@ -3,6 +3,8 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { updateBrandBrief } from '@/lib/actions'
+import BrandDocuments from './BrandDocuments'
+import type { BrandDocument } from '@/lib/types'
 
 // The client's own rules, pasted.
 //
@@ -15,12 +17,15 @@ import { updateBrandBrief } from '@/lib/actions'
 // Collapsed on Creatives, where it is reference rather than reading.
 
 export default function BrandGuidelines({
-  brandId, brandName, projectId, guidelines, collapsed = false,
+  brandId, brandName, projectId, guidelines, documents = [], collapsed = false,
 }: {
   brandId: string
   brandName: string
-  projectId: string
+  /** Absent on the brand page, which has no project to revalidate. */
+  projectId?: string
   guidelines: string | null
+  /** The client's own files. Empty when the brand has none. */
+  documents?: BrandDocument[]
   collapsed?: boolean
 }) {
   const router = useRouter()
@@ -68,12 +73,12 @@ export default function BrandGuidelines({
       {/* pre-wrap: pasted guidelines arrive as a list and their line breaks are
           the structure. Reflowing them into a paragraph destroys it. */}
       <div style={{ fontSize: 13, lineHeight: 1.65, whiteSpace: 'pre-wrap', color: 'var(--text-secondary)', maxWidth: '80ch' }}>{guidelines}</div>
-      <button onClick={() => setEditing(true)} style={linkBtn}>Edit</button>
+      <button onClick={() => { setDraft(guidelines ?? ''); setEditing(true) }} style={linkBtn}>Edit</button>
     </>
   ) : (
     <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
       Nothing pasted yet ·{' '}
-      <button onClick={() => setEditing(true)} style={{ ...linkBtn, marginTop: 0 }}>Paste {brandName}&rsquo;s guidelines</button>
+      <button onClick={() => { setDraft(guidelines ?? ''); setEditing(true) }} style={{ ...linkBtn, marginTop: 0 }}>Paste {brandName}&rsquo;s guidelines</button>
     </div>
   )
 
@@ -88,10 +93,18 @@ export default function BrandGuidelines({
           <span style={{ fontSize: 11, color: 'var(--text-muted)', width: 10 }}>{open ? '▾' : '▸'}</span>
           <span style={{ fontSize: 12, fontWeight: 700 }}>Brand guidelines</span>
           <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-            {guidelines ? `${guidelines.length.toLocaleString()} characters` : 'none yet'}
+            {[
+              guidelines ? `${guidelines.length.toLocaleString()} characters` : null,
+              documents.length ? `${documents.length} document${documents.length === 1 ? '' : 's'}` : null,
+            ].filter(Boolean).join(' · ') || 'nothing yet'}
           </span>
         </button>
-        {open && <div style={{ padding: '0 12px 12px 30px' }}>{body}</div>}
+        {open && (
+          <div style={{ padding: '0 12px 12px 30px' }}>
+            {body}
+            <BrandDocuments brandId={brandId} projectId={projectId} documents={documents} compact />
+          </div>
+        )}
       </div>
     )
   }
@@ -102,6 +115,7 @@ export default function BrandGuidelines({
         {brandName} brand guidelines
       </div>
       {body}
+      <BrandDocuments brandId={brandId} projectId={projectId} documents={documents} />
     </div>
   )
 }

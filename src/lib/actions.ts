@@ -23,6 +23,10 @@ import { createNotifications } from '@/lib/notifications'
 import { driveThumb } from './drive-thumb'
 import { createServiceClient } from '@/lib/supabase/service'
 import {
+  BRAND_DOC_BUCKET, BRAND_DOC_TYPES, MAX_BRAND_DOC_BYTES,
+  brandDocPath, safeDocName, asciiDocName, isUuid,
+} from '@/lib/brand-docs'
+import {
   ensureDeleteSubfolder,
   extractDriveFolderId,
   hasDriveServiceAccount,
@@ -784,6 +788,67 @@ export async function toggleCommentResolved(
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)
 }
 
+// Edit a note you wrote.
+//
+// Asked for by Jaspen, 3 Sep: a note with a typo, or an instruction that turned
+// out to be wrong, could only be deleted and retyped — which loses its place in
+// the thread and any reply under it.
+//
+// Authorship is proved by author_id, never by author_name. The same person is
+// stored as "roberto" from the internal-review screen and "Roberto" from the
+// project page, and the author_name on a client row is a free-text box the
+// client typed themselves. Only the UUID is trustworthy.
+export async function editInternalComment(
+  commentId: string,
+  projectId: string,
+  brandId: string,
+  content: string,
+) {
+  const text = content.trim()
+  if (!text) throw new Error('A note cannot be empty.')
+
+  const auth = await createClient()
+  const { data: { user } } = await auth.auth.getUser()
+  if (!user) throw new Error('Not authorized.')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
+
+  // Same project_comments RLS gap as deleteProjectComment and
+  // toggleCommentResolved: no UPDATE policy for the authenticated role, so this
+  // write would be silently dropped (0 rows, no error) through the user-session
+  // client and the old text would return on refresh. Service-role write;
+  // canEdit above plus the three checks below still gate it.
+  const supabase = createServiceClient()
+
+  const { data: commentRaw } = await supabase
+    .from('project_comments')
+    .select('project_id, audience, author_id')
+    .eq('id', commentId)
+    .single()
+  if (!commentRaw) throw new Error('Note not found.')
+  const row = commentRaw as { project_id: string; audience: string; author_id: string | null }
+
+  if (row.project_id !== projectId) throw new Error('Note does not belong to this project.')
+  // We never rewrite a client's own words.
+  if (row.audience !== 'internal') throw new Error('Client feedback cannot be edited.')
+  // Your own notes only. canEdit is a ROLE check, not an ownership check —
+  // everyone on staff passes it, so without this anyone could rewrite a
+  // colleague's note and leave the colleague's name on it. A NULL author_id
+  // (client-written, or written before the column existed) never matches.
+  if (!row.author_id || row.author_id !== user.id) {
+    throw new Error('You can only edit your own notes.')
+  }
+
+  const { error } = await supabase
+    .from('project_comments')
+    .update({ content: text, edited_at: new Date().toISOString() })
+    .eq('id', commentId)
+  if (error) throw new Error(error.message)
+
+  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+  revalidatePath(`/brands/${brandId}/projects/${projectId}/internal-review`)
+  revalidatePath('/review', 'layout')
+}
+
 export interface DriveSyncResult {
   /** Files in the folder. */
   total: number
@@ -826,7 +891,7 @@ export async function syncDriveImages(projectId: string, brandId: string, folder
 
   const { data: existing } = await supabase
     .from('creative_assets')
-    .select('id, drive_file_id, is_hidden, name')
+    .select('id, drive_file_id, is_hidden, name, revision_url, status')
     .eq('project_id', projectId)
   const live = (existing ?? []).filter(a => !a.is_hidden)
 
@@ -965,14 +1030,43 @@ export async function syncDriveImages(projectId: string, brandId: string, folder
   let revised = 0
   if (asRevision.length > 0) {
     const { recordAssetRevision } = await import('@/lib/revisions')
+    const byId = new Map((existing ?? []).map(a => [a.id, a]))
     for (const { file, assetId } of asRevision) {
       const url = driveThumb(file.id, 2048, file.modifiedTime)
-      // revision_url only, NOT published_url: the client keeps seeing whatever
-      // was published until someone sends the new one, exactly as an in-app
-      // upload behaves.
+      const prior = byId.get(assetId)
+
+      // A Drive revision file never becomes a creative_assets row, so it is
+      // still unrecognised on the NEXT sync and matches this same asset again.
+      // Without this guard a second sync — even one where nothing changed —
+      // wrote another identical revision row and re-published, silently undoing
+      // any "Show client this" an editor had set in between. The URL carries a
+      // &v= stamp from modifiedTime, so an actually-edited file still gets
+      // through with a different URL.
+      if (prior?.revision_url === url) continue
+
+      // published_url advances with the revision. Holding it back until
+      // someone pressed "send" is exactly what left a client sitting on an ad
+      // the editor had already fixed (Bather US, 27 Aug).
+      //
+      // client_visible is deliberately NOT touched. This decides WHICH version
+      // a client sees, never WHETHER they see it — so nothing reaches anyone
+      // who was not already being shown this ad. To pin an older version
+      // anyway, use "Show client this" on the version row — and note that
+      // pin only holds until the NEXT genuine revision of that ad.
+      const patch: Record<string, unknown> = {
+        revision_url: url,
+        published_url: url,
+        revision_created_at: new Date().toISOString(),
+      }
+      // The client signed off on the OLD picture. Moving the image out from
+      // under a recorded approval would leave a green "✓ Approved" beside a
+      // file they have never seen — and the approved-only zip would ship it to
+      // a media buyer. Send it back for re-approval instead.
+      if (prior?.status === 'approved') patch.status = 'pending'
+
       const { error: revErr } = await supabase
         .from('creative_assets')
-        .update({ revision_url: url, revision_created_at: new Date().toISOString() })
+        .update(patch)
         .eq('id', assetId)
       if (revErr) { skipped.push(`${file.name}: ${revErr.message}`); continue }
       await recordAssetRevision(supabase, {
@@ -1431,11 +1525,31 @@ export async function uploadAssetRevision(
 
     const { data: { publicUrl } } = supabase.storage.from('project-images').getPublicUrl(path)
 
-    // revision_url only — NOT published_url. The client keeps seeing the last
-    // published version until someone explicitly sends the latest.
+    // published_url advances with the revision. Holding it back until
+    // someone pressed "send" is exactly what left a client sitting on an ad
+    // the editor had already fixed (Bather US, 27 Aug).
+    //
+    // client_visible is deliberately NOT touched. This decides WHICH version
+    // a client sees, never WHETHER they see it — so nothing reaches anyone
+    // who was not already being shown this ad. To pin an older version
+    // anyway, use "Show client this" on the version row.
+    const { data: priorRow } = await supabase
+      .from('creative_assets').select('status').eq('id', assetId).single()
+
+      // The client signed off on the OLD picture. Moving the image out from
+    // under a recorded approval would leave a green "✓ Approved" beside a
+    // file they have never seen, and the approved-only zip would ship it to
+    // a media buyer. Send it back for re-approval instead.
+    const patch: Record<string, unknown> = {
+      revision_url: publicUrl,
+      published_url: publicUrl,
+      revision_created_at: new Date().toISOString(),
+    }
+    if ((priorRow as { status?: string } | null)?.status === 'approved') patch.status = 'pending'
+
     const { error } = await supabase
       .from('creative_assets')
-      .update({ revision_url: publicUrl, revision_created_at: new Date().toISOString() })
+      .update(patch)
       .eq('id', assetId)
     if (error) return { ok: false, error: `Failed to attach revision: ${error.message}` }
 
@@ -1688,7 +1802,11 @@ export async function purgeStaleAssets(
   return purged
 }
 
-// Called from public review page via share token
+// Called from public review page via share token.
+//
+// This union deliberately stays at four values while internal_status carries
+// five. 'revised' means "an editor uploaded the fix" — it is a statement about
+// our own work, and anyone holding the review link must not be able to make it.
 export async function updateAssetStatus(token: string, assetId: string, status: 'pending' | 'approved' | 'needs_revision' | 'rejected') {
   // Anonymous client review action — write via the service role (the
   // share_token is the authorization). The anon client is blocked by RLS, so
@@ -1766,7 +1884,7 @@ export async function updateAssetStatusInternal(
   assetId: string,
   projectId: string,
   brandId: string,
-  status: 'pending' | 'approved' | 'needs_revision' | 'rejected'
+  status: 'pending' | 'approved' | 'needs_revision' | 'rejected' | 'revised'
 ) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -1789,7 +1907,11 @@ export async function updateAssetStatusInternal(
     try {
       if (status === 'rejected') {
         await _archiveAssetCore(supabase, assetId, projectId)
-      } else if (status === 'pending') {
+      } else if (status === 'pending' || status === 'revised') {
+        // Any verdict that is not "rejected" has to be able to bring the ad
+        // back. Restoring on 'pending' alone meant flipping a rejected ad
+        // straight to 'revised' left it archived in Drive and is_hidden — off
+        // this workspace, off the client link, with no way back from here.
         const { data: a } = await supabase
           .from('creative_assets')
           .select('is_hidden')
@@ -1832,6 +1954,9 @@ export async function addInternalAssetComment(input: {
   const { error } = await supabase.from('project_comments').insert({
     project_id: input.projectId,
     author_name: name,
+    // The name is for display. This is the only thing that can prove, later,
+    // that the person asking to edit this note is the person who wrote it.
+    author_id: user.id,
     content: input.content.trim(),
     track: 'image',
     asset_id: input.assetId,
@@ -2130,6 +2255,7 @@ export async function addInternalNote(
   const { data: inserted, error } = await supabase.from('project_comments').insert({
     project_id: projectId,
     author_name: name,
+    author_id: user.id,
     content: content.trim(),
     track: 'note',
     asset_id: null,
@@ -3217,6 +3343,210 @@ export async function updateBrandBrief(
   }
 }
 
+// ── Brand documents ─────────────────────────────────────────────────────────
+//
+// The pasted guidelines box answers "what is the rule". These answer "send me
+// the actual brand book". Same two-step shape as createRevisionUploadUrl /
+// attachRevisionUpload, and for the same reason: a Server Action body is capped
+// at 1MB by Next and 4.5MB by Vercel, and a brand book is 5-40MB. The browser
+// uploads straight to Storage with a short-lived signed URL, and these actions
+// only ever see a path and a few hundred bytes of metadata.
+//
+// Different bucket from everything else. brand-docs is PRIVATE: project-images
+// grants SELECT to role `public` over the whole bucket, so an object in it is
+// world-readable AND world-listable by anyone holding the anon key. A client's
+// brand book is not ours to publish. Every read below is signed, short-lived,
+// and minted only after canEdit().
+
+// 15 minutes. Not shorter: a browser PDF viewer fetches a large file in RANGE
+// requests as the reader scrolls, against the same URL — a 60-second token
+// makes page 30 of a 40MB book fail to load.
+const BRAND_DOC_URL_TTL_SECONDS = 900
+
+export async function createBrandDocumentUploadUrl(
+  brandId: string,
+  contentType: string,
+  byteSize: number,
+): Promise<{ ok: true; path: string; token: string } | { ok: false; error: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
+
+  if (!isUuid(brandId)) return { ok: false, error: 'Unknown brand.' }
+
+  const spec = BRAND_DOC_TYPES[contentType]
+  if (!spec) {
+    return { ok: false, error: 'Only PDF, Word (.docx), PowerPoint (.pptx), Excel (.xlsx) and .txt files can be attached.' }
+  }
+  if (!Number.isFinite(byteSize) || byteSize <= 0) return { ok: false, error: 'That file is empty.' }
+  if (byteSize > MAX_BRAND_DOC_BYTES) {
+    return { ok: false, error: `That file is ${(byteSize / 1048576).toFixed(1)}MB — the limit is ${MAX_BRAND_DOC_BYTES / 1048576}MB.` }
+  }
+
+  const path = brandDocPath(brandId, contentType)
+
+  const { data, error } = await supabase.storage.from(BRAND_DOC_BUCKET).createSignedUploadUrl(path)
+  if (error || !data) {
+    // Bucket missing is the one failure worth naming, because it means the
+    // migration has not been run and nothing else will work either.
+    const msg = /not found|bucket/i.test(error?.message ?? '')
+      ? 'The brand-docs bucket does not exist yet — run 20260906_add_brand_documents.sql.'
+      : error?.message ?? 'Could not start the upload.'
+    return { ok: false, error: msg }
+  }
+  return { ok: true, path: data.path, token: data.token }
+}
+
+// Second half: the bytes are already in Storage, so this only records them.
+// Primitives only, deliberately — the moment someone "simplifies" this to take
+// a File or FormData, the 1MB Server Action cap is back and every upload over a
+// megabyte starts failing again.
+export async function attachBrandDocument(
+  brandId: string,
+  input: { path: string; fileName: string; contentType: string; byteSize: number },
+  revalidateProjectId?: string,
+): Promise<{ ok: true; documentId: string } | { ok: false; error: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
+
+  if (!isUuid(brandId)) return { ok: false, error: 'Unknown brand.' }
+
+  // The path is minted by createBrandDocumentUploadUrl above; check it anyway,
+  // since this argument arrives from the browser.
+  if (!input.path.startsWith(`${brandId}/`) || input.path.includes('..')) {
+    return { ok: false, error: 'That upload does not belong to this brand.' }
+  }
+  const spec = BRAND_DOC_TYPES[input.contentType]
+  if (!spec) return { ok: false, error: 'That file type is not accepted.' }
+  if (!input.path.endsWith(`.${spec.ext}`)) return { ok: false, error: 'That upload does not match its type.' }
+  if (!Number.isFinite(input.byteSize) || input.byteSize <= 0 || input.byteSize > MAX_BRAND_DOC_BYTES) {
+    return { ok: false, error: 'That file is outside the size limit.' }
+  }
+
+  // Attribution by email, not by id: profiles.id is not reliably the auth uid
+  // here — the project loader matches on email for exactly this reason.
+  const { data: prof } = await supabase
+    .from('profiles').select('full_name').ilike('email', user.email ?? '').maybeSingle()
+  const uploadedByName =
+    (prof as { full_name: string | null } | null)?.full_name || user.email || 'Unknown'
+
+  const { data, error } = await supabase
+    .from('brand_documents')
+    .insert({
+      brand_id: brandId,
+      storage_path: input.path,
+      file_name: safeDocName(input.fileName, input.contentType),
+      mime_type: input.contentType,
+      byte_size: Math.round(input.byteSize),
+      uploaded_by: user.id,
+      uploaded_by_name: uploadedByName,
+    })
+    .select('id')
+    .single()
+
+  if (error) {
+    // 42P01 = relation does not exist. Say so, rather than leaking PostgREST
+    // prose to an editor who cannot act on it.
+    if (error.code === '42P01') {
+      return { ok: false, error: 'Brand documents are not set up yet — run 20260906_add_brand_documents.sql.' }
+    }
+    return { ok: false, error: `Could not save that document: ${error.message}` }
+  }
+
+  revalidatePath(`/brands/${brandId}`)
+  if (revalidateProjectId) {
+    revalidatePath(`/preview/project/${revalidateProjectId}`)
+    revalidatePath(`/brands/${brandId}/projects/${revalidateProjectId}`)
+  }
+  return { ok: true, documentId: (data as { id: string }).id }
+}
+
+// Removing a document DOES delete the storage object. It is a client's
+// confidential file in a private bucket with no listing UI: an orphan would be
+// invisible to everyone, deletable by nobody, and still sitting there — which
+// makes "Remove" a lie on the one class of file where that matters most.
+//
+// Row first, object second, and a failed object delete does not fail the
+// action. A row pointing at bytes that are gone is a broken View button for
+// everyone; bytes with no row are an orphan only we can see. The second is the
+// better failure, so it is the one we take.
+export async function removeBrandDocument(
+  documentId: string,
+  brandId: string,
+  revalidateProjectId?: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
+
+  // No per-row ownership check, unlike deleteBrandComment. A comment is
+  // somebody's opinion and removing it erases their warning; a document is the
+  // brand's own property that anyone on the account may have to correct. The
+  // browser confirms before calling this.
+  const { data: row } = await supabase
+    .from('brand_documents')
+    .select('storage_path')
+    .eq('id', documentId)
+    .eq('brand_id', brandId)
+    .maybeSingle()
+  if (!row) return { ok: false, error: 'That document is already gone.' }
+
+  const { error } = await supabase
+    .from('brand_documents').delete().eq('id', documentId).eq('brand_id', brandId)
+  if (error) return { ok: false, error: `Could not remove it: ${error.message}` }
+
+  const path = (row as { storage_path: string }).storage_path
+  const { error: rmErr } = await supabase.storage.from(BRAND_DOC_BUCKET).remove([path])
+  if (rmErr) console.error('[removeBrandDocument] orphaned object', path, rmErr.message)
+
+  revalidatePath(`/brands/${brandId}`)
+  if (revalidateProjectId) {
+    revalidatePath(`/preview/project/${revalidateProjectId}`)
+    revalidatePath(`/brands/${brandId}/projects/${revalidateProjectId}`)
+  }
+  return { ok: true }
+}
+
+// Signed on click, never stored and never embedded in the rendered HTML. A URL
+// baked into the page at render would be stale by the time a tab left open for
+// twenty minutes is clicked, and would sit in the HTML for anything that
+// scrapes or caches it.
+export async function getBrandDocumentUrl(
+  documentId: string,
+  mode: 'view' | 'download',
+): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
+
+  const { data: row } = await supabase
+    .from('brand_documents')
+    .select('storage_path, file_name')
+    .eq('id', documentId)
+    .maybeSingle()
+  if (!row) return { ok: false, error: 'That document is no longer here.' }
+
+  const doc = row as { storage_path: string; file_name: string }
+
+  const { data, error } = await supabase.storage
+    .from(BRAND_DOC_BUCKET)
+    .createSignedUrl(
+      doc.storage_path,
+      BRAND_DOC_URL_TTL_SECONDS,
+      // download: <name> is what makes STORAGE send
+      // Content-Disposition: attachment. A cross-origin <a download> cannot —
+      // see the note in BrandDocuments.tsx.
+      mode === 'download' ? { download: asciiDocName(doc.file_name) } : undefined,
+    )
+  if (error || !data) return { ok: false, error: error?.message ?? 'Could not open that document.' }
+  return { ok: true, url: data.signedUrl }
+}
+
 
 // ── Revision upload, in two steps, because the bytes must not go through us ──
 //
@@ -3270,11 +3600,31 @@ export async function attachRevisionUpload(
 
   const { data: { publicUrl } } = supabase.storage.from('project-images').getPublicUrl(path)
 
-  // revision_url only — NOT published_url. The client keeps seeing the last
-  // published version until someone explicitly sends the latest.
+  // published_url advances with the revision. Holding it back until
+  // someone pressed "send" is exactly what left a client sitting on an ad
+  // the editor had already fixed (Bather US, 27 Aug).
+  //
+  // client_visible is deliberately NOT touched. This decides WHICH version
+  // a client sees, never WHETHER they see it — so nothing reaches anyone
+  // who was not already being shown this ad. To pin an older version
+  // anyway, use "Show client this" on the version row.
+  const { data: priorRow } = await supabase
+    .from('creative_assets').select('status').eq('id', assetId).single()
+
+      // The client signed off on the OLD picture. Moving the image out from
+  // under a recorded approval would leave a green "✓ Approved" beside a
+  // file they have never seen, and the approved-only zip would ship it to
+  // a media buyer. Send it back for re-approval instead.
+  const patch: Record<string, unknown> = {
+    revision_url: publicUrl,
+    published_url: publicUrl,
+    revision_created_at: new Date().toISOString(),
+  }
+  if ((priorRow as { status?: string } | null)?.status === 'approved') patch.status = 'pending'
+
   const { error } = await supabase
     .from('creative_assets')
-    .update({ revision_url: publicUrl, revision_created_at: new Date().toISOString() })
+    .update(patch)
     .eq('id', assetId)
   if (error) return { ok: false, error: `Failed to attach revision: ${error.message}` }
 
@@ -3347,6 +3697,41 @@ export async function deleteBrandComment(
 
   const { error } = await supabase.from('brand_comments').delete().eq('id', commentId)
   if (error) return { ok: false, error: `Could not delete: ${error.message}` }
+
+  revalidatePath(`/brands/${brandId}`)
+  if (projectId) revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+  return { ok: true }
+}
+
+// Same rule as deleteBrandComment: your own posts only.
+export async function editBrandComment(
+  commentId: string,
+  brandId: string,
+  content: string,
+  projectId?: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const text = content.trim()
+  if (!text) return { ok: false, error: 'A note cannot be empty.' }
+
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
+
+  const { data: row } = await supabase
+    .from('brand_comments').select('author_id').eq('id', commentId).single()
+  if (!row) return { ok: false, error: 'That note is already gone.' }
+  if ((row as { author_id: string | null }).author_id !== user.id) {
+    return { ok: false, error: 'You can only edit your own notes.' }
+  }
+
+  // brand_comments RLS is FOR ALL TO authenticated, so unlike project_comments
+  // this UPDATE lands through the user-session client.
+  const { error } = await supabase
+    .from('brand_comments')
+    .update({ content: text, edited_at: new Date().toISOString() })
+    .eq('id', commentId)
+  if (error) return { ok: false, error: error.message }
 
   revalidatePath(`/brands/${brandId}`)
   if (projectId) revalidatePath(`/brands/${brandId}/projects/${projectId}`)

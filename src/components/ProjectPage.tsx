@@ -5,7 +5,7 @@ import { getCachedProfiles } from '@/lib/profiles'
 import { getRevisionsByAsset } from '@/lib/revisions'
 import { easternToday } from '@/lib/eastern'
 import type { TrackedCampaign } from '@/lib/results'
-import type { Project, Brand, CreativeAsset, ProjectComment, BrandDna, ProjectImage, Journey, BrandComment } from '@/lib/types'
+import type { Project, Brand, CreativeAsset, ProjectComment, BrandDna, ProjectImage, Journey, BrandComment, BrandDocument } from '@/lib/types'
 import PreviewProjectView, { type BrandLandingPage } from '@/components/preview/PreviewProjectView'
 
 // PREVIEW ROUTE — deliberately not in the sidebar nav.
@@ -45,6 +45,7 @@ export default async function ProjectPage({ projectId }: { projectId: string }) 
     { data: trackedCampaignsRaw },
     { data: brandLandingPagesRaw },
     { data: brandCommentsRaw },
+    { data: brandDocumentsRaw },
     profiles,
   ] = await Promise.all([
     supabase.from('brands').select('id, name, brand_notes, ai_sensitivity, brand_guidelines').eq('id', p.brand_id).single(),
@@ -84,6 +85,14 @@ export default async function ProjectPage({ projectId }: { projectId: string }) 
       .select('*')
       .eq('brand_id', p.brand_id)
       .order('created_at', { ascending: false }),
+    // The brand's own files. Tolerant of the migration not having run yet:
+    // supabase-js returns { data: null, error } rather than throwing, so the
+    // panel renders its empty state instead of taking the page down.
+    supabase
+      .from('brand_documents')
+      .select('*')
+      .eq('brand_id', p.brand_id)
+      .order('created_at', { ascending: false }),
     getCachedProfiles(),
   ])
 
@@ -105,6 +114,7 @@ export default async function ProjectPage({ projectId }: { projectId: string }) 
       journeys={(brandJourneysRaw ?? []) as Journey[]}
       brandLandingPages={(brandLandingPagesRaw ?? []) as BrandLandingPage[]}
       brandComments={(brandCommentsRaw ?? []) as BrandComment[]}
+      brandDocuments={(brandDocumentsRaw ?? []) as BrandDocument[]}
       currentUserId={user.id}
       profiles={profiles}
       campaigns={(trackedCampaignsRaw ?? []) as unknown as TrackedCampaign[]}

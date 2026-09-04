@@ -105,7 +105,12 @@ function AssetRow({
     }
   }
 
-  async function handleStatus(newStatus: CreativeAsset['status']) {
+  // Narrower than CreativeAsset['status'] on purpose. 'revised' is a statement
+  // about OUR work — an editor uploaded the fix — so the anonymous review link
+  // must not be able to write it. Typing the parameter here means a future
+  // button that tries would not compile, rather than failing at the CHECK
+  // constraint in front of a client.
+  async function handleStatus(newStatus: ClientSettableStatus) {
     if (newStatus === status) return
     setUpdatingStatus(true)
     try {
@@ -117,9 +122,10 @@ function AssetRow({
     }
   }
 
-  // Publish gate: the client sees the explicitly-published revision; until you
-  // publish (and between new edits and the next publish) they see the last
-  // published version, or the original if nothing has been published yet.
+  // What the client is looking at. published_url follows the newest revision
+  // automatically now — an uploaded fix, or a Drive sync, moves it — so this is
+  // the latest edit unless someone pinned an older one with "Show client this".
+  // NULL means nothing has been edited: they see the Drive original.
   const imgSrc = asset.published_url
     ?? resizeDriveThumb(asset.thumbnail_url, 2048) ?? driveThumb(asset.drive_file_id, 2048)
   const statusColors: Record<CreativeAsset['status'], { bg: string; color: string; border: string }> = {
@@ -127,11 +133,13 @@ function AssetRow({
     approved:      { bg: 'rgba(34,197,94,0.12)',   color: 'var(--success)',       border: 'rgba(34,197,94,0.3)' },
     needs_revision:{ bg: 'rgba(239,68,68,0.1)',    color: 'var(--danger)',        border: 'rgba(239,68,68,0.3)' },
     rejected:      { bg: 'rgba(127,29,29,0.18)',   color: '#fca5a5',              border: 'rgba(127,29,29,0.5)' },
+    revised:       { bg: 'rgba(96,165,250,0.12)',  color: '#60a5fa',              border: 'rgba(96,165,250,0.32)' },
   }
   const statusLabel = (s: CreativeAsset['status']): string => {
     if (s === 'approved') return '✓ Approved'
     if (s === 'needs_revision') return '↩ Revision requested'
     if (s === 'rejected') return '✕ Rejected'
+    if (s === 'revised') return '↻ Revised'
     return ''
   }
 
@@ -399,6 +407,8 @@ function AssetRow({
 }
 
 // ─── Main panel ──────────────────────────────────────────────────────────────
+
+type ClientSettableStatus = Exclude<CreativeAsset['status'], 'revised'>
 
 export default function ImageReviewPanel({
   token,

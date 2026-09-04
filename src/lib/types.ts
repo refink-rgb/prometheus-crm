@@ -126,6 +126,21 @@ export interface Brand {
   brand_guidelines: string | null
 }
 
+/** A file the client sent us, kept on the brand. Bytes live in the PRIVATE
+ *  brand-docs bucket; this row is the only index of them, and every URL is
+ *  signed on click rather than stored. */
+export interface BrandDocument {
+  id: string
+  brand_id: string
+  storage_path: string
+  file_name: string
+  mime_type: string
+  byte_size: number
+  uploaded_by: string | null
+  uploaded_by_name: string | null
+  created_at: string
+}
+
 export interface Journey {
   id: string
   brand_id: string
@@ -315,6 +330,7 @@ export interface BrandComment {
   author_id: string | null
   content: string
   created_at: string
+  edited_at?: string | null
 }
 
 export interface ProjectImage {
@@ -358,6 +374,14 @@ export interface ProjectComment {
   // Internal-only: set when a teammate marks this feedback handled (Client
   // Feedback panel). NULL = open. Never surfaced on the client review link.
   resolved_at?: string | null
+  // Set only on staff-written rows. NULL means client-written (posted through
+  // an anonymous share token) or written before the column existed — either
+  // way, nobody owns it, so nobody can edit it. author_name is a display
+  // string and is never used to prove authorship.
+  author_id?: string | null
+  // Set on every edit. Nine surfaces print created_at, so without this a note
+  // rewritten three days later still reads as posted on day one.
+  edited_at?: string | null
 }
 
 export interface CreativeAsset {
@@ -379,10 +403,10 @@ export interface CreativeAsset {
   // false = internal-only (not yet on the client review link). Set true on publish.
   client_visible: boolean
   // CLIENT approval — set ONLY via the client review link. Never by internal QC.
-  status: 'pending' | 'approved' | 'needs_revision' | 'rejected'
+  status: 'pending' | 'approved' | 'needs_revision' | 'rejected' | 'revised'
   // INTERNAL QC approval — set ONLY by the internal review tool. Kept separate
   // from `status` so an internal approve never shows as approved to the client.
-  internal_status: 'pending' | 'approved' | 'needs_revision' | 'rejected'
+  internal_status: 'pending' | 'approved' | 'needs_revision' | 'rejected' | 'revised'
 }
 
 // A generated marketing-moment report (anonymized public case study). `data` is

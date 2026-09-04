@@ -2,7 +2,8 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { addInternalNote, addProjectComment, deleteProjectComment, deleteInternalNote } from '@/lib/actions'
+import { addInternalNote, addProjectComment, deleteProjectComment, deleteInternalNote, editInternalComment } from '@/lib/actions'
+import EditableNoteBody from './preview/EditableNoteBody'
 import { createClient } from '@/lib/supabase/client'
 import type { ProjectComment } from '@/lib/types'
 
@@ -23,6 +24,7 @@ export default function NotesThread({
   brandId,
   token,
   currentUserName,
+  currentUserId = null,
   canDelete = false,
   mentionables = [],
 }: {
@@ -32,6 +34,8 @@ export default function NotesThread({
   brandId?: string
   token?: string
   currentUserName?: string
+  /** Proves ownership for the inline edit. NULL on the client review link. */
+  currentUserId?: string | null
   canDelete?: boolean
   mentionables?: Mentionable[]
 }) {
@@ -262,9 +266,17 @@ export default function NotesThread({
                     </button>
                   )}
                   {note.content && (
-                    <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>
-                      {renderMentions(note.content)}
-                    </div>
+                    <EditableNoteBody
+                      content={note.content}
+                      editedAt={note.edited_at ?? null}
+                      canEditNote={
+                        mode === 'internal' && !!projectId && !!brandId &&
+                        !!currentUserId && note.author_id === currentUserId
+                      }
+                      onSave={t => editInternalComment(note.id, projectId!, brandId!, t)}
+                      render={renderMentions}
+                      style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}
+                    />
                   )}
                   {note.attachment_urls && note.attachment_urls.length > 0 && (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>

@@ -75,6 +75,7 @@ export default async function InternalReviewPage({
           initialComments={comments}
           projectName={project.name}
           currentUserName={userDisplayName}
+          currentUserId={user.id}
           revisionsByAsset={revisionsByAsset}
         />
       </main>

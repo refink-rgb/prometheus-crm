@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import type { Project, Brand, CreativeAsset, ProjectComment, BrandDna, ProjectImage, Journey, Profile, BrandComment } from '@/lib/types'
+import type { Project, Brand, CreativeAsset, ProjectComment, BrandDna, ProjectImage, Journey, Profile, BrandComment, BrandDocument } from '@/lib/types'
 import ProjectEditForm from '@/components/ProjectEditForm'
 import StageTracker from '@/components/StageTracker'
 import CopyDeckPanel from '@/components/CopyDeckPanel'
@@ -209,7 +209,7 @@ function CommentList({ comments, empty }: { comments: ProjectComment[]; empty: s
 }
 
 export default function PreviewProjectView({
-  project: p, brand, assets, comments, images, dna, revisionsByAsset, lpEditorName, creativeEditorName, journeyName, journeys, profiles, campaigns, todayIso, authorName, brandLandingPages, brandComments, currentUserId,
+  project: p, brand, assets, comments, images, dna, revisionsByAsset, lpEditorName, creativeEditorName, journeyName, journeys, profiles, campaigns, todayIso, authorName, brandLandingPages, brandComments, brandDocuments, currentUserId,
 }: {
   project: Project; brand: Brand; assets: CreativeAsset[]; comments: ProjectComment[]
   images: ProjectImage[]; dna: BrandDna | null
@@ -218,11 +218,53 @@ export default function PreviewProjectView({
   journeys: Journey[]; profiles: Profile[]; campaigns: TrackedCampaign[]; todayIso: string
   brandLandingPages: BrandLandingPage[]
   brandComments: BrandComment[]
+  brandDocuments: BrandDocument[]
   currentUserId: string | null
   /** Who a note typed here is attributed to. */
   authorName: string
 }) {
   const [tab, setTab] = useState<Tab>('overview')
+
+  // The section list collapses to a 36px rail of dots. Same idiom as the app
+  // sidebar (Janella, 3 Sep) — its own storage key, so the two collapsibles
+  // never fight over one setting.
+  //
+  // Dots, not the sidebar's icons: several labels carry a live count
+  // ("Products · 12", "Client feedback · 3 open") that an icon would throw
+  // away. Collapsed, that whole label moves into the dot's tooltip.
+  //
+  // Read from storage in an effect only, never during render — this is a client
+  // component inside a server-rendered page, and reading localStorage on the
+  // first render is a hydration mismatch. Only an explicit toggle is written
+  // back — see toggleNav; persisting the responsive default would freeze it.
+  const [navCollapsed, setNavCollapsed] = useState(false)
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('prometheus-subnav-collapsed')
+      // Nothing stored yet: collapse by default on a narrow screen, where a
+      // 210px column plus a 32px gap was eating most of the viewport.
+      //
+      // localStorage and matchMedia do not exist on the server, so neither can
+      // be read during render without a hydration mismatch. One extra render on
+      // mount is the price of restoring the preference at all.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setNavCollapsed(stored === null
+        ? !window.matchMedia('(min-width: 1100px)').matches
+        : stored === '1')
+    } catch { /* private window, or storage blocked — start expanded */ }
+  }, [])
+
+  // Persist the CHOICE, never the state. Writing the responsive default back on
+  // first mount froze it: one visit on a 13" laptop stored '1', and the nav was
+  // then a rail of dots on a 27" monitor forever, with nothing to explain why.
+  const toggleNav = () => {
+    setNavCollapsed(v => {
+      const next = !v
+      try { localStorage.setItem('prometheus-subnav-collapsed', next ? '1' : '0') } catch { /* ignore */ }
+      return next
+    })
+  }
   // Which section the reader is actually in, so the sub-nav reports position
   // rather than only offering destinations.
   const [activeSection, setActiveSection] = useState<string | null>(null)
@@ -239,7 +281,7 @@ export default function PreviewProjectView({
       'client-feedback': 'lp', feedback: 'lp', page: 'lp', offer: 'lp', copy: 'lp',
       library: 'lp', notes: 'lp', product: 'lp',
       brief: 'creatives', products: 'creatives', motion: 'creatives', review: 'creatives',
-      making: 'overview', look: 'overview', destination: 'overview',
+      making: 'overview', about: 'overview', look: 'overview', destination: 'overview',
     }
     const t = owner[hash]
     if (t) setTab(t)
@@ -328,7 +370,7 @@ export default function PreviewProjectView({
   const hooks: string[] = Array.isArray(dna?.winning_hooks) ? dna!.winning_hooks as string[] : []
 
   const missing = useMemo(() => ([
-    { when: images.length === 0 && !p.product_images_link, label: 'No product image', to: 'making' },
+    { when: images.length === 0 && !p.product_images_link, label: 'No product image', to: 'about' },
     { when: !p.retail_price, label: 'No price anchor', to: 'making' },
     { when: !p.offer_dynamics_type, label: 'No offer mechanic', to: 'making' },
     { when: !hasAdCopy, label: 'No ad copy', to: 'copy' },
@@ -339,7 +381,8 @@ export default function PreviewProjectView({
   // Sections that don't render get no nav entry — the nav never advertises a
   // destination that turns out to be an apology.
   const overviewNav = useMemo(() => ([
-    { id: 'making', label: "Product & offer", show: true },
+    { id: 'about', label: 'About', show: true },
+    { id: 'making', label: 'Offer', show: true },
     { id: 'copy', label: 'Copy', show: hasAdCopy || hasLpCopy },
     { id: 'look', label: 'Look', show: showLook },
     { id: 'destination', label: 'Destination', show: true },
@@ -661,20 +704,61 @@ export default function PreviewProjectView({
         ))}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '210px minmax(0,1fr)', gap: 32 }}>
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: navCollapsed ? '36px minmax(0,1fr)' : '210px minmax(0,1fr)',
+        gap: navCollapsed ? 16 : 32,
+        transition: 'grid-template-columns 0.15s, gap 0.15s',
+      }}>
         {/* Sub-nav */}
         <nav style={{ position: 'sticky', top: 16, alignSelf: 'start' }}>
+          <button
+            onClick={toggleNav}
+            title={navCollapsed ? 'Expand section list' : 'Collapse section list'}
+            aria-label={navCollapsed ? 'Expand section list' : 'Collapse section list'}
+            aria-expanded={!navCollapsed}
+            style={{
+              margin: navCollapsed ? '0 auto 8px' : '0 0 8px auto', display: 'block',
+              width: 26, height: 26, borderRadius: 6, cursor: 'pointer', fontSize: 12,
+              border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-muted)',
+            }}
+          >{navCollapsed ? '›' : '‹'}</button>
+
           {activeNav.map(({ id, label: s }) => {
             const on = activeSection === id
+            const go = (e: React.MouseEvent) => {
+              e.preventDefault()
+              document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            }
+            // Collapsed: one dot per section, the label — count included — in
+            // the tooltip. The nav still does both its jobs, report where you
+            // are and offer somewhere to go, at a sixth of the width.
+            if (navCollapsed) {
+              return (
+                <a
+                  key={id}
+                  href={`#${id}`}
+                  title={s}
+                  aria-label={s}
+                  aria-current={on ? 'true' : undefined}
+                  onClick={go}
+                  style={{ display: 'grid', placeItems: 'center', height: 22, textDecoration: 'none', marginBottom: 2 }}
+                >
+                  <span style={{
+                    width: on ? 10 : 6, height: on ? 10 : 6, borderRadius: '50%',
+                    background: on ? 'var(--accent)' : 'var(--text-muted)',
+                    opacity: on ? 1 : 0.45,
+                    transition: 'width 0.12s, height 0.12s, background 0.12s, opacity 0.12s',
+                  }} />
+                </a>
+              )
+            }
             return (
               <a
-                key={s}
+                key={id}
                 href={`#${id}`}
                 aria-current={on ? 'true' : undefined}
-                onClick={e => {
-                  e.preventDefault()
-                  document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                }}
+                onClick={go}
                 style={{
                   display: 'block', padding: '8px 12px', marginBottom: 4, borderRadius: 6,
                   fontSize: 13, textDecoration: 'none',
@@ -720,12 +804,16 @@ export default function PreviewProjectView({
               )}
 
               {brand?.id && (
+                /* Keyed on brand.id, NOT on the guidelines text. Keyed on the
+                   text, saving the box mid-upload remounted the whole panel and
+                   threw away the in-flight upload and its error list. */
                 <BrandGuidelines
-                  key={brand.brand_guidelines ?? ''}
+                  key={brand.id}
                   brandId={brand.id}
                   brandName={brand.name}
                   projectId={p.id}
                   guidelines={brand.brand_guidelines ?? null}
+                  documents={brandDocuments}
                 />
               )}
 
@@ -747,8 +835,11 @@ export default function PreviewProjectView({
                 </div>
               )}
 
-              {/* 1 — the artefact */}
-              <Card id="making" title="What you're making" purpose="What you're drawing.">
+              {/* 1 — what it is. Split out of the old single card: with the
+                  images, the SKU list, the description AND the whole offer in
+                  one section it ran past two screens, so nobody scrolled to the
+                  bottom of it. Jaspen, 3 Sep. */}
+              <Card id="about" title="About the product" purpose="What it is, and what it looks like.">
                 <div style={{ display: 'grid', gridTemplateColumns: wide && images.length > 0 ? '360px minmax(0,1fr)' : '1fr', gap: 20 }}>
                   {/* No image, no column. The empty state used to be a square the
                       size of the hero announcing it had nothing to show — on 37 of
@@ -810,49 +901,12 @@ export default function PreviewProjectView({
                       </div>
                     )}
 
-                    <div style={{ marginTop: 16 }}>
-                      <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: 4 }}>Price / anchor</div>
-                      {images.length === 0 && imageFallback && (
-                        <div style={{ marginBottom: 12 }}>
-                          <a href={imageFallback.href} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--accent)' }}>{imageFallback.label}</a>
-                        </div>
-                      )}
-                      {p.retail_price ? (
-                        // Verbatim, never parsed as a number: this field averages
-                        // ~90 characters of prose, and "N/A — sitewide % off, no
-                        // single anchor price" is a correct answer.
-                        <div style={{ fontSize: 15, fontWeight: 600, maxWidth: '46ch', lineHeight: 1.5 }}>
-                          <Clamp text={p.retail_price} lines={3} />
-                        </div>
-                      ) : (
-                        <Missing tone="warn">No price anchor given — don&rsquo;t put a price on the ad.</Missing>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Offer, full width under both columns */}
-                  <div style={{ gridColumn: '1 / -1', borderTop: '1px solid var(--border)', marginTop: 16, paddingTop: 16 }}>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-                      {p.offer_dynamics_type ? (
-                        // Normalised on render — the column is free text, and
-                        // BOGO / bogo / "Buy one get one" must not read as three
-                        // different mechanics.
-                        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', padding: '4px 10px', borderRadius: 6, background: 'var(--accent-muted)', color: 'var(--accent)', border: '1px solid var(--accent)' }}>
-                          {p.offer_dynamics_type.trim().toUpperCase()}
-                        </span>
-                      ) : (
-                        <span style={{ fontSize: 11, color: 'var(--urgent-soon)' }}>Mechanic not set — read it below.</span>
-                      )}
-                      <span style={{
-                        fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999,
-                        background: p.offer_locked ? 'var(--complete-bg)' : 'var(--stage-brief-bg)',
-                        color: p.offer_locked ? 'var(--complete-text)' : 'var(--stage-brief-text)',
-                      }}>{p.offer_locked ? 'Offer locked' : 'Not locked — may still change'}</span>
-                    </div>
-                    {p.offer && <div style={{ fontSize: 15, fontWeight: 700, marginTop: 8 }}>{p.offer}</div>}
-                    {p.offer_description && (
-                      <div style={{ fontSize: 13, marginTop: 8, maxWidth: '80ch', lineHeight: 1.6, color: 'var(--text-secondary)' }}>
-                        <Clamp text={p.offer_description} lines={4} />
+                    {/* Lifted out of the Price block, which now lives in the
+                        Offer card. "Where are the product photos" is an About
+                        question wherever the price happens to sit. */}
+                    {images.length === 0 && imageFallback && (
+                      <div style={{ marginTop: 16 }}>
+                        <a href={imageFallback.href} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--accent)' }}>{imageFallback.label}</a>
                       </div>
                     )}
                   </div>
@@ -866,6 +920,55 @@ export default function PreviewProjectView({
                     {brand?.id && <Link href={`/brands/${brand.id}`} style={{ color: 'var(--accent)' }}>Open brand page →</Link>}
                   </div>
                 )}
+              </Card>
+
+              {/* 2 — the deal. The id stays "making": the missing-field chips
+                  and any link anyone has saved point at #making, and the price
+                  and mechanic they name are both here. */}
+              <Card id="making" title="The offer" purpose="Price anchor and the deal.">
+                <div>
+                  <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: 4 }}>Price / anchor</div>
+                  {p.retail_price ? (
+                    // Verbatim, never parsed as a number: this field averages
+                    // ~90 characters of prose, and "N/A — sitewide % off, no
+                    // single anchor price" is a correct answer.
+                    <div style={{ fontSize: 15, fontWeight: 600, maxWidth: '46ch', lineHeight: 1.5 }}>
+                      <Clamp text={p.retail_price} lines={3} />
+                    </div>
+                  ) : (
+                    <Missing tone="warn">No price anchor given — don&rsquo;t put a price on the ad.</Missing>
+                  )}
+                </div>
+
+                {/* Was gridColumn '1 / -1' under a two-column grid that has
+                    moved to the About card. The rule still earns its place —
+                    there is a price above it — but the grid span would be
+                    inert here. */}
+                <div style={{ borderTop: '1px solid var(--border)', marginTop: 16, paddingTop: 16 }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+                    {p.offer_dynamics_type ? (
+                      // Normalised on render — the column is free text, and
+                      // BOGO / bogo / "Buy one get one" must not read as three
+                      // different mechanics.
+                      <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', padding: '4px 10px', borderRadius: 6, background: 'var(--accent-muted)', color: 'var(--accent)', border: '1px solid var(--accent)' }}>
+                        {p.offer_dynamics_type.trim().toUpperCase()}
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: 11, color: 'var(--urgent-soon)' }}>Mechanic not set — read it below.</span>
+                    )}
+                    <span style={{
+                      fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999,
+                      background: p.offer_locked ? 'var(--complete-bg)' : 'var(--stage-brief-bg)',
+                      color: p.offer_locked ? 'var(--complete-text)' : 'var(--stage-brief-text)',
+                    }}>{p.offer_locked ? 'Offer locked' : 'Not locked — may still change'}</span>
+                  </div>
+                  {p.offer && <div style={{ fontSize: 15, fontWeight: 700, marginTop: 8 }}>{p.offer}</div>}
+                  {p.offer_description && (
+                    <div style={{ fontSize: 13, marginTop: 8, maxWidth: '80ch', lineHeight: 1.6, color: 'var(--text-secondary)' }}>
+                      <Clamp text={p.offer_description} lines={4} />
+                    </div>
+                  )}
+                </div>
               </Card>
 
               {/* 2 — the words */}
@@ -1370,6 +1473,7 @@ export default function PreviewProjectView({
                   projectId={p.id}
                   brandId={p.brand_id}
                   currentUserName={authorName}
+                  currentUserId={currentUserId}
                   canDelete
                   mentionables={profiles.map(pr => ({ id: pr.id, name: profileName(pr) }))}
                 />
@@ -1523,8 +1627,9 @@ export default function PreviewProjectView({
                   brandName={brand.name}
                   projectId={p.id}
                   guidelines={brand.brand_guidelines ?? null}
+                  documents={brandDocuments}
                   collapsed
-                  key={`c:${brand.brand_guidelines ?? ''}`}
+                  key={`c:${brand.id}`}
                 />
               )}
 
@@ -1901,22 +2006,12 @@ export default function PreviewProjectView({
               )}
 
               <Card id="review" title="Review" purpose="Approve, fix, and publish.">
-                {/* /internal-review is staying. This inline workspace is for the
-                    routine pass; the dedicated screen is still where you work a
-                    batch at full width, so say so and link it rather than
-                    leaving editors to remember the URL. */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, padding: '8px 12px', border: '1px solid var(--border)', borderRadius: 10 }}>
-                  <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-                    Need annotation pins?
-                  </span>
-                  <Link
-                    href={`/brands/${p.brand_id}/projects/${p.id}/internal-review`}
-                    style={{ marginLeft: 'auto', flexShrink: 0, fontSize: 11, fontWeight: 600, color: 'var(--accent)' }}
-                  >
-                    Open internal review →
-                  </Link>
-                </div>
-                <ReviewWorkspace projectId={p.id} brandId={p.brand_id} assets={visibleAssets} comments={creativeComments} revisionsByAsset={revisionsByAsset} authorName={authorName} />
+                {/* The old "Open internal review" banner lived here. Gallery
+                    View replaces the reason for it — a big image at full
+                    viewport, without leaving the tab. /internal-review is still
+                    the only screen with pin annotations, so ReviewWorkspace
+                    links to it from inside the Gallery rail instead. */}
+                <ReviewWorkspace projectId={p.id} brandId={p.brand_id} assets={visibleAssets} comments={creativeComments} revisionsByAsset={revisionsByAsset} authorName={authorName} currentUserId={currentUserId} />
 
                 {/* Bulk publish, purge, archive. Syncing moved to the bar at the
                     top of the tab — this panel carries its own folder input too,

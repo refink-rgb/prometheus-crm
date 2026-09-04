@@ -7,6 +7,7 @@ import type { AssetRevision } from '@/lib/revisions'
 import {
   addInternalAssetComment,
   updateAssetStatusInternal,
+  editInternalComment,
   applyAiEdits,
   applyDirectPrompt,
   approveAndPublishRevision,
@@ -17,6 +18,7 @@ import {
 } from '@/lib/actions'
 import type { CreativeAsset, ProjectComment } from '@/lib/types'
 import { driveThumb, resizeDriveThumb } from '@/lib/drive-thumb'
+import EditableNoteBody from './preview/EditableNoteBody'
 
 const QUALITY_OPTIONS: Array<{ value: 'low' | 'medium' | 'high'; label: string; price: string }> = [
   { value: 'low',    label: 'Low',    price: '$0.011' },
@@ -29,6 +31,7 @@ const STATUS_COLORS: Record<CreativeAsset['status'], { bg: string; color: string
   approved:       { bg: 'rgba(34,197,94,0.12)',color: 'var(--success)',    border: 'rgba(34,197,94,0.3)',    label: '✓ Approved' },
   needs_revision: { bg: 'rgba(239,68,68,0.1)', color: 'var(--danger)',     border: 'rgba(239,68,68,0.3)',    label: '↩ Revision' },
   rejected:       { bg: 'rgba(127,29,29,0.18)',color: '#fca5a5',           border: 'rgba(127,29,29,0.5)',    label: '✕ Rejected' },
+  revised:        { bg: 'rgba(96,165,250,0.12)',color: '#60a5fa',          border: 'rgba(96,165,250,0.32)',  label: '↻ Revised' },
 }
 
 type AssetLocal = CreativeAsset & { internal_status: CreativeAsset['internal_status'] }
@@ -40,6 +43,7 @@ export default function InternalReviewPanel({
   initialComments,
   projectName,
   currentUserName,
+  currentUserId = null,
   revisionsByAsset = {},
 }: {
   projectId: string
@@ -48,6 +52,8 @@ export default function InternalReviewPanel({
   initialComments: ProjectComment[]
   projectName: string
   currentUserName: string
+  /** Proves ownership for editing an internal note in place. */
+  currentUserId?: string | null
   /** Recorded AI edits per asset id, oldest first. */
   revisionsByAsset?: Record<string, AssetRevision[]>
 }) {
@@ -56,6 +62,20 @@ export default function InternalReviewPanel({
   )
   const [comments, setComments] = useState<ProjectComment[]>(initialComments)
   const [activeIdx, setActiveIdx] = useState(0)
+
+  // This list was seeded from the server ONCE and then only appended to, so
+  // anything that CHANGED an existing row on the server — editing a note —
+  // was invisible here: the card snapped back to the old text after a
+  // successful save and read as a failed write.
+  //
+  // Adjusted during render rather than in an effect (React's own pattern for
+  // resetting state when a prop changes): an effect would paint the stale text
+  // first and then correct it, which is the flicker we are removing.
+  const [seededFrom, setSeededFrom] = useState(initialComments)
+  if (seededFrom !== initialComments) {
+    setSeededFrom(initialComments)
+    setComments(initialComments)
+  }
 
   // Clamp active index when assets array changes.
   useEffect(() => {
@@ -327,6 +347,7 @@ export default function InternalReviewPanel({
           brandId={brandId}
           comments={comments.filter(c => c.asset_id === activeAsset.id)}
           currentUserName={currentUserName}
+          currentUserId={currentUserId}
           revisions={revisionsByAsset[activeAsset.id] ?? []}
           onStatusChange={handleStatusChange}
           onRevisionApplied={handleRevisionApplied}
@@ -357,6 +378,7 @@ function AssetView({
   brandId,
   comments,
   currentUserName,
+  currentUserId,
   revisions,
   onStatusChange,
   onRevisionApplied,
@@ -369,6 +391,7 @@ function AssetView({
   brandId: string
   comments: ProjectComment[]
   currentUserName: string
+  currentUserId: string | null
   revisions: AssetRevision[]
   onStatusChange: (assetId: string, status: CreativeAsset['status']) => void
   onRevisionApplied: (assetId: string, revisionUrl: string) => void
@@ -955,7 +978,13 @@ function AssetView({
                     </span>
                   )}
                 </div>
-                <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.55, margin: 0, whiteSpace: 'pre-wrap', textDecoration: done ? 'line-through' : 'none' }}>{c.content}</p>
+                <EditableNoteBody
+                  content={c.content}
+                  editedAt={c.edited_at ?? null}
+                  canEditNote={c.audience === 'internal' && !!currentUserId && c.author_id === currentUserId}
+                  onSave={t => editInternalComment(c.id, projectId, brandId, t)}
+                  style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.55, margin: 0, whiteSpace: 'pre-wrap', textDecoration: done ? 'line-through' : 'none' }}
+                />
               </div>
             )
           })}

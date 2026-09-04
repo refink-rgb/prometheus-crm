@@ -2,7 +2,8 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { addBrandComment, deleteBrandComment } from '@/lib/actions'
+import { addBrandComment, deleteBrandComment, editBrandComment } from '@/lib/actions'
+import EditableNoteBody from './EditableNoteBody'
 import type { BrandComment } from '@/lib/types'
 
 // What the team knows about a brand, accumulated.
@@ -113,7 +114,16 @@ export default function BrandThread({
                   >✕</button>
                 )}
               </div>
-              <div style={{ fontSize: 13, lineHeight: 1.6, whiteSpace: 'pre-wrap', color: 'var(--text-secondary)', marginTop: 3, maxWidth: '80ch' }}>{c.content}</div>
+              <EditableNoteBody
+                content={c.content}
+                editedAt={c.edited_at ?? null}
+                canEditNote={!!currentUserId && c.author_id === currentUserId}
+                onSave={async t => {
+                  const r = await editBrandComment(c.id, brandId, t, projectId)
+                  if (!r.ok) throw new Error(r.error)
+                }}
+                style={{ fontSize: 13, lineHeight: 1.6, whiteSpace: 'pre-wrap', color: 'var(--text-secondary)', marginTop: 3, maxWidth: '80ch' }}
+              />
             </div>
           ))}
           {compact && comments.length > shown.length && (

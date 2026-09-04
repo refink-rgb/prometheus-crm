@@ -111,8 +111,9 @@ export default function BulkRevisionUpload({
 
       {done !== null && (
         <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--success)', marginTop: 8 }}>
-          {done} revision{done === 1 ? '' : 's'} uploaded. Each is now the latest edit — the client keeps
-          seeing the published version until you send it.
+          {done} revision{done === 1 ? '' : 's'} uploaded. Each is now the latest edit, and any of these
+          ads already on the client link switched to the new file straight away.
+          {' '}A client approval on a changed ad was reset — they need to sign off on what they can now see.
         </div>
       )}
 
