@@ -429,7 +429,7 @@ export default function PreviewProjectView({
     { id: 'brief', label: 'Brief', show: true },
     { id: 'products', label: products.length ? `Products · ${products.length}` : 'Products', show: true },
     { id: 'motion', label: competitors.length ? `Motion reports · ${competitors.length}` : 'Motion reports', show: true },
-    { id: 'copy', label: 'Copy deck', show: hasAdCopy },
+    { id: 'copy', label: 'Copy deck', show: true },
     { id: 'review', label: 'Review', show: true },
   ]).filter(n => n.show), [hasAdCopy, products.length, competitors.length])
 
@@ -2029,9 +2029,23 @@ export default function PreviewProjectView({
 
               {/* Copy, in the order an editor picks it, and liftable. It used to
                   be a plain list on the one tab where the words actually get
-                  used, so every line was retyped by hand. */}
-              {hasAdCopy && (
-                <Card id="copy" title="Copy deck" purpose="Tick what's approved.">
+                  used, so every line was retyped by hand.
+
+                  Rendered whether or not copy exists. Gated on hasAdCopy, the
+                  card and its nav entry vanished from a project with no copy —
+                  so the one moment you actually need "add copy" was the one
+                  moment there was nowhere to click. 14 of 52 active projects
+                  were in that state. Empty, it opens straight into the editor
+                  with Generate beside it. */}
+              <Card id="copy" title="Copy deck" purpose={hasAdCopy ? "Tick what's approved." : 'Write it, or generate a first pass.'}>
+                {!hasAdCopy && (
+                  <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 14 }}>
+                    No copy on this project yet. Type the lines below, or hit{' '}
+                    <strong style={{ color: 'var(--text-primary)' }}>✦ Generate Copy</strong> to draft headlines,
+                    subheadlines and eyebrows from the offer — then edit what it gives you.
+                  </div>
+                )}
+                {hasAdCopy && (
                   <CopyApprovalDeck
                     // Same reason as BrandBrief: the tick/cross draft is seeded
                     // once at mount, so it must be rebuilt when the saved
@@ -2046,10 +2060,14 @@ export default function PreviewProjectView({
                       { label: 'Eyebrows', lines: p.ad_eyebrows ?? [] },
                     ]}
                   />
+                )}
 
-                  {/* Editing and generation, behind the read view. The columns
-                      above stay because they are what an editor uses 95% of the
-                      time — lifting a line, not rewriting the deck. */}
+                {/* Once there IS copy, editing goes back behind a disclosure:
+                    the columns above are what an editor uses 95% of the time —
+                    lifting a line, not rewriting the deck. With nothing there,
+                    a collapsed "edit" link is just a second click in front of
+                    the only thing you can do. */}
+                {hasAdCopy ? (
                   <details style={{ marginTop: 16 }}>
                     <summary style={{ fontSize: 11, color: 'var(--text-secondary)', cursor: 'pointer' }}>Edit or generate copy</summary>
                     <div style={{ marginTop: 12 }}>
@@ -2063,8 +2081,17 @@ export default function PreviewProjectView({
                       />
                     </div>
                   </details>
-                </Card>
-              )}
+                ) : (
+                  <CopyDeckPanel
+                    projectId={p.id}
+                    brandId={p.brand_id}
+                    initialHeadlines={p.ad_headlines ?? []}
+                    initialEyebrows={p.ad_eyebrows ?? []}
+                    initialSubcopies={p.ad_subcopies ?? []}
+                    hypercareContact={hypercareRule ? hypercareCopyMessage(hypercareRule) : null}
+                  />
+                )}
+              </Card>
 
               <Card id="review" title="Review" purpose="Approve, fix, and publish.">
                 {/* The old "Open internal review" banner lived here. Gallery
