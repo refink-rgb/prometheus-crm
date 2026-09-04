@@ -747,6 +747,21 @@ export default function ReviewWorkspace({
     </Link>
   )
 
+  const closeGallery = () => (
+    <button
+      onClick={() => chooseView('tile')}
+      title="Back to the grid (Esc)"
+      aria-label="Close gallery view"
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0,
+        padding: '6px 12px 6px 10px', borderRadius: 999, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+        border: '1px solid var(--border-strong)', background: 'var(--surface-2)', color: 'var(--text-primary)',
+      }}
+    >
+      <XIcon s={14} />Close
+    </button>
+  )
+
   const renderViewToggle = () => !wide ? null : (
     <div role="group" aria-label="View" style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
       {([['tile', 'Tile View'], ['gallery', 'Gallery View']] as const).map(([v, label]) => (
@@ -1151,6 +1166,21 @@ export default function ReviewWorkspace({
               {shown.length > 1 && (
                 <button onClick={() => step(1)} title="Next (→)" aria-label="Next creative" style={{ ...galleryNavBtn, right: 0 }}>›</button>
               )}
+              {/* Second exit, over the artwork. The rail is 380px from where
+                  the eye actually is on a wide monitor. */}
+              <button
+                onClick={() => chooseView('tile')}
+                title="Back to the grid (Esc)"
+                aria-label="Close gallery view"
+                style={{
+                  position: 'absolute', top: 0, right: 0, zIndex: 2,
+                  width: 34, height: 34, borderRadius: '50%', display: 'grid', placeItems: 'center',
+                  cursor: 'pointer', border: '1px solid var(--border-strong)',
+                  background: 'var(--surface-2)', color: 'var(--text-secondary)',
+                }}
+              >
+                <XIcon s={15} />
+              </button>
             </div>
 
             {/* Filmstrip. Maps `shown`, so it respects both filter axes and the
@@ -1190,7 +1220,8 @@ export default function ReviewWorkspace({
                 {shownIndex + 1} of {shown.length}
                 {(filter !== 'all' || uploadFilter !== 'all') && <span> in this filter</span>}
               </span>
-              <div style={{ marginLeft: 'auto' }}>{renderViewToggle()}</div>
+              <span style={{ marginLeft: 'auto', fontSize: 10.5, color: 'var(--text-muted)' }}>esc</span>
+              {closeGallery()}
             </div>
             <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 16 }}>
               {renderVerdicts(active)}
