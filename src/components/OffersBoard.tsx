@@ -20,9 +20,11 @@ import { createOfferCard, updateOfferStage, assignOfferCard } from '@/lib/offer-
 import Avatar from '@/components/Avatar'
 import { ClockIcon } from '@/components/KanbanCard'
 import OfferLibrary from '@/components/OfferLibrary'
+import ApprovalLinksPanel, { type EngineerLink } from '@/components/ApprovalLinksPanel'
 import MarkdownActions from '@/components/MarkdownActions'
 import type { OfferHistoryEntry } from '@/lib/offer-history'
 import { offerCompletion } from '@/lib/offer-history'
+import { offerApprovalState } from '@/lib/offer-approvals'
 import { offersBoardMarkdown } from '@/lib/markdown-export'
 
 type BoardOfferCard = OfferCard & { brands: { id: string; name: string } }
@@ -48,6 +50,7 @@ export default function OffersBoard({
   brands,
   assignees,
   currentProfileId,
+  engineerLinks = [],
 }: {
   cards: BoardOfferCard[]
   history: OfferHistoryEntry[]
@@ -56,6 +59,8 @@ export default function OffersBoard({
   assignees: Profile[]
   /** Signed-in user's profile id, or null — powers the "My cards" filter. */
   currentProfileId: string | null
+  /** Per-engineer approval links. Empty for non-editors, which hides the tab. */
+  engineerLinks?: EngineerLink[]
 }) {
   const router = useRouter()
   const [, startTransition] = useTransition()
@@ -72,7 +77,7 @@ export default function OffersBoard({
   }
 
   const [search, setSearch] = useState('')
-  const [view, setView] = useState<'pipeline' | 'library'>('pipeline')
+  const [view, setView] = useState<'pipeline' | 'library' | 'approvals'>('pipeline')
   const [showNew, setShowNew] = useState(false)
   const [owner, setOwner] = useState<OwnerFilter>('all')
   const [mineOnly, setMineOnly] = useState(false)
@@ -230,6 +235,9 @@ export default function OffersBoard({
         {([
           { id: 'pipeline', label: 'Active pipeline', count: cards.filter(card => card.stage !== 'offer_approved').length },
           { id: 'library', label: 'Offer library', count: history.length },
+          ...(engineerLinks.length
+            ? [{ id: 'approvals' as const, label: 'Approval links', count: engineerLinks.length }]
+            : []),
         ] as const).map(option => {
           const selected = view === option.id
           return (
@@ -260,7 +268,11 @@ export default function OffersBoard({
 
       {showNew && <NewOfferCardForm brands={brands} onDone={() => setShowNew(false)} />}
 
-      {view === 'library' ? (
+      {view === 'approvals' ? (
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', paddingRight: 2 }}>
+          <ApprovalLinksPanel engineers={engineerLinks} />
+        </div>
+      ) : view === 'library' ? (
         <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', paddingRight: 2 }}>
           <OfferLibrary entries={history} assignees={assignees} />
         </div>
@@ -790,6 +802,26 @@ function OfferCardTileInner({
                 {card.offer_dynamics_type}
               </span>
             )}
+            {card.stage === 'internal_offer_review' && (() => {
+              const approval = offerApprovalState(card)
+              const tone = approval.count === 2 ? 'var(--success)' : 'var(--stage-internal-text)'
+              return (
+                <span
+                  title={[approval.strategist, approval.engineer]
+                    .map(s => `${s.label}: ${s.approved ? `approved${s.by ? ` by ${s.by}` : ''}` : 'pending'}`)
+                    .join(' · ')}
+                  style={{
+                    fontSize: 'var(--text-2xs)', fontWeight: 700, whiteSpace: 'nowrap',
+                    color: tone,
+                    background: `color-mix(in srgb, ${tone} 12%, transparent)`,
+                    border: `1px solid color-mix(in srgb, ${tone} 28%, transparent)`,
+                    borderRadius: 5, padding: '2px 6px',
+                  }}
+                >
+                  {approval.count}/2 approved
+                </span>
+              )
+            })()}
             {card.derived_production_card_id && (
               <span style={{
                 fontSize: 'var(--text-2xs)', fontWeight: 600, color: 'var(--success)',

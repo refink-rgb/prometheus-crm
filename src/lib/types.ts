@@ -489,6 +489,16 @@ export type OfferStage =
   | 'client_review'
   | 'offer_approved'
 
+// The strategist side of an internal approval. Either of them clicking the
+// button satisfies that side; which one is recorded on the card.
+export const STRATEGIST_APPROVERS = ['Lucas', 'Roberto'] as const
+export type StrategistApprover = (typeof STRATEGIST_APPROVERS)[number]
+
+export interface ProfitEngineer {
+  name: string
+  approval_token: string
+}
+
 export const OFFER_STAGE_LABELS: Record<OfferStage, string> = {
   auto_generated:        'Auto Generated',
   offer_draft:           'Offer Draft',
@@ -536,6 +546,15 @@ export interface OfferCard {
   // The message sent to the client to get this offer approved. Generated from
   // the fields above, then hand-edited before sending. Null = never generated.
   client_approval_message: string | null
+  // Internal approval state. Both sign-offs are required before an offer in
+  // Internal Review can go to the client; requesting changes clears both.
+  strategist_approved_at: string | null
+  strategist_approved_by: string | null
+  engineer_approved_at: string | null
+  engineer_approved_by: string | null
+  changes_requested_at: string | null
+  changes_requested_by: string | null
+  changes_requested_note: string | null
   // Production card auto-created on approval (Phase 3). Null until then.
   derived_production_card_id: string | null
   created_at: string

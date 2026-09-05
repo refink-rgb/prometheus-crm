@@ -24,6 +24,7 @@ import {
   type OfferDetailValues,
 } from '@/lib/offer-actions'
 import { offerCompletion, type OfferHistoryEntry } from '@/lib/offer-history'
+import { offerApprovalState } from '@/lib/offer-approvals'
 import { offerCardMarkdown } from '@/lib/markdown-export'
 import Avatar from '@/components/Avatar'
 import ClientApprovalMessage from '@/components/ClientApprovalMessage'
@@ -286,6 +287,27 @@ export default function OfferCardDetail({
           })}
         </div>
       </section>
+
+      {/* What the internal approvers sent back. Sits above everything so the
+          strategist reads the reason before the form they need to change. */}
+      {(() => {
+        const approval = offerApprovalState(card)
+        if (!approval.changesRequested || !approval.changesRequestedNote) return null
+        return (
+          <div style={{
+            background: 'color-mix(in srgb, var(--warning) 8%, var(--surface))',
+            border: '1px solid color-mix(in srgb, var(--warning) 30%, transparent)',
+            borderRadius: 10, padding: '12px 15px', marginBottom: 16,
+          }}>
+            <div style={{ fontSize: 'var(--text-sm)', fontWeight: 700, color: 'var(--warning)', marginBottom: 4 }}>
+              Changes requested{approval.changesRequestedBy ? ` by ${approval.changesRequestedBy}` : ''}
+            </div>
+            <p style={{ fontSize: 'var(--text-base)', color: 'var(--text-secondary)', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>
+              {approval.changesRequestedNote}
+            </p>
+          </div>
+        )
+      })()}
 
       {card.derived_production_card_id && (
         <div style={{
