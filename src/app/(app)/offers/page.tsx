@@ -3,6 +3,7 @@ import { createClient, getCachedUser } from '@/lib/supabase/server'
 import { canEdit, canViewCapacity } from '@/lib/permissions'
 import { getCachedProfiles } from '@/lib/profiles'
 import type { Brand, OfferCard } from '@/lib/types'
+import { buildOfferHistory, type OfferHistoryProject } from '@/lib/offer-history'
 import OffersBoard from '@/components/OffersBoard'
 
 type BoardOfferCard = OfferCard & { brands: { id: string; name: string } }
@@ -13,16 +14,25 @@ export default async function OffersPage() {
   if (!user) redirect('/login')
   const isEditor = await canEdit(user.email)
 
-  const [{ data: cardsRaw, error: cardsError }, { data: brandsRaw }, profiles] = await Promise.all([
+  const [
+    { data: cardsRaw, error: cardsError },
+    { data: brandsRaw },
+    { data: projectsRaw, error: projectsError },
+    profiles,
+  ] = await Promise.all([
     supabase
       .from('offer_cards')
-      .select('id, brand_id, target_month, moment_slot, name, stage, assigned_to, derived_production_card_id, brands(id, name)')
+      .select('id, brand_id, target_month, moment_slot, name, stage, assigned_to, offer_dynamics_type, offer, offer_description, product_featured, product_description, retail_price, page_type, competitor_reference, client_ad_inspiration, product_images_link, problem_statement, success_metric, success_target, guardrails, client_approval_message, derived_production_card_id, created_at, created_by, brands(id, name)')
       .order('target_month', { ascending: false })
       .order('moment_slot', { ascending: true }),
     supabase
       .from('brands')
       .select('id, name, is_active')
       .order('name', { ascending: true }),
+    supabase
+      .from('projects')
+      .select('id, brand_id, name, due_date, created_at, marketing_moment, source_offer_card_id, offer_dynamics_type, offer, offer_description, product_featured, retail_price, page_type, discount, tiered_offer, shopify_coupon_code, is_complete, lp_stage, creatives_stage, brands(id, name)')
+      .order('due_date', { ascending: false }),
     getCachedProfiles(),
   ])
 
@@ -67,6 +77,8 @@ export default async function OffersPage() {
 
   const cards = (cardsRaw ?? []) as unknown as BoardOfferCard[]
   const brands = (brandsRaw ?? []) as Pick<Brand, 'id' | 'name' | 'is_active'>[]
+  if (projectsError) console.error('[offers] failed to load historical production offers:', projectsError)
+  const history = buildOfferHistory(cards, (projectsRaw ?? []) as unknown as OfferHistoryProject[])
 
   // Offers are strategist-owned: the assignee picker lists the management
   // roster (Giovane / Lucas / Roberto), the same people canViewCapacity gates.
@@ -91,7 +103,13 @@ export default async function OffersPage() {
         </p>
       </div>
 
-      <OffersBoard cards={cards} brands={brands} assignees={assignees} currentProfileId={currentProfileId} />
+      <OffersBoard
+        cards={cards}
+        history={history}
+        brands={brands}
+        assignees={assignees}
+        currentProfileId={currentProfileId}
+      />
     </div>
   )
 }

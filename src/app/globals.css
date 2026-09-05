@@ -456,6 +456,9 @@ label {
 /* Responsive: dashboard grid stacks under 900px, KPI strip becomes 2×2 under 768px */
 @media (max-width: 900px) {
   .dashboard-grid { grid-template-columns: 1fr !important; }
+  .offer-form-columns,
+  .offer-overview-grid { grid-template-columns: 1fr !important; }
+  .offer-library-stats { grid-template-columns: repeat(2, minmax(140px, 1fr)) !important; }
 }
 @media (max-width: 768px) {
   .kpi-strip { grid-template-columns: repeat(2, 1fr) !important; }
@@ -464,7 +467,18 @@ label {
   .app-mobile-nav { display: flex !important; }
   .app-main { margin-left: 0 !important; padding-bottom: 64px !important; }
   .form-grid-2 { grid-template-columns: 1fr !important; }
-  .kanban-board { grid-template-columns: repeat(7, minmax(220px, 1fr)) !important; }
+  /* Column-count agnostic: both boards use .kanban-board but have a different
+     number of stages (7 production, 5 offer). A hardcoded repeat(7) gave the
+     Offer board two phantom empty columns on narrow screens. */
+  .kanban-board {
+    grid-template-columns: none !important;
+    grid-auto-flow: column !important;
+    grid-auto-columns: minmax(220px, 1fr) !important;
+  }
+  .offer-context-grid,
+  .offer-account-grid { grid-template-columns: 1fr !important; }
+  .offer-tab-label-long { display: none !important; }
+  .offer-tab-label-short { display: inline !important; }
 }
 
 @keyframes spinnerSpin {

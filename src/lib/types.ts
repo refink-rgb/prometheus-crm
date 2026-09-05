@@ -550,6 +550,13 @@ export function offerMonthLabel(targetMonth: string): string {
     .format(new Date(`${targetMonth.slice(0, 10)}T00:00:00Z`))
 }
 
+// 'Sep 2026' — the compact form the board chip uses, where a 260px column
+// can't spare the room for the full month name.
+export function offerMonthShortLabel(targetMonth: string): string {
+  return new Intl.DateTimeFormat('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' })
+    .format(new Date(`${targetMonth.slice(0, 10)}T00:00:00Z`))
+}
+
 // Naming convention from the brief: 'Contour Design · August 2026 · M1 Offer'.
 export function offerCardName(brandName: string, targetMonth: string, momentSlot: 1 | 2): string {
   return `${brandName} · ${offerMonthLabel(targetMonth)} · M${momentSlot} Offer`

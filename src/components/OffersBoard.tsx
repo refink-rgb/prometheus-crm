@@ -12,19 +12,27 @@ import {
 } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
 import {
-  OFFER_STAGE_LABELS, OFFER_STAGE_ORDER, offerMonthLabel, profileName,
+  OFFER_STAGE_LABELS, OFFER_STAGE_ORDER, offerMonthLabel, offerMonthShortLabel, profileName,
   type Brand, type OfferCard, type OfferStage, type Profile,
 } from '@/lib/types'
-import { OFFER_APPROVAL_DAY, OFFER_STAGE_COLORS, offerDueLabel, offerDueTone } from '@/lib/stageColors'
+import { OFFER_APPROVAL_DAY, OFFER_STAGE_COLORS, offerDueLabel, offerDueTone, type PhaseDueTone } from '@/lib/stageColors'
 import { createOfferCard, updateOfferStage, assignOfferCard } from '@/lib/offer-actions'
 import Avatar from '@/components/Avatar'
-import CopyMarkdownButton from '@/components/CopyMarkdownButton'
+import { ClockIcon } from '@/components/KanbanCard'
+import OfferLibrary from '@/components/OfferLibrary'
+import MarkdownActions from '@/components/MarkdownActions'
+import type { OfferHistoryEntry } from '@/lib/offer-history'
+import { offerCompletion } from '@/lib/offer-history'
 import { offersBoardMarkdown } from '@/lib/markdown-export'
 
 type BoardOfferCard = OfferCard & { brands: { id: string; name: string } }
 
 // 'all' | 'unassigned' | a profile id.
 type OwnerFilter = 'all' | 'unassigned' | (string & {})
+
+// Same shape as KanbanView's StatusFilter: a small always-present pill group
+// rather than a filter that appears and disappears with the data.
+type OfferStatusFilter = 'all' | 'late' | 'in_review'
 
 // Column sort order: late, then due soon, then everything else (approved cards
 // have no tone and sort last).
@@ -36,11 +44,13 @@ function toneRank(targetMonth: string, stage: OfferStage): number {
 
 export default function OffersBoard({
   cards,
+  history,
   brands,
   assignees,
   currentProfileId,
 }: {
   cards: BoardOfferCard[]
+  history: OfferHistoryEntry[]
   brands: Pick<Brand, 'id' | 'name' | 'is_active'>[]
   /** Roster the assignee picker offers — the strategist/management set. */
   assignees: Profile[]
@@ -62,10 +72,13 @@ export default function OffersBoard({
   }
 
   const [search, setSearch] = useState('')
+  const [view, setView] = useState<'pipeline' | 'library'>('pipeline')
   const [showNew, setShowNew] = useState(false)
   const [owner, setOwner] = useState<OwnerFilter>('all')
   const [mineOnly, setMineOnly] = useState(false)
-  const [lateOnly, setLateOnly] = useState(false)
+  // Mirrors KanbanView's All / Overdue / In Review pill group, so the two
+  // boards are filtered the same way with the same control.
+  const [status, setStatus] = useState<OfferStatusFilter>('all')
 
   const [activeId, setActiveId] = useState<string | null>(null)
   const [overId, setOverId] = useState<string | null>(null)
@@ -79,28 +92,37 @@ export default function OffersBoard({
   // reference each render and re-render every card.
   const assigneesById = useMemo(() => new Map(assignees.map(p => [p.id, p])), [assignees])
 
+  // Approved cards from prior months belong in the searchable library, not in
+  // the day-to-day board's terminal column. Unapproved old cards stay visible
+  // because they still need action.
+  const pipelineCards = useMemo(() => {
+    const currentMonth = `${new Date().toISOString().slice(0, 7)}-01`
+    return localCards.filter(card => card.stage !== 'offer_approved' || card.target_month >= currentMonth)
+  }, [localCards])
+
   const myCount = useMemo(
-    () => (currentProfileId ? localCards.filter(c => c.assigned_to === currentProfileId).length : 0),
-    [localCards, currentProfileId]
+    () => (currentProfileId ? pipelineCards.filter(c => c.assigned_to === currentProfileId).length : 0),
+    [pipelineCards, currentProfileId]
   )
 
   // An offer still in the pipeline past the 5th of its own month is late.
   const lateCount = useMemo(
-    () => localCards.filter(c => offerDueTone(c.target_month, c.stage) === 'overdue').length,
-    [localCards]
+    () => pipelineCards.filter(c => offerDueTone(c.target_month, c.stage) === 'overdue').length,
+    [pipelineCards]
   )
 
   const displayed = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return localCards.filter(c => {
-      if (q && !c.brands.name.toLowerCase().includes(q)) return false
+    return pipelineCards.filter(c => {
+      if (q && ![c.brands.name, c.offer, c.product_featured].filter(Boolean).join(' ').toLowerCase().includes(q)) return false
       if (mineOnly && (!currentProfileId || c.assigned_to !== currentProfileId)) return false
-      if (lateOnly && offerDueTone(c.target_month, c.stage) !== 'overdue') return false
+      if (status === 'late' && offerDueTone(c.target_month, c.stage) !== 'overdue') return false
+      if (status === 'in_review' && c.stage !== 'internal_offer_review' && c.stage !== 'client_review') return false
       if (owner === 'unassigned' && c.assigned_to) return false
       if (owner !== 'all' && owner !== 'unassigned' && c.assigned_to !== owner) return false
       return true
     })
-  }, [localCards, search, owner, mineOnly, lateOnly, currentProfileId])
+  }, [pipelineCards, search, owner, mineOnly, status, currentProfileId])
 
   // Names the active filters in the exported header, so a pasted table is not
   // mistaken for the whole board.
@@ -108,7 +130,8 @@ export default function OffersBoard({
     const parts: string[] = []
     if (search.trim()) parts.push(`search "${search.trim()}"`)
     if (mineOnly) parts.push('my cards')
-    if (lateOnly) parts.push('late only')
+    if (status === 'late') parts.push('late only')
+    if (status === 'in_review') parts.push('in review')
     if (owner === 'unassigned') parts.push('unassigned')
     else if (owner !== 'all') {
       const p = assignees.find(a => a.id === owner)
@@ -195,9 +218,56 @@ export default function OffersBoard({
     moveCard(card, targetStage)
   }
 
+  // Same pill geometry KanbanView uses for its filter row.
+  const pillBase: React.CSSProperties = {
+    padding: 'var(--space-2) var(--space-3)', borderRadius: 20, fontSize: 'var(--text-sm)',
+    cursor: 'pointer', transition: 'all 0.15s', border: '1px solid',
+  }
+
   return (
     <section style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-      {/* Toolbar */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexShrink: 0, borderBottom: '1px solid var(--border)' }}>
+        {([
+          { id: 'pipeline', label: 'Active pipeline', count: cards.filter(card => card.stage !== 'offer_approved').length },
+          { id: 'library', label: 'Offer library', count: history.length },
+        ] as const).map(option => {
+          const selected = view === option.id
+          return (
+            <button
+              key={option.id}
+              type="button"
+              onClick={() => setView(option.id)}
+              style={{
+                position: 'relative', padding: '9px 12px 11px', border: 0,
+                background: 'transparent', color: selected ? 'var(--text-primary)' : 'var(--text-muted)',
+                fontSize: 'var(--text-base)', fontWeight: selected ? 700 : 500, cursor: 'pointer',
+              }}
+            >
+              {option.label}
+              <span style={{ marginLeft: 7, fontSize: 'var(--text-2xs)', color: selected ? 'var(--accent)' : 'var(--text-muted)' }}>{option.count}</span>
+              {selected && <span style={{ position: 'absolute', height: 2, left: 8, right: 8, bottom: -1, background: 'var(--accent)', borderRadius: 2 }} />}
+            </button>
+          )
+        })}
+        <button
+          onClick={() => setShowNew(value => !value)}
+          className="btn-accent-outline btn-sm"
+          style={{ marginLeft: 'auto', marginBottom: 6 }}
+        >
+          + New offer
+        </button>
+      </div>
+
+      {showNew && <NewOfferCardForm brands={brands} onDone={() => setShowNew(false)} />}
+
+      {view === 'library' ? (
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', paddingRight: 2 }}>
+          <OfferLibrary entries={history} assignees={assignees} />
+        </div>
+      ) : (
+        <>
+      {/* Toolbar — same control order as the Active Pipeline board:
+          search, status pills, "mine", owner. */}
       <div style={{ display: 'flex', gap: 'var(--space-3)', alignItems: 'center', marginBottom: 'var(--space-4)', flexWrap: 'wrap', flexShrink: 0 }}>
         <input
           type="text"
@@ -206,6 +276,68 @@ export default function OffersBoard({
           onChange={e => setSearch(e.target.value)}
           style={{ width: 190, fontSize: 'var(--text-base)' }}
         />
+
+        <div style={{ display: 'flex', gap: 4 }}>
+          {(['all', 'late', 'in_review'] as const).map(opt => {
+            const active = status === opt
+            const labels = { all: 'All', late: 'Late', in_review: 'In Review' }
+            // Late is the only pill that carries a count — it's the one worth
+            // chasing, and a permanent "Late 0" trains people to ignore it.
+            const badge = opt === 'late' && lateCount > 0 ? lateCount : null
+            const tint = opt === 'late' ? 'var(--danger)' : 'var(--accent)'
+            return (
+              <button
+                key={opt}
+                onClick={() => setStatus(opt)}
+                className="focus-ring-pill"
+                aria-pressed={active}
+                title={opt === 'late'
+                  ? `Offers still in the pipeline past the ${OFFER_APPROVAL_DAY}th of their month`
+                  : opt === 'in_review'
+                    ? 'Offers sitting in internal or client review'
+                    : 'Every offer on the board'}
+                style={{
+                  ...pillBase,
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  fontWeight: active ? 600 : 400,
+                  borderColor: active ? tint : 'var(--border)',
+                  background: active ? `color-mix(in srgb, ${tint} 12%, transparent)` : 'transparent',
+                  color: active ? tint : 'var(--text-muted)',
+                }}
+              >
+                {labels[opt]}
+                {badge !== null && (
+                  <span style={{
+                    fontSize: 'var(--text-2xs)', fontWeight: 700,
+                    background: active ? `color-mix(in srgb, ${tint} 22%, transparent)` : 'var(--border)',
+                    color: active ? tint : 'var(--text-secondary)',
+                    borderRadius: 10, padding: '1px 6px',
+                  }}>
+                    {badge}
+                  </span>
+                )}
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Only surface "My cards" to someone who actually owns some. */}
+        {currentProfileId && myCount > 0 && (
+          <button
+            onClick={() => setMineOnly(v => !v)}
+            className="focus-ring-pill"
+            aria-pressed={mineOnly}
+            style={{
+              ...pillBase,
+              fontWeight: mineOnly ? 600 : 400,
+              borderColor: mineOnly ? 'var(--accent)' : 'var(--border)',
+              background: mineOnly ? 'var(--accent-muted)' : 'transparent',
+              color: mineOnly ? 'var(--accent)' : 'var(--text-muted)',
+            }}
+          >
+            My cards ({myCount})
+          </button>
+        )}
 
         {/* Owner filter — mirrors the pipeline Kanban's editor filter. */}
         {assignees.length > 0 && (
@@ -232,73 +364,30 @@ export default function OffersBoard({
             ))}
           </select>
         )}
-
-        {/* Only surface "My cards" to someone who actually owns some. */}
-        {currentProfileId && myCount > 0 && (
-          <button
-            onClick={() => setMineOnly(v => !v)}
-            className="focus-ring-pill"
-            aria-pressed={mineOnly}
-            style={{
-              padding: 'var(--space-2) var(--space-3)', borderRadius: 20, fontSize: 'var(--text-sm)',
-              cursor: 'pointer', border: '1px solid', fontWeight: mineOnly ? 600 : 400,
-              borderColor: mineOnly ? 'var(--accent)' : 'var(--border)',
-              background: mineOnly ? 'var(--accent-muted)' : 'transparent',
-              color: mineOnly ? 'var(--accent)' : 'var(--text-muted)',
-            }}
-          >
-            My cards ({myCount})
-          </button>
-        )}
-
-        {/* Only shown when something is actually late — a permanent "Overdue (0)"
-            trains people to ignore it. */}
-        {lateCount > 0 && (
-          <button
-            onClick={() => setLateOnly(v => !v)}
-            className="focus-ring-pill"
-            aria-pressed={lateOnly}
-            title={`Offers still in the pipeline past the 5th of their month`}
-            style={{
-              padding: 'var(--space-2) var(--space-3)', borderRadius: 20, fontSize: 'var(--text-sm)',
-              cursor: 'pointer', border: '1px solid', fontWeight: lateOnly ? 600 : 400,
-              borderColor: lateOnly ? 'var(--danger)' : 'color-mix(in srgb, var(--danger) 35%, transparent)',
-              background: lateOnly ? 'color-mix(in srgb, var(--danger) 14%, transparent)' : 'transparent',
-              color: 'var(--danger)',
-            }}
-          >
-            Late ({lateCount})
-          </button>
-        )}
-
-        <CopyMarkdownButton
-          markdown={() => offersBoardMarkdown(
-            displayed,
-            c => {
-              const p = assignees.find(a => a.id === c.assigned_to)
-              return p ? profileName(p) : null
-            },
-            offersFilterNote(),
-          )}
-          label="Copy offers"
-          title="Copy the offer cards currently shown as a markdown table"
-          style={{ marginLeft: 'auto' }}
-        />
-
-        <button
-          onClick={() => setShowNew(v => !v)}
-          className="focus-ring-pill"
-          style={{
-            padding: 'var(--space-2) var(--space-3)', borderRadius: 20, fontSize: 'var(--text-sm)',
-            cursor: 'pointer', border: '1px solid var(--accent)', fontWeight: 600,
-            background: showNew ? 'var(--accent-muted)' : 'transparent', color: 'var(--accent)',
-          }}
-        >
-          + New offer card
-        </button>
       </div>
 
-      {showNew && <NewOfferCardForm brands={brands} onDone={() => setShowNew(false)} />}
+      {/* Board summary — the Active Pipeline's "N of M" header, so a filtered
+          board never looks like the whole board. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', marginBottom: 'var(--space-4)', flexShrink: 0 }}>
+        <h2 style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+          Offer Pipeline — {displayed.length}{displayed.length !== pipelineCards.length ? ` of ${pipelineCards.length}` : ''} offer{displayed.length !== 1 ? 's' : ''}
+        </h2>
+        {displayed.length > 0 && (
+          <MarkdownActions
+            markdown={() => offersBoardMarkdown(
+              displayed,
+              c => {
+                const p = assignees.find(a => a.id === c.assigned_to)
+                return p ? profileName(p) : null
+              },
+              offersFilterNote(),
+            )}
+            copyLabel="Copy offers"
+            filename="active-offer-pipeline"
+            style={{ marginLeft: 'auto' }}
+          />
+        )}
+      </div>
 
       <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
         <DndContext
@@ -309,7 +398,9 @@ export default function OffersBoard({
         >
           <div className="kanban-board" style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(5, minmax(260px, 1fr))',
+            // Derived from OFFER_STAGE_ORDER so adding a stage never leaves an
+            // orphan column wrapping to a second row (mirrors KanbanView).
+            gridTemplateColumns: `repeat(${OFFER_STAGE_ORDER.length}, minmax(260px, 1fr))`,
             gridTemplateRows: 'minmax(0, 1fr)',
             gap: 12,
             height: '100%',
@@ -342,6 +433,8 @@ export default function OffersBoard({
           </DragOverlay>
         </DndContext>
       </div>
+        </>
+      )}
     </section>
   )
 }
@@ -581,7 +674,7 @@ function OfferCardTileInner({
   const tone = offerDueTone(card.target_month, card.stage)
   const dueLabel = offerDueLabel(card.target_month, card.stage)
   const isLate = tone === 'overdue'
-  const isUrgent = tone === 'urgent'
+  const completion = offerCompletion(card)
 
   return (
     <div
@@ -642,6 +735,9 @@ function OfferCardTileInner({
         style={{ display: 'block', textDecoration: 'none', color: 'inherit', padding: '12px 14px' }}
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+
+          {/* Brand name — right-padded so the drag handle never overlaps a
+              long, ellipsis-truncated name (same as KanbanCard). */}
           <div style={{
             fontSize: 11, color: 'var(--text-muted)',
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
@@ -649,72 +745,109 @@ function OfferCardTileInner({
           }}>
             {card.brands.name}
           </div>
+
+          {/* The offer itself — this card's title, in the slot KanbanCard
+              gives the project name. */}
           <div style={{
-            fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1.35,
+            fontSize: 13, fontWeight: 600, color: card.offer ? 'var(--text-primary)' : 'var(--text-muted)', lineHeight: 1.35,
+            display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
           }}>
-            {offerMonthLabel(card.target_month)} · M{card.moment_slot} Offer
+            {card.offer?.trim() || 'Define the offer'}
           </div>
-          <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+
+          {/* Chip row — the Track-pill slot on a project card. The stage chip
+              is intentionally absent: the column header and the left border
+              already say the stage, so repeating it on every card is noise.
+              The drag ghost is the exception — off the board it has no
+              column to read the stage from. */}
+          <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>
             <span style={{
-              fontSize: 'var(--text-2xs)', fontWeight: 600, color: color.text,
-              background: color.bg,
-              border: `1px solid color-mix(in srgb, ${color.border} 25%, transparent)`,
+              fontSize: 'var(--text-2xs)', fontWeight: 600, color: 'var(--text-secondary)',
+              background: 'var(--surface-raised)',
+              border: '1px solid var(--border)',
               borderRadius: 5, padding: '2px 6px', whiteSpace: 'nowrap',
             }}>
-              {OFFER_STAGE_LABELS[card.stage]}
+              {offerMonthShortLabel(card.target_month)} · M{card.moment_slot}
             </span>
-            {/* Approval deadline — the 5th of the offer's own month. Hidden
-                once approved: there's no deadline left to miss. */}
-            {dueLabel && (
-              <span
-                title={`Offers must be approved by the ${OFFER_APPROVAL_DAY}th of ${offerMonthLabel(card.target_month)}`}
-                style={{
-                  fontSize: 'var(--text-2xs)', fontWeight: 700, whiteSpace: 'nowrap',
-                  borderRadius: 5, padding: '2px 6px',
-                  color: isLate ? 'var(--danger)' : isUrgent ? 'var(--warning)' : 'var(--text-muted)',
-                  background: isLate
-                    ? 'color-mix(in srgb, var(--danger) 12%, transparent)'
-                    : isUrgent
-                      ? 'color-mix(in srgb, var(--warning) 12%, transparent)'
-                      : 'transparent',
-                  border: `1px solid ${isLate
-                    ? 'color-mix(in srgb, var(--danger) 30%, transparent)'
-                    : isUrgent
-                      ? 'color-mix(in srgb, var(--warning) 30%, transparent)'
-                      : 'transparent'}`,
-                }}
-              >
-                {dueLabel}
+            {isGhost && (
+              <span style={{
+                fontSize: 'var(--text-2xs)', fontWeight: 600, color: color.text,
+                background: color.bg,
+                border: `1px solid color-mix(in srgb, ${color.border} 25%, transparent)`,
+                borderRadius: 5, padding: '2px 6px', whiteSpace: 'nowrap',
+              }}>
+                {OFFER_STAGE_LABELS[card.stage]}
+              </span>
+            )}
+            {card.offer_dynamics_type && (
+              <span style={{
+                fontSize: 'var(--text-2xs)', fontWeight: 600, color: color.text,
+                background: color.bg,
+                border: `1px solid color-mix(in srgb, ${color.border} 25%, transparent)`,
+                borderRadius: 5, padding: '2px 6px', whiteSpace: 'nowrap',
+                overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%',
+              }}>
+                {card.offer_dynamics_type}
               </span>
             )}
             {card.derived_production_card_id && (
               <span style={{
                 fontSize: 'var(--text-2xs)', fontWeight: 600, color: 'var(--success)',
-                whiteSpace: 'nowrap',
+                background: 'color-mix(in srgb, var(--success) 12%, transparent)',
+                border: '1px solid color-mix(in srgb, var(--success) 25%, transparent)',
+                borderRadius: 5, padding: '2px 6px', whiteSpace: 'nowrap',
               }} title="Production card created">
                 → production
               </span>
             )}
           </div>
+
+          {card.product_featured && (
+            <div style={{
+              fontSize: 'var(--text-2xs)', color: 'var(--text-muted)',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
+              {card.product_featured}
+            </div>
+          )}
         </div>
       </Link>
 
-      {/* Owner row — sits OUTSIDE the Link (an anchor can't nest a select) and
-          stops pointerdown so picking an owner never engages the drag sensor. */}
-      {!isGhost && onAssign && assignees && assigneesById && (
+      {/* Owner + deadline row — the same bottom band a project card has
+          (people on the left, the date anchor on the right). Sits OUTSIDE the
+          Link (an anchor can't nest a select) and stops pointerdown so picking
+          an owner never engages the drag sensor. */}
+      {!isGhost && (
         <div
           onPointerDown={e => e.stopPropagation()}
-          style={{ padding: '0 12px 10px' }}
+          style={{
+            padding: '0 14px 10px',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+          }}
         >
-          <OfferAssigneePicker card={card} assignees={assignees} assigneesById={assigneesById} onAssign={onAssign} />
+          {onAssign && assignees && assigneesById ? (
+            <OfferAssigneePicker card={card} assignees={assignees} assigneesById={assigneesById} onAssign={onAssign} />
+          ) : <span />}
+          {dueLabel && <OfferDuePill card={card} tone={tone} label={dueLabel} />}
         </div>
       )}
 
-      {/* On the drag ghost, show the owner statically (no interactive picker). */}
-      {isGhost && owner && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 12px 10px' }}>
-          <Avatar name={profileName(owner)} size={18} />
-          <span style={{ fontSize: 'var(--text-2xs)', color: 'var(--text-muted)' }}>{profileName(owner)}</span>
+      {/* On the drag ghost, show owner and deadline statically (no controls). */}
+      {isGhost && (owner || dueLabel) && (
+        <div style={{
+          padding: '0 14px 10px',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+        }}>
+          {owner ? (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+              <Avatar name={profileName(owner)} size={20} />
+              <span style={{
+                fontSize: 'var(--text-2xs)', color: 'var(--text-muted)',
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>{profileName(owner)}</span>
+            </span>
+          ) : <span />}
+          {dueLabel && <OfferDuePill card={card} tone={tone} label={dueLabel} />}
         </div>
       )}
 
@@ -746,7 +879,49 @@ function OfferCardTileInner({
           </button>
         </div>
       )}
+
+      <div title={`${completion.complete} of ${completion.total} brief checkpoints complete`} style={{ height: 3, background: 'var(--border)' }}>
+        <div style={{ height: '100%', width: `${completion.percent}%`, background: completion.percent === 100 ? 'var(--success)' : 'var(--accent)', transition: 'width 0.2s' }} />
+      </div>
     </div>
+  )
+}
+
+// The approval deadline — the 5th of the offer's own month — drawn as the
+// pill a project card gives its go-live date: icon, rounded, tone-tinted.
+// Hidden once approved: there's no deadline left to miss.
+const DUE_TONE_COLOR: Record<PhaseDueTone, string> = {
+  neutral: 'var(--text-muted)',
+  urgent:  'var(--warning)',
+  overdue: 'var(--danger)',
+}
+
+function OfferDuePill({
+  card,
+  tone,
+  label,
+}: {
+  card: BoardOfferCard
+  tone: PhaseDueTone | null
+  label: string
+}) {
+  const color = DUE_TONE_COLOR[tone ?? 'neutral']
+  const tinted = tone === 'urgent' || tone === 'overdue'
+  return (
+    <span
+      title={`Offers must be approved by the ${OFFER_APPROVAL_DAY}th of ${offerMonthLabel(card.target_month)}`}
+      style={{
+        fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', flexShrink: 0,
+        color,
+        background: tinted ? `color-mix(in srgb, ${color} 12%, transparent)` : 'transparent',
+        border: `1px solid ${tinted ? `color-mix(in srgb, ${color} 30%, transparent)` : 'transparent'}`,
+        borderRadius: 20, padding: '2px 8px',
+        display: 'inline-flex', alignItems: 'center', gap: 5,
+      }}
+    >
+      <ClockIcon />
+      {label}
+    </span>
   )
 }
 
@@ -769,8 +944,11 @@ function OfferAssigneePicker({
   const owner = current ? assigneesById.get(current) : undefined
   const hasValue = !!current
 
+  // Once assigned, the avatar carries the identity and the select shrinks to a
+  // quiet affordance — the row then reads like a project card's avatar cluster
+  // instead of a full-width form control.
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0, flexShrink: 1 }}>
       {owner
         ? <Avatar name={profileName(owner)} size={20} title={`Owner: ${profileName(owner)}`} />
         : (
@@ -790,19 +968,21 @@ function OfferAssigneePicker({
         value={current ?? ''}
         onChange={e => onAssign(card.id, e.target.value || null)}
         aria-label="Assign owner"
+        title={owner ? `Owner: ${profileName(owner)} — change` : 'Assign an owner'}
         style={{
-          flex: 1, minWidth: 0,
+          minWidth: 0, maxWidth: hasValue ? 92 : 108, width: 'auto',
           fontSize: 'var(--text-2xs)', fontWeight: hasValue ? 600 : 500,
           color: hasValue ? 'var(--text-secondary)' : 'var(--text-muted)',
-          background: hasValue ? 'var(--surface-raised)' : 'transparent',
-          border: `1px solid ${hasValue ? 'var(--border)' : 'transparent'}`,
-          borderRadius: 7, padding: '3px 8px', cursor: 'pointer',
+          background: 'transparent',
+          border: '1px solid transparent',
+          borderRadius: 20, padding: '2px 6px', cursor: 'pointer',
+          textOverflow: 'ellipsis',
         }}
       >
-        <option value="">Assign owner…</option>
+        <option value="">Assign…</option>
         {assignees.map(p => <option key={p.id} value={p.id}>{profileName(p)}</option>)}
         {current && !owner && <option value={current}>Assigned (off roster)</option>}
       </select>
-    </div>
+    </span>
   )
 }
