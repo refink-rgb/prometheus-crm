@@ -12,7 +12,11 @@ export default function MomentCodeChip({ code, compact = false }: { code: string
 
   return (
     <button
-      onClick={async () => {
+      onClick={async e => {
+        // The chip often sits inside a card-wide <Link>. Without this, copying
+        // the code also navigates away from the list you were scanning.
+        e.preventDefault()
+        e.stopPropagation()
         try {
           await navigator.clipboard.writeText(code)
           setCopied(true)

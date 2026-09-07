@@ -93,7 +93,7 @@ export default function ProjectCard({
             the project page, because a media buyer building six ad sets in a
             row should not have to open each project to get it. */}
         {showMomentCode && project.moment_code && (
-          <div style={{ marginTop: 6, marginBottom: 2 }} onClick={e => { e.preventDefault(); e.stopPropagation() }}>
+          <div style={{ marginTop: 6, marginBottom: 2 }}>
             <MomentCodeChip code={project.moment_code} compact />
           </div>
         )}
