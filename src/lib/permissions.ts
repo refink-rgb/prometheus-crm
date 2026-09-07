@@ -13,13 +13,26 @@ export async function canEdit(email: string | undefined | null): Promise<boolean
   return profiles.some(p => p.email.toLowerCase() === lower && p.can_edit)
 }
 
-// Team-capacity counters in the sidebar are management-only.
-const CAPACITY_VIEWERS = [
+// Management-only views. Deliberately a list here rather than profiles.role:
+// role is 'admin' for two people and gates nothing anywhere in the app today,
+// so promoting someone into it to unlock one page would hand them a permission
+// that means something different tomorrow. This list says exactly who, and why.
+const MANAGEMENT = [
   'roberto@commonthreadglobal.com',
   'lucas@commonthreadglobal.com',
   'giovane@commonthreadglobal.com',
 ]
 
+const isManagement = (email: string | undefined | null): boolean =>
+  !!email && MANAGEMENT.includes(email.toLowerCase())
+
+/** Team-capacity counters in the sidebar. */
 export function canViewCapacity(email: string | undefined | null): boolean {
-  return !!email && CAPACITY_VIEWERS.includes(email.toLowerCase())
+  return isManagement(email)
+}
+
+/** The moment-code index at /codes — the master list of every project's
+ *  searchable ad-account code. Same three people. */
+export function canViewMomentCodes(email: string | undefined | null): boolean {
+  return isManagement(email)
 }

@@ -15,6 +15,8 @@ interface SidebarProps {
   showFinancials: boolean
   // Management-only workload counters; null hides the block entirely.
   capacity?: CapacitySummary | null
+  /** Management-only: the moment-code index. */
+  showCodes?: boolean
 }
 
 function capacityColor(total: number): string {
@@ -89,6 +91,12 @@ const TimelineIcon = (
   </svg>
 )
 
+const CodesIcon = (
+  <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18M9 9v11" />
+  </svg>
+)
+
 const CapacityIcon = (
   <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
     <path d="M4 20V10" />
@@ -132,7 +140,7 @@ const ShowcaseIcon = (
   </svg>
 )
 
-export default function Sidebar({ email, showFinancials, capacity = null }: SidebarProps) {
+export default function Sidebar({ email, showFinancials, capacity = null, showCodes = false }: SidebarProps) {
   const pathname = usePathname()
 
   // Collapsed to a 60px rail. Asked for by Janella, 1 Sep: reviewing creatives
@@ -210,6 +218,14 @@ export default function Sidebar({ email, showFinancials, capacity = null }: Side
       matches: (p) => p.startsWith('/capacity'),
       icon: CapacityIcon,
     },
+    // Management only. The page 404s for anyone else too — the link is hidden
+    // so it is not a door people rattle, not as the security boundary.
+    ...(showCodes ? [{
+      href: '/codes',
+      label: 'Moment Codes',
+      matches: (p: string) => p.startsWith('/codes'),
+      icon: CodesIcon,
+    }] : []),
     {
       href: '/brands',
       label: 'Brands',
