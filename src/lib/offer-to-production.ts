@@ -17,6 +17,7 @@
 
 import { createServiceClient } from './supabase/service'
 import { offerMonthLabel } from './types'
+import { momentCode } from './moment-code'
 
 export function autoCreateEnabled(): boolean {
   return process.env.PROMETHEUS_AUTOCREATE_DISABLED !== '1'
@@ -120,6 +121,16 @@ export async function createProductionCardFromOffer(
       brand_id: brand.id,
       name: `${monthLabel} · M${offer.moment_slot} Moment`,
       due_date: defaultDueDate(offer.target_month, offer.moment_slot),
+      // Minted here too, so no project can exist without one. The name is a
+      // placeholder at this point ("September 2026 · M1 Moment"), so the code
+      // reads MVS2MM… until someone names the offer — and it STAYS that way on
+      // purpose. Freezing it is what stops a rename from invalidating an ad
+      // name a media buyer has already typed into Meta.
+      moment_code: momentCode(
+        brand.name,
+        `${monthLabel} · M${offer.moment_slot} Moment`,
+        defaultDueDate(offer.target_month, offer.moment_slot),
+      ),
       journey_id: journeyId,
       marketing_moment: offer.moment_slot,
       source_offer_card_id: offerId,

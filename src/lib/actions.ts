@@ -22,6 +22,7 @@ import {
 import { createNotifications } from '@/lib/notifications'
 import { driveThumb } from './drive-thumb'
 import { createServiceClient } from '@/lib/supabase/service'
+import { momentCode } from '@/lib/moment-code'
 import {
   BRAND_DOC_BUCKET, BRAND_DOC_TYPES, MAX_BRAND_DOC_BYTES,
   brandDocPath, safeDocName, asciiDocName, isUuid,
@@ -90,6 +91,10 @@ export async function createProject(formData: FormData): Promise<{ redirect: str
   const brandId = formData.get('brand_id') as string
   const imageUrls = JSON.parse(formData.get('image_urls') as string) as Array<{ path: string; url: string }>
 
+  // Needed for the moment code's brand half.
+  const { data: brandRow } = await supabase.from('brands').select('name').eq('id', brandId).single()
+  const brandName = (brandRow as { name: string } | null)?.name ?? ''
+
   const str = (key: string) => (formData.get(key) as string)?.trim() || null
 
   // Handle journey: use existing or create new
@@ -128,6 +133,14 @@ export async function createProject(formData: FormData): Promise<{ redirect: str
       brand_id: brandId,
       name: formData.get('name') as string,
       due_date: formData.get('due_date') as string,
+      // The searchable code, minted here and frozen. A project reaches the
+      // brief stage the moment it is created (lp_stage/creatives_stage default
+      // to 'brief'), so this is that moment.
+      moment_code: momentCode(
+        brandName,
+        formData.get('name') as string,
+        formData.get('due_date') as string,
+      ),
       stage_brief_due_date:           str('stage_brief_due_date'),
       stage_in_progress_due_date:     str('stage_in_progress_due_date'),
       stage_internal_review_due_date: str('stage_internal_review_due_date'),
@@ -2482,11 +2495,57 @@ export async function updateProjectDetails(
   // Nothing to do beats writing {} and bumping the row for no reason.
   if (Object.keys(patch).length === 0) return
 
+  // Re-mint the moment code when the name or the date changes — but ONLY while
+  // both tracks are still in brief.
+  //
+  // A project created from an approved offer is named "September 2026 · M1
+  // Moment" and gets MVS2MM150926, which is useless to search for. Someone
+  // renames it a day later and the code should follow.
+  //
+  // The moment either track leaves brief, the code freezes for good: creative
+  // is being built against it, a media buyer may already have typed it into an
+  // ad name in Meta, and silently changing it would orphan that ad from every
+  // report without erroring anywhere.
+  if ('name' in patch || 'due_date' in patch) {
+    const { data: cur } = await supabase
+      .from('projects')
+      .select('name, due_date, lp_stage, creatives_stage, moment_code, brands(name)')
+      .eq('id', projectId)
+      .single()
+    const row = cur as {
+      name: string; due_date: string | null
+      lp_stage: string; creatives_stage: string
+      moment_code: string | null
+      brands: { name: string } | { name: string }[] | null
+    } | null
+    const stillBrief = row?.lp_stage === 'brief' && row?.creatives_stage === 'brief'
+    if (row && stillBrief) {
+      const brand = Array.isArray(row.brands) ? row.brands[0] : row.brands
+      const next = momentCode(
+        brand?.name ?? '',
+        (patch.name as string | undefined) ?? row.name,
+        (patch.due_date as string | undefined) ?? row.due_date,
+      )
+      // Only write a change, and never write a null over a code we already have.
+      if (next && next !== row.moment_code) patch.moment_code = next
+    }
+  }
+
   const { error } = await supabase
     .from('projects')
     .update(patch)
     .eq('id', projectId)
-  if (error) throw new Error(`Failed to update project: ${error.message}`)
+  if (error) {
+    // 23505 = the unique index. Two briefs on the same brand, same day, same
+    // initials — vanishingly rare, but it must not block the rename.
+    if ((error as { code?: string }).code === '23505' && 'moment_code' in patch) {
+      delete patch.moment_code
+      const { error: retry } = await supabase.from('projects').update(patch).eq('id', projectId)
+      if (retry) throw new Error(`Failed to update project: ${retry.message}`)
+    } else {
+      throw new Error(`Failed to update project: ${error.message}`)
+    }
+  }
 
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)
   revalidatePath('/')

@@ -188,6 +188,9 @@ export interface Project {
   // journey & moment
   journey_id: string | null
   marketing_moment: 1 | 2 | null
+  /** Searchable brand+offer+date code, e.g. ILLD$O050926. Minted on create and
+   *  frozen — a rename must never invalidate an ad name already live in Meta. */
+  moment_code: string | null
   // Offer Cycle linkage — set only on cards auto-created from an approved
   // offer (Phase 3 Trigger B). Manual cards keep this null.
   source_offer_card_id: string | null

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { Project, Brand, CreativeAsset, ProjectComment, BrandDna, ProjectImage, Journey, Profile, BrandComment, BrandDocument } from '@/lib/types'
 import ProjectEditForm from '@/components/ProjectEditForm'
+import MomentCodeChip from '@/components/MomentCodeChip'
 import StageTracker from '@/components/StageTracker'
 import CopyDeckPanel from '@/components/CopyDeckPanel'
 import CreativeAssetsManager from '@/components/CreativeAssetsManager'
@@ -527,6 +528,14 @@ export default function PreviewProjectView({
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 20, flexWrap: 'wrap' }}>
           <div style={{ minWidth: 0, flex: '1 1 320px' }}>
             <h1 style={{ fontSize: 23, fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1.2, margin: 0 }}>{p.name}</h1>
+            {/* The code a media buyer pastes into Meta to make this moment
+                findable. Directly under the name, because that is where they
+                look when they are already reading which project this is. */}
+            {p.moment_code && (
+              <div style={{ marginTop: 8 }}>
+                <MomentCodeChip code={p.moment_code} />
+              </div>
+            )}
             <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 6px', marginTop: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
               <span>
                 <span style={{ color: 'var(--text-muted)' }}>Due </span>
