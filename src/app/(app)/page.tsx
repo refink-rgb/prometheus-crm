@@ -33,7 +33,7 @@ export default async function DashboardPage() {
     supabase
       .from('projects')
       // lp_editor_id / creative_editor_id feed the My Work panel.
-      .select('id, name, brand_id, due_date, is_complete, lp_stage, creatives_stage, lp_approved, creatives_approved, lp_editor_id, creative_editor_id, brands(id, name)')
+      .select('id, name, brand_id, due_date, is_complete, lp_stage, creatives_stage, lp_approved, creatives_approved, lp_editor_id, creative_editor_id, brands(id, name), moment_code')
       .eq('is_complete', false)
       .order('due_date', { ascending: true }),
     getCachedProfiles(),

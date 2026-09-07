@@ -41,7 +41,7 @@ export default async function BrandPage({ params }: { params: Promise<{ brandId:
   const [{ data: projects }, { data: peRows }, { data: journeyRows }, { data: dnaRow }, { data: docRows }] = await Promise.all([
     supabase
       .from('projects')
-      .select('id, name, brand_id, due_date, is_complete, journey_id, marketing_moment, lp_stage, creatives_stage, lp_approved, creatives_approved, share_token')
+      .select('id, name, brand_id, due_date, is_complete, journey_id, marketing_moment, lp_stage, creatives_stage, lp_approved, creatives_approved, share_token, moment_code')
       .eq('brand_id', brandId)
       .order('due_date', { ascending: true }),
     supabase.from('profit_engineers').select('name').order('name', { ascending: true }),
@@ -426,6 +426,7 @@ export default async function BrandPage({ params }: { params: Promise<{ brandId:
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                             {momentProjects.map(p => (
                               <ProjectCard
+                              showMomentCode
                                 key={p.id}
                                 project={p}
                                 journeyName={journey?.name ?? null}
@@ -443,6 +444,7 @@ export default async function BrandPage({ params }: { params: Promise<{ brandId:
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {active.map(p => (
                   <ProjectCard
+                              showMomentCode
                     key={p.id}
                     project={p}
                     href={`/brands/${brandId}/projects/${p.id}`}
@@ -461,6 +463,7 @@ export default async function BrandPage({ params }: { params: Promise<{ brandId:
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, opacity: 0.6 }}>
               {done.map(p => (
                 <ProjectCard
+                              showMomentCode
                   key={p.id}
                   project={p}
                   href={`/brands/${brandId}/projects/${p.id}`}

@@ -7,7 +7,7 @@ import { useState } from 'react'
 // Copy, never retype. One wrong character and the moment silently disappears
 // from every report built on it — and unlike a broken link, nothing errors.
 
-export default function MomentCodeChip({ code }: { code: string }) {
+export default function MomentCodeChip({ code, compact = false }: { code: string; compact?: boolean }) {
   const [copied, setCopied] = useState(false)
 
   return (
@@ -23,9 +23,9 @@ export default function MomentCodeChip({ code }: { code: string }) {
       aria-label={`Copy moment code ${code}`}
       style={{
         display: 'inline-flex', alignItems: 'center', gap: 7,
-        padding: '3px 9px', borderRadius: 7, cursor: 'pointer',
+        padding: compact ? '2px 7px' : '3px 9px', borderRadius: compact ? 6 : 7, cursor: 'pointer',
         fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-        fontSize: 12, fontWeight: 700, letterSpacing: '0.02em',
+        fontSize: compact ? 10.5 : 12, fontWeight: 700, letterSpacing: '0.02em',
         border: `1px solid ${copied ? 'var(--success)' : 'var(--border-strong)'}`,
         background: copied ? 'color-mix(in srgb, var(--success) 12%, transparent)' : 'var(--surface-2)',
         color: copied ? 'var(--success)' : 'var(--text-primary)',
@@ -33,7 +33,7 @@ export default function MomentCodeChip({ code }: { code: string }) {
       }}
     >
       {code}
-      <span style={{ fontSize: 10, fontWeight: 600, opacity: 0.7 }}>{copied ? 'copied' : 'copy'}</span>
+      <span style={{ fontSize: compact ? 9 : 10, fontWeight: 600, opacity: 0.7 }}>{copied ? 'copied' : 'copy'}</span>
     </button>
   )
 }

@@ -2,6 +2,7 @@ import Link from 'next/link'
 import type { Project } from '@/lib/types'
 import { calcDaysUntil, cardBorderColor, isProjectLive, isProjectOverdue, parseDueDate } from '@/lib/stageColors'
 import DualStageBar from './DualStageBar'
+import MomentCodeChip from './MomentCodeChip'
 
 interface ProjectCardProps {
   project: Project
@@ -10,6 +11,10 @@ interface ProjectCardProps {
   href: string
   compact?: boolean
   flaggedAssetCount?: number
+  /** The moment code is an INTERNAL ops identifier. Off by default so the
+   *  client portal, which renders this same card, can never leak it — a query
+   *  that omits the column is not a guarantee, someone will widen it to '*'. */
+  showMomentCode?: boolean
 }
 
 export default function ProjectCard({
@@ -19,6 +24,7 @@ export default function ProjectCard({
   href,
   compact = false,
   flaggedAssetCount = 0,
+  showMomentCode = false,
 }: ProjectCardProps) {
   const daysUntil = calcDaysUntil(project.due_date)
   const isOverdue = isProjectOverdue(project.due_date, project.is_complete, project.lp_stage, project.creatives_stage)
@@ -82,6 +88,15 @@ export default function ProjectCard({
         }}>
           {project.name}
         </div>
+
+        {/* The searchable moment code, one per project. On the card as well as
+            the project page, because a media buyer building six ad sets in a
+            row should not have to open each project to get it. */}
+        {showMomentCode && project.moment_code && (
+          <div style={{ marginTop: 6, marginBottom: 2 }} onClick={e => { e.preventDefault(); e.stopPropagation() }}>
+            <MomentCodeChip code={project.moment_code} compact />
+          </div>
+        )}
 
         {/* Row 3: DualStageBar */}
         <DualStageBar
