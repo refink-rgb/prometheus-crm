@@ -414,7 +414,8 @@ function PhaseDueControl({
   )
 }
 
-function ClockIcon() {
+// Shared with the Offer board so the two boards draw the same deadline row.
+export function ClockIcon() {
   return (
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true" style={{ flexShrink: 0 }}>
       <circle cx="12" cy="12" r="9" />

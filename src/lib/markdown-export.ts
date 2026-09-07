@@ -10,8 +10,9 @@
 
 import {
   OFFER_STAGE_LABELS, STAGE_LABELS, normalizeStage, offerMonthLabel,
-  type OfferCard, type Project,
+  type BrandDna, type OfferCard, type Project,
 } from './types'
+import type { OfferHistoryEntry } from './offer-history'
 
 export type MdField = { label: string; value: unknown }
 export type MdSection = { heading?: string; fields: MdField[] }
@@ -184,11 +185,36 @@ export function projectBriefMarkdown(
 
 // --- Offer card ---------------------------------------------------------------
 
-export function offerCardMarkdown(card: OfferCard, ownerName?: string | null): string {
-  return buildMarkdown(card.name, [
+export interface OfferMarkdownContext {
+  brandName?: string | null
+  website?: string | null
+  brandNotes?: string | null
+  dna?: Pick<BrandDna,
+    | 'tagline'
+    | 'positioning'
+    | 'competitive_differentiation'
+    | 'core_value_prop'
+    | 'top_pain_points'
+    | 'proof_points'
+    | 'common_offers'
+    | 'price_anchor'
+    | 'top_objections'
+    | 'winning_hooks'
+    | 'offer_presentation'
+  > | null
+  history?: OfferHistoryEntry[]
+}
+
+export function offerCardMarkdown(
+  card: OfferCard,
+  ownerName?: string | null,
+  context: OfferMarkdownContext = {},
+): string {
+  const brandName = context.brandName ?? card.brand?.name ?? null
+  const base = buildMarkdown(card.name, [
     {
       fields: [
-        { label: 'Brand', value: card.brand?.name ?? null },
+        { label: 'Brand', value: brandName },
         { label: 'Target Month', value: offerMonthLabel(card.target_month) },
         { label: 'Moment', value: `M${card.moment_slot}` },
         { label: 'Stage', value: OFFER_STAGE_LABELS[card.stage] },
@@ -196,19 +222,19 @@ export function offerCardMarkdown(card: OfferCard, ownerName?: string | null): s
       ],
     },
     {
-      heading: 'The Offer',
-      fields: [
-        { label: 'Offer Dynamics', value: card.offer_dynamics_type },
-        { label: 'Offer', value: card.offer },
-        { label: 'Offer Description', value: card.offer_description },
-      ],
-    },
-    {
-      heading: 'Rationale',
+      heading: 'Strategy',
       fields: [
         { label: 'Problem Statement', value: card.problem_statement },
         { label: 'Success Metric', value: card.success_metric },
         { label: 'Success Target', value: card.success_target },
+      ],
+    },
+    {
+      heading: 'Offer Mechanics',
+      fields: [
+        { label: 'Offer Dynamics', value: card.offer_dynamics_type },
+        { label: 'Offer', value: card.offer },
+        { label: 'Offer Description', value: card.offer_description },
         { label: 'Guardrails', value: card.guardrails },
       ],
     },
@@ -222,11 +248,29 @@ export function offerCardMarkdown(card: OfferCard, ownerName?: string | null): s
       ],
     },
     {
-      heading: 'Creative',
+      heading: 'Message & Creative',
       fields: [
         { label: 'Competitor Reference', value: card.competitor_reference },
         { label: 'Client Ad Inspiration', value: card.client_ad_inspiration },
         { label: 'Product Images', value: card.product_images_link },
+      ],
+    },
+    {
+      heading: 'Brand Context',
+      fields: [
+        { label: 'Website', value: context.website },
+        { label: 'Account Notes', value: context.brandNotes },
+        { label: 'Tagline', value: context.dna?.tagline },
+        { label: 'Positioning', value: context.dna?.positioning },
+        { label: 'Core Value Proposition', value: context.dna?.core_value_prop },
+        { label: 'Competitive Differentiation', value: context.dna?.competitive_differentiation },
+        { label: 'Top Pain Points', value: context.dna?.top_pain_points },
+        { label: 'Brand Proof Points', value: context.dna?.proof_points },
+        { label: 'Common Offers', value: context.dna?.common_offers },
+        { label: 'Price Anchor', value: context.dna?.price_anchor },
+        { label: 'Top Objections', value: context.dna?.top_objections },
+        { label: 'Winning Hooks', value: context.dna?.winning_hooks },
+        { label: 'Offer Presentation', value: context.dna?.offer_presentation },
       ],
     },
     {
@@ -235,7 +279,11 @@ export function offerCardMarkdown(card: OfferCard, ownerName?: string | null): s
         { label: 'Message', value: card.client_approval_message },
       ],
     },
-  ], card.brand?.name ?? undefined)
+  ], brandName ?? undefined)
+
+  if (!context.history?.length) return base
+
+  return `${base}\n## Brand Offer History\n\n${offerHistoryTable(context.history)}\n`
 }
 
 export type OffersBoardRow = OfferCard & { brands: { id: string; name: string } }
@@ -262,6 +310,32 @@ export function offersBoardMarkdown(
   const count = `${rows.length} offer${rows.length === 1 ? '' : 's'}`
   const subtitle = filterNote ? `${count} · ${filterNote}` : count
   return `# Offer Cycle\n\n_${subtitle}_\n\n${header.join('\n')}\n${body.join('\n')}\n`
+}
+
+function offerHistoryTable(rows: OfferHistoryEntry[]): string {
+  const escape = (s: string) => s.replace(/\|/g, '\\|').replace(/\s+/g, ' ').trim()
+  const header = [
+    '| Brand | Month | Moment | Offer | Objective | Product | Status | Record |',
+    '| --- | --- | --- | --- | --- | --- | --- | --- |',
+  ]
+  const body = rows.map(row => `| ${[
+    escape(row.brandName),
+    offerMonthLabel(row.targetMonth),
+    row.momentSlot ? `M${row.momentSlot}` : '—',
+    escape(row.title),
+    escape(row.objective ?? '—'),
+    escape(row.product ?? '—'),
+    escape(row.status),
+    row.source === 'offer_cycle' ? 'Offer Cycle' : 'Production history',
+  ].join(' | ')} |`)
+  return [...header, ...body].join('\n')
+}
+
+/** Full historical library, including pre-Offer-Cycle Production records. */
+export function offerLibraryMarkdown(rows: OfferHistoryEntry[], filterNote?: string): string {
+  const count = `${rows.length} historical offer${rows.length === 1 ? '' : 's'}`
+  const subtitle = filterNote ? `${count} · ${filterNote}` : count
+  return `# Offer Library\n\n_${subtitle}_\n\n${offerHistoryTable(rows)}\n`
 }
 
 // --- Pipeline -----------------------------------------------------------------

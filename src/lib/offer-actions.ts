@@ -163,30 +163,51 @@ export async function assignOfferCard(cardId: string, profileId: string | null) 
   revalidatePath(`/offers/${cardId}`)
 }
 
+export type OfferDetailValues = {
+  offer_dynamics_type: string | null
+  offer: string | null
+  offer_description: string | null
+  product_featured: string | null
+  product_description: string | null
+  retail_price: string | null
+  page_type: string | null
+  competitor_reference: string | null
+  client_ad_inspiration: string | null
+  product_images_link: string | null
+  problem_statement: string | null
+  success_metric: string | null
+  success_target: number | null
+  guardrails: string | null
+}
+
+const OFFER_DETAIL_FIELDS = [
+  'offer_dynamics_type', 'offer', 'offer_description', 'product_featured',
+  'product_description', 'retail_price', 'page_type', 'competitor_reference',
+  'client_ad_inspiration', 'product_images_link', 'problem_statement',
+  'success_metric', 'success_target', 'guardrails',
+] as const satisfies ReadonlyArray<keyof OfferDetailValues>
+
+// Each workspace tab saves independently. Accepting a partial patch keeps a
+// save on the Offer tab from blanking fields mounted on Product + Creative.
 export async function updateOfferDetails(
   cardId: string,
-  values: {
-    offer_dynamics_type: string | null
-    offer: string | null
-    offer_description: string | null
-    product_featured: string | null
-    product_description: string | null
-    retail_price: string | null
-    page_type: string | null
-    competitor_reference: string | null
-    client_ad_inspiration: string | null
-    product_images_link: string | null
-    problem_statement: string | null
-    success_metric: string | null
-    success_target: number | null
-    guardrails: string | null
-  }
+  values: Partial<OfferDetailValues>,
 ) {
   const { supabase } = await requireEditor()
 
+  if (Object.keys(values).length === 0) return
+  // Server Actions are callable endpoints. Never pass the client object
+  // straight to PostgREST even though TypeScript narrows normal UI callers.
+  const safeValues = Object.fromEntries(
+    OFFER_DETAIL_FIELDS
+      .filter(field => Object.prototype.hasOwnProperty.call(values, field))
+      .map(field => [field, values[field]]),
+  ) as Partial<OfferDetailValues>
+  if (Object.keys(safeValues).length === 0) throw new Error('No editable offer fields supplied.')
+
   const { error } = await supabase
     .from('offer_cards')
-    .update(values)
+    .update(safeValues)
     .eq('id', cardId)
   if (error) throw new Error(`Failed to save offer: ${error.message}`)
 
