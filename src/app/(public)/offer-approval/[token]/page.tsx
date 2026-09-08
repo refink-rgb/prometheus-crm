@@ -50,9 +50,9 @@ export default async function OfferApprovalPage({
   if (error) console.error('[offer-approval] failed to load offers:', error)
   const cards = (cardsRaw ?? []) as unknown as ClientOffer[]
 
-  // Strategists can now float competing candidates for one moment, so two
-  // slides can both read "Moment 1". Number them so the client understands
-  // they are alternatives rather than two things to approve.
+  // Strategists can float competing candidates for one moment. The client
+  // never sees the moment itself, so without this two slides would look like
+  // two separate offers to approve rather than a pick-one.
   const perMoment = new Map<string, number>()
   for (const card of cards) {
     const key = `${card.target_month}#${card.moment_slot}`
@@ -69,7 +69,6 @@ export default async function OfferApprovalPage({
     return {
       id: card.id,
       monthLabel: offerMonthLabel(card.target_month),
-      momentSlot: card.moment_slot,
       title: card.offer?.trim() || card.name,
       message: card.client_approval_message,
       mechanics: card.offer_dynamics_type,
@@ -83,7 +82,7 @@ export default async function OfferApprovalPage({
             at: card.client_changes_requested_at,
           }
         : null,
-      optionLabel: total > 1 ? `Option ${nth} of ${total}` : null,
+      optionLabel: total > 1 ? `Alternative ${nth} of ${total}` : null,
     }
   })
 

@@ -6,7 +6,6 @@ import { approveOfferAsClient, requestOfferChangesAsClient } from '@/lib/client-
 export interface ClientOfferSlide {
   id: string
   monthLabel: string
-  momentSlot: number
   title: string
   /** The AI-written pitch — the body of the slide. */
   message: string | null
@@ -16,7 +15,7 @@ export interface ClientOfferSlide {
   pageType: string | null
   /** A note this client already sent about this offer, if any. */
   pendingNote: { by: string | null; note: string; at: string | null } | null
-  /** Set only when the moment has competing candidates: "Option 1 of 2". */
+  /** Set only when the moment has competing candidates: "Alternative 1 of 2". */
   optionLabel: string | null
 }
 
@@ -35,7 +34,6 @@ export default function ClientOfferDeck({
           token={token}
           slide={slide}
           index={index}
-          total={slides.length}
         />
       ))}
     </div>
@@ -46,12 +44,10 @@ function OfferSlide({
   token,
   slide,
   index,
-  total,
 }: {
   token: string
   slide: ClientOfferSlide
   index: number
-  total: number
 }) {
   const [isPending, startTransition] = useTransition()
   const [mode, setMode] = useState<null | 'approve' | 'changes'>(null)
@@ -112,7 +108,7 @@ function OfferSlide({
           fontSize: 'var(--text-2xs)', fontWeight: 700, letterSpacing: '0.08em',
           textTransform: 'uppercase', color: 'var(--accent)',
         }}>
-          {slide.monthLabel} · Moment {slide.momentSlot}
+          {slide.monthLabel} · Offer {index + 1}
         </span>
         {slide.optionLabel && (
           <span
@@ -126,9 +122,6 @@ function OfferSlide({
             {slide.optionLabel}
           </span>
         )}
-        <span style={{ marginLeft: 'auto', fontSize: 'var(--text-2xs)', color: 'var(--text-muted)' }}>
-          {index + 1} of {total}
-        </span>
       </div>
 
       <div style={{ padding: '28px 28px 8px' }}>
