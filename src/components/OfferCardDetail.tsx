@@ -123,10 +123,14 @@ export default function OfferCardDetail({
     setError(null)
     startTransition(async () => {
       try {
-        await updateOfferStage(card.id, stage)
+        const result = await updateOfferStage(card.id, stage)
+        if (result.error) {
+          setError(result.error)
+          return
+        }
         router.refresh()
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to move stage.')
+      } catch {
+        setError('Failed to move stage. Try again.')
       }
     })
   }

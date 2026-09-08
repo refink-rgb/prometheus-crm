@@ -25,9 +25,10 @@ export const maxDuration = 60
 //      deduped so a manual re-run doesn't double-log.
 //   2. Offer generation (Phase 3 Trigger A): on the 24th Eastern (or with
 //      ?force_generate=1 for validation), create the following month's 2
-//      offer cards per active client. Idempotent twice over: an existence
-//      pre-check plus the DB unique index (brand_id, target_month,
-//      moment_slot) — duplicates are skipped, never errored.
+//      offer cards per active client. Idempotency = the existence pre-check:
+//      (brand, slot) pairs that already have any card for the month are
+//      skipped, never errored. (The old full unique index is gone — since
+//      migration 20260908 candidates may share a brand + month + slot.)
 //   3. Alerts (reported in the response + Vercel error log):
 //      - approved offers with no linked production card (Trigger B failed or
 //        was killed mid-flight) — the "fail loud" net;
@@ -139,12 +140,14 @@ async function runOfferGeneration(supabase: SupabaseService, targetMonth: string
   }
 
   if (rows.length > 0) {
-    // Belt to the pre-check's suspenders: if a concurrent run inserted the
-    // same key between our check and this write, ignore the duplicate rather
-    // than failing the batch.
+    // Plain insert: idempotency lives in the pre-check above. The old
+    // ON CONFLICT clause targeted the full (brand, month, slot) unique index,
+    // which migration 20260908 replaced with a partial index (approved cards
+    // only) so strategists can hold multiple candidate offers per moment —
+    // no matching constraint left for upsert to target.
     const { error: insErr } = await supabase
       .from('offer_cards')
-      .upsert(rows, { onConflict: 'brand_id,target_month,moment_slot', ignoreDuplicates: true })
+      .insert(rows)
     if (insErr) throw new Error(`Offer card insert failed: ${insErr.message}`)
   }
 

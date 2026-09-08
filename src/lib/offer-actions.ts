@@ -9,6 +9,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
+import type { User } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 import { canEdit } from '@/lib/permissions'
 import { offerCardName, offerMonthLabel, OFFER_STAGE_ORDER, type OfferStage } from '@/lib/types'
@@ -28,10 +29,28 @@ async function requireEditor() {
   return { supabase, user }
 }
 
+// requireEditor for actions that RETURN failures instead of throwing them
+// (production masks thrown server-action messages). Signed-out still
+// redirects; a signed-in non-editor gets the message back as data.
+async function getEditor(): Promise<
+  | { ok: true; supabase: Awaited<ReturnType<typeof createClient>>; user: User }
+  | { ok: false; error: string }
+> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!(await canEdit(user.email))) return { ok: false, error: 'Not authorized.' }
+  return { ok: true, supabase, user }
+}
+
 // Manual creation — used for testing and for the July→August transition cards.
-// The cron (Phase 3) inserts through the same shape. Idempotency lives in the
-// DB unique index (brand_id, target_month, moment_slot); a duplicate comes
-// back as a friendly error, not a second card.
+// The cron (Phase 3) inserts through the same shape.
+//
+// Uniqueness rule: any number of CANDIDATE cards may share a brand + month +
+// slot while the moment is still open; once one of them reaches
+// 'offer_approved' the moment is filled and creation is blocked. The DB
+// enforces the approved half via the partial unique index
+// uq_offer_cards_approved_brand_month_slot (migration 20260908).
 //
 // Failures are RETURNED as { error }, not thrown: Next.js masks thrown
 // server-action errors in production, which turned every friendly message
@@ -39,10 +58,9 @@ async function requireEditor() {
 export async function createOfferCard(
   formData: FormData
 ): Promise<{ redirect: string; error?: undefined } | { error: string; redirect?: undefined }> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
-  if (!(await canEdit(user.email))) return { error: 'Not authorized.' }
+  const auth = await getEditor()
+  if (!auth.ok) return { error: auth.error }
+  const { supabase, user } = auth
 
   const brandId = (formData.get('brand_id') as string)?.trim()
   const monthRaw = (formData.get('target_month') as string)?.trim() // 'YYYY-MM' from <input type=month>
@@ -55,13 +73,30 @@ export async function createOfferCard(
     .from('brands').select('id, name').eq('id', brandId).single()
   if (brandErr || !brand) return { error: 'Unknown brand.' }
 
+  const { data: siblings, error: sibErr } = await supabase
+    .from('offer_cards')
+    .select('id, stage')
+    .eq('brand_id', brandId)
+    .eq('target_month', targetMonth)
+    .eq('moment_slot', momentSlot)
+  if (sibErr) return { error: `Failed to check existing offers: ${sibErr.message}` }
+  if ((siblings ?? []).some(s => s.stage === 'offer_approved')) {
+    return { error: `${brand.name} already has an approved M${momentSlot} offer for ${offerMonthLabel(targetMonth)}.` }
+  }
+
+  // Candidates for the same moment share a name by convention; number the
+  // extras so the board can tell them apart.
+  const baseName = offerCardName(brand.name, targetMonth, momentSlot)
+  const siblingCount = (siblings ?? []).length
+  const name = siblingCount > 0 ? `${baseName} (#${siblingCount + 1})` : baseName
+
   const { data, error } = await supabase
     .from('offer_cards')
     .insert({
       brand_id: brandId,
       target_month: targetMonth,
       moment_slot: momentSlot,
-      name: offerCardName(brand.name, targetMonth, momentSlot),
+      name,
       created_by: user.id,
     })
     .select('id')
@@ -69,7 +104,9 @@ export async function createOfferCard(
 
   if (error) {
     if (error.code === '23505') {
-      return { error: `An M${momentSlot} offer card for ${brand.name} already exists for that month.` }
+      // Only possible while the old full unique index is still in place —
+      // run supabase/migrations/20260908_relax_offer_uniqueness.sql.
+      return { error: `An M${momentSlot} offer card for ${brand.name} already exists for that month. (DB migration 20260908 not applied yet.)` }
     }
     return { error: `Failed to create offer card: ${error.message}` }
   }
@@ -78,22 +115,47 @@ export async function createOfferCard(
   return { redirect: `/offers/${data.id}` }
 }
 
-export async function updateOfferStage(cardId: string, stage: OfferStage) {
-  const { supabase, user } = await requireEditor()
+// Failures come back as { error } (see createOfferCard for why). Success is {}.
+export async function updateOfferStage(cardId: string, stage: OfferStage): Promise<{ error?: string }> {
+  const auth = await getEditor()
+  if (!auth.ok) return { error: auth.error }
+  const { supabase, user } = auth
 
   const { data: prev, error: prevErr } = await supabase
     .from('offer_cards')
     .select('stage, brand_id, target_month, moment_slot')
     .eq('id', cardId)
     .single()
-  if (prevErr || !prev) throw new Error('Offer card not found.')
-  if (prev.stage === stage) return
+  if (prevErr || !prev) return { error: 'Offer card not found.' }
+  if (prev.stage === stage) return {}
+
+  // One approved offer per moment: candidates are unlimited, approval is not.
+  if (stage === 'offer_approved') {
+    const { data: approved, error: apprErr } = await supabase
+      .from('offer_cards')
+      .select('id')
+      .eq('brand_id', prev.brand_id)
+      .eq('target_month', prev.target_month)
+      .eq('moment_slot', prev.moment_slot)
+      .eq('stage', 'offer_approved')
+      .neq('id', cardId)
+      .limit(1)
+    if (apprErr) return { error: `Failed to check for an approved offer: ${apprErr.message}` }
+    if ((approved ?? []).length > 0) {
+      return { error: `An M${prev.moment_slot} offer for ${offerMonthLabel(prev.target_month)} is already approved — move it out of Approved first.` }
+    }
+  }
 
   const { error } = await supabase
     .from('offer_cards')
     .update({ stage })
     .eq('id', cardId)
-  if (error) throw new Error(`Failed to move offer card: ${error.message}`)
+  if (error) {
+    if (error.code === '23505') {
+      return { error: `An M${prev.moment_slot} offer for ${offerMonthLabel(prev.target_month)} is already approved — move it out of Approved first.` }
+    }
+    return { error: `Failed to move offer card: ${error.message}` }
+  }
 
   if (eventsEnabled()) {
     const actor = actorFromUser(user)
@@ -129,7 +191,7 @@ export async function updateOfferStage(cardId: string, stage: OfferStage) {
 
   // Phase 3 Trigger B: approval spawns the linked Production card. The offer
   // stays in Offer Approved no matter what happens here (its stage update
-  // already committed above); a creation failure is surfaced loudly — thrown
+  // already committed above); a creation failure is surfaced loudly — returned
   // to the UI and error-logged for the Vercel log stream — never swallowed.
   // The daily cron also reports any approved-but-unlinked offers as a net.
   if (stage === 'offer_approved' && autoCreateEnabled()) {
@@ -140,12 +202,15 @@ export async function updateOfferStage(cardId: string, stage: OfferStage) {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       console.error(`[offer-to-production] ALERT: offer ${cardId} approved but production card creation FAILED: ${msg}`)
-      throw new Error(`Offer is approved, but creating the production card failed: ${msg}. Fix the cause, then move the card out of Approved and back in to retry.`)
+      revalidatePath('/offers')
+      revalidatePath(`/offers/${cardId}`)
+      return { error: `Offer is approved, but creating the production card failed: ${msg}. Fix the cause, then move the card out of Approved and back in to retry.` }
     }
   }
 
   revalidatePath('/offers')
   revalidatePath(`/offers/${cardId}`)
+  return {}
 }
 
 // Assign (or clear) an offer card's owner. The picker is restricted to the

@@ -18,6 +18,7 @@ import {
 import { OFFER_APPROVAL_DAY, OFFER_STAGE_COLORS, offerDueLabel, offerDueTone, type PhaseDueTone } from '@/lib/stageColors'
 import { createOfferCard, updateOfferStage, assignOfferCard } from '@/lib/offer-actions'
 import Avatar from '@/components/Avatar'
+import { useToast } from '@/components/Toast'
 import { ClockIcon } from '@/components/KanbanCard'
 import OfferLibrary from '@/components/OfferLibrary'
 import ApprovalLinksPanel, { type EngineerLink } from '@/components/ApprovalLinksPanel'
@@ -63,6 +64,7 @@ export default function OffersBoard({
   engineerLinks?: EngineerLink[]
 }) {
   const router = useRouter()
+  const toast = useToast()
   const [, startTransition] = useTransition()
 
   // Optimistic board state, re-synced when the server sends fresh props
@@ -180,13 +182,19 @@ export default function OffersBoard({
     setLocalCards(prev => prev.map(c => (c.id === card.id ? { ...c, stage: targetStage } : c)))
     startTransition(async () => {
       try {
-        await updateOfferStage(card.id, targetStage)
+        const result = await updateOfferStage(card.id, targetStage)
+        if (result.error) {
+          setLocalCards(snapshot)
+          toast.error(result.error)
+          return
+        }
         router.refresh()
       } catch {
         setLocalCards(snapshot)
+        toast.error('Failed to move offer card. Try again.')
       }
     })
-  }, [localCards, router, startTransition])
+  }, [localCards, router, startTransition, toast])
 
   // Optimistic assignment, mirroring moveCard: update local state now, reconcile
   // on the server refresh, roll back on failure.
