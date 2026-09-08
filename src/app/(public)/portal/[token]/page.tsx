@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import ThemeToggle from '@/components/ThemeToggle'
-import type { Brand, Project, Journey } from '@/lib/types'
+import type { Brand, Project } from '@/lib/types'
 import { isProjectOverdue, parseDueDate } from '@/lib/stageColors'
 
 export default async function ClientPortalPage({
@@ -23,35 +23,17 @@ export default async function ClientPortalPage({
 
   const brand = brandRaw as Brand
 
-  const [{ data: projectsRaw }, { data: journeysRaw }] = await Promise.all([
-    supabase.from('projects').select('id, name, brand_id, due_date, is_complete, journey_id, marketing_moment, lp_stage, creatives_stage, page_type, share_token, offer_locked').eq('brand_id', brand.id).order('due_date', { ascending: false }),
-    supabase.from('journeys').select('id, name').eq('brand_id', brand.id).order('created_at', { ascending: false }),
-  ])
+  // Journeys are our internal grouping, not something the client needs to
+  // reason about — the portal lists their projects flat.
+  const { data: projectsRaw } = await supabase
+    .from('projects')
+    .select('id, name, brand_id, due_date, is_complete, marketing_moment, lp_stage, creatives_stage, page_type, share_token, offer_locked')
+    .eq('brand_id', brand.id)
+    .order('due_date', { ascending: false })
 
   const projects = (projectsRaw ?? []) as Project[]
-  const journeys = (journeysRaw ?? []) as Journey[]
-
-  const journeyMap = new Map<string, Journey>()
-  journeys.forEach(j => journeyMap.set(j.id, j))
-
-  // Group projects by journey, then by marketing moment
   const active = projects.filter(p => !p.is_complete)
   const completed = projects.filter(p => p.is_complete)
-
-  // Build journey groups (most recent first)
-  const seen = new Set<string>()
-  const journeyGroups: Array<{ journey: Journey | null; projects: Project[] }> = []
-
-  journeys.forEach(j => {
-    const ps = active.filter(p => p.journey_id === j.id)
-    if (ps.length > 0) {
-      journeyGroups.push({ journey: j, projects: ps.sort((a, b) => (a.marketing_moment ?? 0) - (b.marketing_moment ?? 0)) })
-      ps.forEach(p => seen.add(p.id))
-    }
-  })
-
-  const ungrouped = active.filter(p => !seen.has(p.id))
-  if (ungrouped.length > 0) journeyGroups.push({ journey: null, projects: ungrouped })
 
   const initials = brand.name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
   const brandColor = `hsl(${brand.name.charCodeAt(0) * 7 % 360}, 60%, 25%)`
@@ -103,28 +85,17 @@ export default async function ClientPortalPage({
         </div>
 
         {/* Active projects */}
-        {journeyGroups.length === 0 && (
+        {active.length === 0 ? (
           <div className="card" style={{ textAlign: 'center', padding: 'var(--space-10) var(--space-6)' }}>
             <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>No active projects yet. Check back soon.</p>
           </div>
-        )}
-
-        {journeyGroups.map(({ journey, projects: jProjects }) => (
-          <div key={journey?.id ?? 'ungrouped'} style={{ marginBottom: 36 }}>
-            {journey && (
-              <div style={{ marginBottom: 14 }}>
-                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                  {journey.name}
-                </span>
-              </div>
-            )}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {jProjects.map(p => (
-                <ProjectCard key={p.id} project={p} />
-              ))}
-            </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {active.map(p => (
+              <ProjectCard key={p.id} project={p} />
+            ))}
           </div>
-        ))}
+        )}
 
         {/* Completed projects */}
         {completed.length > 0 && (
