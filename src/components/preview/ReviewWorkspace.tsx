@@ -417,6 +417,9 @@ export default function ReviewWorkspace({
 
   const approvedNotPushed = assets.filter(a => a.internal_status === 'approved' && !a.client_visible)
   const clientApproved = assets.filter(a => a.status === 'approved')
+  // Separate column, separate button. An ad signed off internally days before
+  // the client sees it is exactly when a media buyer wants the files.
+  const internallyApproved = assets.filter(a => a.internal_status === 'approved')
 
   const btn = (bg: string, fg = '#fff'): React.CSSProperties => ({
     fontSize: 12, fontWeight: 600, padding: '8px 12px', borderRadius: 6,
@@ -807,13 +810,22 @@ export default function ReviewWorkspace({
         <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
           {counts.visible} of {assets.length} ads visible to the client
         </span>
+        {internallyApproved.length > 0 && (
+          <a
+            href={`/api/projects/${projectId}/download?set=internal`}
+            title="Zip of every creative approved internally — ready to hand to a media buyer, whether or not the client has seen it"
+            style={{ ...btn('transparent', 'var(--text-secondary)'), textDecoration: 'none', display: 'inline-block', whiteSpace: 'nowrap' }}
+          >
+            ⬇ {internallyApproved.length} internally approved
+          </a>
+        )}
         {clientApproved.length > 0 && (
           <a
             href={`/api/projects/${projectId}/download?set=approved`}
-            title="Zip of every client-approved creative"
-            style={{ ...btn('transparent', 'var(--text-secondary)'), textDecoration: 'none', display: 'inline-block' }}
+            title="Zip of every creative the CLIENT approved"
+            style={{ ...btn('transparent', 'var(--success)'), textDecoration: 'none', display: 'inline-block', whiteSpace: 'nowrap', borderColor: 'var(--success)' }}
           >
-            ⬇ Download {clientApproved.length} approved
+            ⬇ {clientApproved.length} client approved
           </a>
         )}
         {mode === 'internal' && approvedNotPushed.length > 0 && (

@@ -8,18 +8,24 @@ export const runtime = 'nodejs'
 export const maxDuration = 300
 
 /**
- * GET /api/projects/[projectId]/download?set=approved|live   (internal, authed)
- *   approved → creatives the client approved (status='approved')
+ * GET /api/projects/[projectId]/download?set=approved|internal|live  (authed)
+ *   approved → creatives the CLIENT approved      (status='approved')
+ *   internal → creatives WE approved              (internal_status='approved')
  *   live     → everything currently client-facing (client_visible=true)
- * Always excludes hidden assets. Images come from the published revision when
- * present, else the original Drive file.
+ *
+ * approved and internal are separate columns on purpose and routinely disagree:
+ * an ad can be signed off internally days before the client sees it, which is
+ * exactly when a media buyer wants the files. Always excludes hidden assets.
+ * Images come from the published revision when present, else the Drive file.
  */
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ projectId: string }> },
 ) {
   const { projectId } = await params
-  const set = new URL(request.url).searchParams.get('set') === 'live' ? 'live' : 'approved'
+  const raw = new URL(request.url).searchParams.get('set')
+  const set: 'live' | 'internal' | 'approved' =
+    raw === 'live' ? 'live' : raw === 'internal' ? 'internal' : 'approved'
 
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -28,18 +34,19 @@ export async function GET(
 
   const [{ data: project }, { data: assets }] = await Promise.all([
     supabase.from('projects').select('name').eq('id', projectId).single(),
-    (set === 'live'
-      ? supabase.from('creative_assets')
-          .select('id, name, drive_file_id, published_url, sort_order')
-          .eq('project_id', projectId).eq('is_hidden', false).eq('client_visible', true)
-          .order('sort_order')
-      : supabase.from('creative_assets')
-          .select('id, name, drive_file_id, published_url, sort_order')
-          .eq('project_id', projectId).eq('is_hidden', false).eq('status', 'approved')
-          .order('sort_order')),
+    (() => {
+      const q = supabase.from('creative_assets')
+        .select('id, name, drive_file_id, published_url, sort_order')
+        .eq('project_id', projectId).eq('is_hidden', false)
+      if (set === 'live') return q.eq('client_visible', true).order('sort_order')
+      if (set === 'internal') return q.eq('internal_status', 'approved').order('sort_order')
+      return q.eq('status', 'approved').order('sort_order')
+    })(),
   ])
 
-  const label = set === 'live' ? 'client-facing' : 'client-approved'
+  const label = set === 'live' ? 'client-facing'
+    : set === 'internal' ? 'internally approved'
+    : 'client-approved'
   if (!assets || assets.length === 0) {
     return NextResponse.json({ error: `No ${label} images to download yet.` }, { status: 404 })
   }
