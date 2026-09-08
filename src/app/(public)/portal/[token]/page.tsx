@@ -27,7 +27,7 @@ export default async function ClientPortalPage({
   // reason about — the portal lists their projects flat.
   const { data: projectsRaw } = await supabase
     .from('projects')
-    .select('id, name, brand_id, due_date, is_complete, marketing_moment, lp_stage, creatives_stage, page_type, share_token, offer_locked')
+    .select('id, name, brand_id, due_date, is_complete, lp_stage, creatives_stage, page_type, share_token, offer_locked')
     .eq('brand_id', brand.id)
     .order('due_date', { ascending: false })
 
@@ -91,8 +91,8 @@ export default async function ClientPortalPage({
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {active.map(p => (
-              <ProjectCard key={p.id} project={p} />
+            {active.map((p, index) => (
+              <ProjectCard key={p.id} project={p} label={`Offer ${index + 1}`} />
             ))}
           </div>
         )}
@@ -115,7 +115,16 @@ export default async function ClientPortalPage({
   )
 }
 
-function ProjectCard({ project: p, compact = false }: { project: Project; compact?: boolean }) {
+function ProjectCard({
+  project: p,
+  compact = false,
+  label,
+}: {
+  project: Project
+  compact?: boolean
+  /** "Offer 1", "Offer 2" — the client's handle on this piece of work. */
+  label?: string
+}) {
   const due = parseDueDate(p.due_date)
   const dueStr = due?.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
   const isOverdue = isProjectOverdue(p.due_date, p.is_complete, p.lp_stage, p.creatives_stage)
@@ -142,9 +151,9 @@ function ProjectCard({ project: p, compact = false }: { project: Project; compac
             <span style={{ fontSize: compact ? 14 : 15, fontWeight: 700, color: 'var(--text-primary)' }}>
               {p.name}
             </span>
-            {p.marketing_moment && (
+            {label && (
               <span style={{ fontSize: 11, color: 'var(--text-muted)', background: 'var(--surface-raised)', border: '1px solid var(--border)', borderRadius: 5, padding: '1px 6px' }}>
-                Moment {p.marketing_moment}
+                {label}
               </span>
             )}
             {p.page_type && !compact && (
