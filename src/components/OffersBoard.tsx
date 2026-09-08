@@ -474,11 +474,16 @@ function NewOfferCardForm({
     setError(null)
     setPending(true)
     try {
-      const { redirect } = await createOfferCard(new FormData(e.currentTarget))
+      const result = await createOfferCard(new FormData(e.currentTarget))
+      if (result.error !== undefined) {
+        setError(result.error)
+        setPending(false)
+        return
+      }
       onDone()
-      router.push(redirect)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create offer card.')
+      router.push(result.redirect)
+    } catch {
+      setError('Failed to create offer card. Check your connection and try again.')
       setPending(false)
     }
   }

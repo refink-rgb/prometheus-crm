@@ -32,19 +32,28 @@ async function requireEditor() {
 // The cron (Phase 3) inserts through the same shape. Idempotency lives in the
 // DB unique index (brand_id, target_month, moment_slot); a duplicate comes
 // back as a friendly error, not a second card.
-export async function createOfferCard(formData: FormData): Promise<{ redirect: string }> {
-  const { supabase, user } = await requireEditor()
+//
+// Failures are RETURNED as { error }, not thrown: Next.js masks thrown
+// server-action errors in production, which turned every friendly message
+// into "An error occurred in the Server Components render".
+export async function createOfferCard(
+  formData: FormData
+): Promise<{ redirect: string; error?: undefined } | { error: string; redirect?: undefined }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!(await canEdit(user.email))) return { error: 'Not authorized.' }
 
   const brandId = (formData.get('brand_id') as string)?.trim()
   const monthRaw = (formData.get('target_month') as string)?.trim() // 'YYYY-MM' from <input type=month>
   const slotRaw = (formData.get('moment_slot') as string)?.trim()
   const momentSlot = slotRaw === '2' ? 2 : 1
-  if (!brandId || !/^\d{4}-\d{2}$/.test(monthRaw)) throw new Error('Brand and month are required.')
+  if (!brandId || !/^\d{4}-\d{2}$/.test(monthRaw)) return { error: 'Brand and month are required.' }
   const targetMonth = `${monthRaw}-01`
 
   const { data: brand, error: brandErr } = await supabase
     .from('brands').select('id, name').eq('id', brandId).single()
-  if (brandErr || !brand) throw new Error('Unknown brand.')
+  if (brandErr || !brand) return { error: 'Unknown brand.' }
 
   const { data, error } = await supabase
     .from('offer_cards')
@@ -60,9 +69,9 @@ export async function createOfferCard(formData: FormData): Promise<{ redirect: s
 
   if (error) {
     if (error.code === '23505') {
-      throw new Error(`An M${momentSlot} offer card for ${brand.name} already exists for that month.`)
+      return { error: `An M${momentSlot} offer card for ${brand.name} already exists for that month.` }
     }
-    throw new Error(`Failed to create offer card: ${error.message}`)
+    return { error: `Failed to create offer card: ${error.message}` }
   }
 
   revalidatePath('/offers')
