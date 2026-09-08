@@ -61,6 +61,29 @@ export default function CopyApprovalDeck({
 
   const total = columns.reduce((n, c) => n + c.lines.length, 0)
 
+  // Copy the deck out in one go. Grouped under its column heading and plain
+  // text, because the destination is Ads Manager, a brief, or Slack — not a
+  // spreadsheet. `which` follows what is on screen: with the approved set
+  // showing, "copy everything" means everything you can see, which is what
+  // anyone pressing it is looking at.
+  const [deckCopied, setDeckCopied] = useState<'all' | 'approved' | null>(null)
+  function copyDeck(which: 'all' | 'approved') {
+    const blocks = columns
+      .filter(c => c.lines.length)
+      .map(col => {
+        const lines = which === 'approved'
+          ? col.lines.filter(l => saved[l] === 'approved')
+          : col.lines
+        return lines.length ? `${col.label.toUpperCase()}\n${lines.join('\n')}` : null
+      })
+      .filter(Boolean)
+    if (!blocks.length) return
+    navigator.clipboard.writeText(blocks.join('\n\n'))
+      .then(() => { setDeckCopied(which); setTimeout(() => setDeckCopied(null), 1800) })
+      .catch(() => setErr('Could not reach the clipboard.'))
+  }
+  const approvedCount = columns.reduce((n, c) => n + c.lines.filter(l => saved[l] === 'approved').length, 0)
+
   // Once anything has been approved, the deck shows the approved set by default.
   // Nothing is deleted — a verdict changes what you look at, not what exists —
   // so this is reversible with one click and there is nothing to confirm.
@@ -120,6 +143,17 @@ export default function CopyApprovalDeck({
 
   return (
     <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+        <button onClick={() => copyDeck('all')} style={copyBtn(deckCopied === 'all')}>
+          {deckCopied === 'all' ? '✓ Copied' : `Copy all ${total} lines`}
+        </button>
+        {approvedCount > 0 && approvedCount < total && (
+          <button onClick={() => copyDeck('approved')} style={copyBtn(deckCopied === 'approved')}>
+            {deckCopied === 'approved' ? '✓ Copied' : `Copy ${approvedCount} approved`}
+          </button>
+        )}
+      </div>
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: 16 }}>
         {columns.filter(c => c.lines.length).map(col => (
           <div key={col.label}>
@@ -250,4 +284,12 @@ const mark = (on: boolean, colour: string): React.CSSProperties => ({
   border: `1px solid ${on ? colour : 'var(--border)'}`,
   background: on ? colour : 'transparent',
   color: on ? '#fff' : 'var(--text-muted)',
+})
+
+const copyBtn = (done: boolean): React.CSSProperties => ({
+  fontSize: 11.5, fontWeight: 700, padding: '5px 12px', borderRadius: 7, cursor: 'pointer',
+  border: `1px solid ${done ? 'var(--success)' : 'var(--border)'}`,
+  background: done ? 'color-mix(in srgb, var(--success) 12%, transparent)' : 'var(--surface-2)',
+  color: done ? 'var(--success)' : 'var(--text-secondary)',
+  transition: 'border-color 0.12s, background 0.12s, color 0.12s',
 })
