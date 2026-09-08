@@ -5,7 +5,6 @@ import { approveOfferAsClient, requestOfferChangesAsClient } from '@/lib/client-
 
 export interface ClientOfferSlide {
   id: string
-  monthLabel: string
   title: string
   /** The AI-written pitch — the body of the slide. */
   message: string | null
@@ -97,7 +96,8 @@ function OfferSlide({
       overflow: 'hidden',
       boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
     }}>
-      {/* Slide header — reads like a deck: which moment, and where in the set */}
+      {/* Slide header — the client's handle on this offer, and whether it
+          is one of several alternatives. */}
       <div style={{
         padding: '14px 28px',
         borderBottom: '1px solid var(--border)',
@@ -108,11 +108,11 @@ function OfferSlide({
           fontSize: 'var(--text-2xs)', fontWeight: 700, letterSpacing: '0.08em',
           textTransform: 'uppercase', color: 'var(--accent)',
         }}>
-          {slide.monthLabel} · Offer {index + 1}
+          Offer {index + 1}
         </span>
         {slide.optionLabel && (
           <span
-            title="We've put more than one option in front of you for this moment. Approve the one you want."
+            title="These are alternatives for the same slot — approve the one you want, not both."
             style={{
               fontSize: 'var(--text-2xs)', fontWeight: 700, whiteSpace: 'nowrap',
               color: 'var(--text-secondary)', background: 'var(--surface)',
@@ -190,7 +190,7 @@ function OfferSlide({
       <div style={{ padding: '16px 28px 24px' }}>
         {done === 'approved' ? (
           <p style={{ fontSize: 16, fontWeight: 700, color: 'var(--success)' }}>
-            ✓ Approved — thank you. We&rsquo;ll start building this moment.
+            ✓ Approved — thank you. We&rsquo;ll start building it.
           </p>
         ) : done === 'sent' ? (
           <p style={{ fontSize: 16, fontWeight: 700, color: 'var(--warning)' }}>

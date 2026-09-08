@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { createServiceClient } from '@/lib/supabase/service'
-import { offerMonthLabel, type OfferCard } from '@/lib/types'
+import type { OfferCard } from '@/lib/types'
 import ClientOfferDeck, { type ClientOfferSlide } from '@/components/ClientOfferDeck'
 import ThemeToggle from '@/components/ThemeToggle'
 
@@ -68,7 +68,6 @@ export default async function OfferApprovalPage({
 
     return {
       id: card.id,
-      monthLabel: offerMonthLabel(card.target_month),
       title: card.offer?.trim() || card.name,
       message: card.client_approval_message,
       mechanics: card.offer_dynamics_type,
