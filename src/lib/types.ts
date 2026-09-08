@@ -558,6 +558,14 @@ export interface OfferCard {
   changes_requested_at: string | null
   changes_requested_by: string | null
   changes_requested_note: string | null
+  // The client's own answer, recorded from the brand's approval link. Kept
+  // apart from the internal sign-offs above: those gate Internal Review and
+  // reset, these are an external audit trail.
+  client_approved_at: string | null
+  client_approved_by: string | null
+  client_changes_requested_at: string | null
+  client_changes_requested_by: string | null
+  client_changes_requested_note: string | null
   // Production card auto-created on approval (Phase 3). Null until then.
   derived_production_card_id: string | null
   created_at: string

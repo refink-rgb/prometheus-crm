@@ -25,6 +25,7 @@ import {
 } from '@/lib/offer-actions'
 import { offerCompletion, type OfferHistoryEntry } from '@/lib/offer-history'
 import { offerApprovalState } from '@/lib/offer-approvals'
+import ClientOfferLink from '@/components/ClientOfferLink'
 import { offerCardMarkdown } from '@/lib/markdown-export'
 import Avatar from '@/components/Avatar'
 import ClientApprovalMessage from '@/components/ClientApprovalMessage'
@@ -54,7 +55,7 @@ const TABS: Array<{ id: WorkspaceTab; label: string; short: string }> = [
 ]
 
 type OfferBrand = Pick<Brand,
-  'id' | 'name' | 'website' | 'brand_notes' | 'growth_strategist' | 'profit_engineer' | 'start_date'
+  'id' | 'name' | 'website' | 'brand_notes' | 'growth_strategist' | 'profit_engineer' | 'start_date' | 'client_token'
 >
 
 type OfferDna = Pick<BrandDna,
@@ -291,6 +292,42 @@ export default function OfferCardDetail({
           })}
         </div>
       </section>
+
+      {/* The client's own answer, and the link that produced it. Both only
+          matter while the offer is actually with the client. */}
+      {card.stage === 'client_review' && (
+        <>
+          {card.client_changes_requested_at && card.client_changes_requested_note && (
+            <div style={{
+              background: 'color-mix(in srgb, var(--warning) 8%, var(--surface))',
+              border: '1px solid color-mix(in srgb, var(--warning) 30%, transparent)',
+              borderRadius: 10, padding: '12px 15px', marginBottom: 16,
+            }}>
+              <div style={{ fontSize: 'var(--text-sm)', fontWeight: 700, color: 'var(--warning)', marginBottom: 4 }}>
+                Client requested changes{card.client_changes_requested_by ? ` — ${card.client_changes_requested_by}` : ''}
+              </div>
+              <p style={{ fontSize: 'var(--text-base)', color: 'var(--text-secondary)', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>
+                {card.client_changes_requested_note}
+              </p>
+            </div>
+          )}
+          {isEditor && <ClientOfferLink brandId={brand.id} clientToken={brand.client_token} />}
+        </>
+      )}
+
+      {/* The client approved from their link — the stamp outlives the stage. */}
+      {card.client_approved_at && (
+        <div style={{
+          display: 'flex', gap: 9, alignItems: 'center',
+          background: 'color-mix(in srgb, var(--success) 8%, var(--surface))',
+          border: '1px solid color-mix(in srgb, var(--success) 30%, transparent)',
+          borderRadius: 10, padding: '11px 15px', marginBottom: 16, fontSize: 'var(--text-sm)',
+        }}>
+          <span style={{ color: 'var(--success)', fontWeight: 700 }}>
+            ✓ Approved by the client{card.client_approved_by ? ` — ${card.client_approved_by}` : ''}
+          </span>
+        </div>
+      )}
 
       {/* What the internal approvers sent back. Sits above everything so the
           strategist reads the reason before the form they need to change. */}

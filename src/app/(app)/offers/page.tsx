@@ -24,7 +24,7 @@ export default async function OffersPage() {
   ] = await Promise.all([
     supabase
       .from('offer_cards')
-      .select('id, brand_id, target_month, moment_slot, name, stage, assigned_to, offer_dynamics_type, offer, offer_description, product_featured, product_description, retail_price, page_type, competitor_reference, client_ad_inspiration, product_images_link, problem_statement, success_metric, success_target, guardrails, client_approval_message, strategist_approved_at, strategist_approved_by, engineer_approved_at, engineer_approved_by, changes_requested_at, changes_requested_by, changes_requested_note, derived_production_card_id, created_at, created_by, brands(id, name)')
+      .select('id, brand_id, target_month, moment_slot, name, stage, assigned_to, offer_dynamics_type, offer, offer_description, product_featured, product_description, retail_price, page_type, competitor_reference, client_ad_inspiration, product_images_link, problem_statement, success_metric, success_target, guardrails, client_approval_message, strategist_approved_at, strategist_approved_by, engineer_approved_at, engineer_approved_by, changes_requested_at, changes_requested_by, changes_requested_note, client_approved_at, client_approved_by, client_changes_requested_at, client_changes_requested_by, client_changes_requested_note, derived_production_card_id, created_at, created_by, brands(id, name)')
       .order('target_month', { ascending: false })
       .order('moment_slot', { ascending: true }),
     supabase

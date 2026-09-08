@@ -21,7 +21,8 @@ export default function OfferPreviewPage() {
     id: 'preview-brand', name: 'Evergreen Goods', website: 'https://example.com',
     brand_notes: 'Protect the premium position. The client prefers value-add language over sale language.',
     growth_strategist: 'Lucas', profit_engineer: 'Roberto', start_date: '2025-04-01',
-  } as Pick<Brand, 'id' | 'name' | 'website' | 'brand_notes' | 'growth_strategist' | 'profit_engineer' | 'start_date'>
+    client_token: 'a'.repeat(40),
+  } as Pick<Brand, 'id' | 'name' | 'website' | 'brand_notes' | 'growth_strategist' | 'profit_engineer' | 'start_date' | 'client_token'>
   const dna = {
     tagline: 'Better rituals, every day.', positioning: 'Premium daily essentials designed to simplify high-quality routines.',
     competitive_differentiation: 'A tight, interoperable system instead of a sprawling catalog.',

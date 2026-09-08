@@ -815,6 +815,22 @@ function OfferCardTileInner({
                 {card.offer_dynamics_type}
               </span>
             )}
+            {/* The client came back asking for something — the card stays in
+                Client Review, so without this the board looks untouched. */}
+            {card.stage === 'client_review' && card.client_changes_requested_at && (
+              <span
+                title={card.client_changes_requested_note ?? 'The client asked for changes'}
+                style={{
+                  fontSize: 'var(--text-2xs)', fontWeight: 700, whiteSpace: 'nowrap',
+                  color: 'var(--warning)',
+                  background: 'color-mix(in srgb, var(--warning) 12%, transparent)',
+                  border: '1px solid color-mix(in srgb, var(--warning) 28%, transparent)',
+                  borderRadius: 5, padding: '2px 6px',
+                }}
+              >
+                client: changes
+              </span>
+            )}
             {card.stage === 'internal_offer_review' && (() => {
               const approval = offerApprovalState(card)
               const tone = approval.count === 2 ? 'var(--success)' : 'var(--stage-internal-text)'

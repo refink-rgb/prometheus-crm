@@ -8,7 +8,7 @@ import { buildOfferHistory, type OfferHistoryCard, type OfferHistoryProject } fr
 import OfferCardDetail from '@/components/OfferCardDetail'
 
 type OfferBrand = Pick<Brand,
-  'id' | 'name' | 'website' | 'brand_notes' | 'growth_strategist' | 'profit_engineer' | 'start_date'
+  'id' | 'name' | 'website' | 'brand_notes' | 'growth_strategist' | 'profit_engineer' | 'start_date' | 'client_token'
 >
 type OfferWithBrand = OfferCard & { brands: OfferBrand }
 
@@ -30,7 +30,7 @@ export default async function OfferPage({
   const [{ data: cardRaw }, profiles] = await Promise.all([
     supabase
       .from('offer_cards')
-      .select('*, brands(id, name, website, brand_notes, growth_strategist, profit_engineer, start_date)')
+      .select('*, brands(id, name, website, brand_notes, growth_strategist, profit_engineer, start_date, client_token)')
       .eq('id', offerId)
       .single(),
     getCachedProfiles(),
