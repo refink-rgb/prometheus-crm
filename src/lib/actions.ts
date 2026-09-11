@@ -191,6 +191,59 @@ export async function createProject(formData: FormData): Promise<{ redirect: str
   return { redirect: `/brands/${brandId}/projects/${data.id}` }
 }
 
+// ── Sending creatives to the client ─────────────────────────────────────────
+//
+// Entering client_review on the creatives track IS "sent to client" — it emits
+// the sent_to_client event and the client's review link starts showing the set.
+// If nothing is client_visible, that link is an empty page with the client's
+// name on it.
+//
+// Enforced HERE and not only in the UI, because four different surfaces move a
+// stage — the stage tracker, the Next-step bar, a Kanban drag, and the combined
+// two-track move — and a check in three of them is a check in none.
+
+export interface ClientVisibility {
+  /** Creatives on the project, hidden ones excluded. */
+  total: number
+  /** Of those, how many the client can actually see. */
+  visible: number
+}
+
+export async function creativeClientVisibility(projectId: string): Promise<ClientVisibility> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  const { data } = await supabase
+    .from('creative_assets')
+    .select('client_visible')
+    .eq('project_id', projectId)
+    .eq('is_hidden', false)
+
+  const rows = (data ?? []) as { client_visible: boolean | null }[]
+  return { total: rows.length, visible: rows.filter(r => r.client_visible).length }
+}
+
+/** Throws when a creatives track is being sent to a client with nothing to show. */
+async function assertCreativesSendable(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  projectId: string,
+) {
+  const { data } = await supabase
+    .from('creative_assets')
+    .select('client_visible')
+    .eq('project_id', projectId)
+    .eq('is_hidden', false)
+
+  const rows = (data ?? []) as { client_visible: boolean | null }[]
+  if (rows.length === 0) {
+    throw new Error('This project has no creatives yet, so there is nothing for the client to review. Sync the Drive folder first.')
+  }
+  if (!rows.some(r => r.client_visible)) {
+    throw new Error(`None of the ${rows.length} creatives are visible to the client, so the review link would be empty. Tick "Visible to client" on the ones you want to send, or use "Send approved to client".`)
+  }
+}
+
 export async function updateProjectStage(
   projectId: string,
   brandId: string,
@@ -201,6 +254,10 @@ export async function updateProjectStage(
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
   if (!(await canEdit(user.email))) throw new Error('Not authorized.')
+
+  if (track === 'creatives_stage' && stage === 'client_review') {
+    await assertCreativesSendable(supabase, projectId)
+  }
 
   // Event log needs the from-stage, so read before writing. Skipped entirely
   // when instrumentation is killed via PROMETHEUS_EVENTS_DISABLED.
@@ -294,6 +351,10 @@ export async function updateProjectStagesBoth(
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
   if (!(await canEdit(user.email))) throw new Error('Not authorized.')
+
+  if (stage === 'client_review') {
+    await assertCreativesSendable(supabase, projectId)
+  }
 
   const prev = eventsEnabled()
     ? (await supabase.from('projects').select('lp_stage, creatives_stage, marketing_moment').eq('id', projectId).single()).data

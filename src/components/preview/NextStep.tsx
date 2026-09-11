@@ -2,7 +2,8 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { updateProjectStage } from '@/lib/actions'
+import { updateProjectStage, creativeClientVisibility } from '@/lib/actions'
+import { useConfirm } from '@/components/ConfirmDialog'
 import { normalizeStage, STAGE_LABELS, type Stage } from '@/lib/types'
 
 // "Where do I submit my work?"
@@ -48,14 +49,45 @@ export default function NextStep({
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [err, setErr] = useState('')
+  const confirm = useConfirm()
 
   const current = normalizeStage(stage)
   const next = NEXT[current]
   const waiting = WAITING[current]
 
-  function advance() {
+  async function advance() {
     if (!next) return
     setErr('')
+
+    // Same gate as the stage tracker: client_review on the creatives track is
+    // the moment the review link goes to the client.
+    if (track === 'creatives_stage' && next.to === 'client_review') {
+      let v: { total: number; visible: number }
+      try { v = await creativeClientVisibility(projectId) }
+      catch { v = { total: 1, visible: 1 } }   // read failed — let the server decide
+
+      if (v.visible === 0) {
+        await confirm({
+          title: v.total === 0 ? 'No creatives on this project' : 'Nothing is visible to the client',
+          message: v.total === 0
+            ? 'There are no creatives here yet, so the review link would be an empty page. Sync the Drive folder first.'
+            : `None of the ${v.total} creatives are ticked "Visible to client", so the review link would be an empty page. Tick the ones you want to send, or use "Send approved to client".`,
+          confirmLabel: 'Got it',
+          danger: true,
+        })
+        return
+      }
+      if (v.visible < v.total) {
+        const hidden = v.total - v.visible
+        const ok = await confirm({
+          title: `Send ${v.visible} of ${v.total} creatives?`,
+          message: `${hidden} creative${hidden === 1 ? '' : 's'} ${hidden === 1 ? 'is' : 'are'} not visible to the client and will not appear on the review link.`,
+          confirmLabel: `Send ${v.visible}`,
+        })
+        if (!ok) return
+      }
+    }
+
     startTransition(async () => {
       try {
         await updateProjectStage(projectId, brandId, track, next.to)

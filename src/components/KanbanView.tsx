@@ -72,6 +72,9 @@ export default function KanbanView({
   const [, startTransition] = useTransition()
 
   const [localProjects, setLocalProjects] = useState(pipeline)
+  // A refused drag (e.g. sending creatives to a client with nothing visible)
+  // must say why, not just snap the card back.
+  const [dragErr, setDragErr] = useState('')
   useEffect(() => setLocalProjects(pipeline), [pipeline])
 
   const [search, setSearch] = useState('')
@@ -193,6 +196,7 @@ export default function KanbanView({
     setLocalProjects(prev => prev.map(p =>
       p.id === card.id ? { ...p, ...patch } : p
     ))
+    setDragErr('')
     startTransition(async () => {
       try {
         if (trackView === 'combined') {
@@ -206,8 +210,11 @@ export default function KanbanView({
           )
         }
         router.refresh()
-      } catch {
+      } catch (e) {
+        // Rolling back silently left the card snapping home with no reason
+        // given — and the commonest refusal now is a deliberate one.
         setLocalProjects(snapshot)
+        setDragErr(e instanceof Error ? e.message : 'Could not move that card.')
       }
     })
   }, [localProjects, router, startTransition, trackView])
@@ -242,6 +249,19 @@ export default function KanbanView({
 
   return (
     <section style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+      {dragErr && (
+        <div
+          role="alert"
+          onClick={() => setDragErr('')}
+          title="Dismiss"
+          style={{
+            marginBottom: 12, padding: '9px 13px', borderRadius: 10, cursor: 'pointer',
+            fontSize: 12.5, color: 'var(--danger)',
+            background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)',
+          }}
+        >{dragErr}</div>
+      )}
+
       {/* Toolbar — one row: what to search, how to column, what to show.
           Mutually exclusive choices are segmented controls, on/off ones are
           toggle chips, so the shape of a control says how it behaves. */}

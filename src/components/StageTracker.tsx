@@ -1,8 +1,9 @@
 'use client'
 
-import { useOptimistic, useTransition } from 'react'
+import { useOptimistic, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { updateProjectStage } from '@/lib/actions'
+import { updateProjectStage, creativeClientVisibility } from '@/lib/actions'
+import { useConfirm } from '@/components/ConfirmDialog'
 import { STAGE_ORDER, STAGE_LABELS, STAGE_COLORS, normalizeStage, type Stage } from '@/lib/stageColors'
 
 interface StageTrackerProps {
@@ -36,18 +37,59 @@ export default function StageTracker({
     normalizeStage(currentStage),
     (_current: Stage, newStage: Stage) => newStage
   )
+  const confirm = useConfirm()
+  const [err, setErr] = useState('')
   const optimisticIndex = STAGE_ORDER.indexOf(optimisticStage)
   const trackTag = track === 'lp_stage' ? 'LP' : 'CRE'
   const currColors = STAGE_COLORS[optimisticStage]
   const nextStage = STAGE_ORDER[optimisticIndex + 1] as Stage | undefined
   const prevStage = STAGE_ORDER[optimisticIndex - 1] as Stage | undefined
 
-  function moveTo(stage: Stage) {
+  async function moveTo(stage: Stage) {
     if (disabled || isPending || stage === optimisticStage) return
+
+    // Entering client review on the creatives track IS "sent to client" — the
+    // link goes out and the event fires. Stop it reaching a client as an empty
+    // page, and warn before sending a partial set, which is almost always an
+    // asset someone forgot to tick rather than a decision.
+    if (track === 'creatives_stage' && stage === 'client_review') {
+      let v: { total: number; visible: number }
+      try { v = await creativeClientVisibility(projectId) }
+      catch { v = { total: 1, visible: 1 } }   // read failed — let the server decide
+
+      if (v.visible === 0) {
+        await confirm({
+          title: v.total === 0 ? 'No creatives on this project' : 'Nothing is visible to the client',
+          message: v.total === 0
+            ? 'There are no creatives here yet, so the review link would be an empty page. Sync the Drive folder first.'
+            : `None of the ${v.total} creatives are ticked "Visible to client", so the review link would be an empty page. Tick the ones you want to send, or use "Send approved to client".`,
+          confirmLabel: 'Got it',
+          danger: true,
+        })
+        return
+      }
+      if (v.visible < v.total) {
+        const hidden = v.total - v.visible
+        const ok = await confirm({
+          title: `Send ${v.visible} of ${v.total} creatives?`,
+          message: `${hidden} creative${hidden === 1 ? '' : 's'} ${hidden === 1 ? 'is' : 'are'} not visible to the client and will not appear on the review link.`,
+          confirmLabel: `Send ${v.visible}`,
+        })
+        if (!ok) return
+      }
+    }
+
     startTransition(async () => {
       setOptimisticStage(stage)
-      await updateProjectStage(projectId, brandId, track, stage)
-      router.refresh()
+      try {
+        await updateProjectStage(projectId, brandId, track, stage)
+        router.refresh()
+      } catch (e) {
+        // There was no catch here at all — a refused move threw into nothing
+        // and the optimistic stage silently stuck.
+        setOptimisticStage(normalizeStage(currentStage))
+        setErr(e instanceof Error ? e.message : 'Could not move the stage.')
+      }
     })
   }
 
@@ -63,6 +105,12 @@ export default function StageTracker({
         transition: 'opacity 0.15s',
       }}
     >
+      {err && (
+        <div style={{ marginBottom: 14, padding: '8px 12px', borderRadius: 10, fontSize: 12, color: 'var(--danger)', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)' }}>
+          {err}
+        </div>
+      )}
+
       {/* Header: which track, and where it is right now in words. */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
         <span style={{
