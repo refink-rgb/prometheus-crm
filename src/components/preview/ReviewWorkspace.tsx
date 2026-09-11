@@ -450,7 +450,11 @@ export default function ReviewWorkspace({
           <button
             key={v}
             disabled={pending}
-            title={on ? 'Click again to clear this verdict' : undefined}
+            title={
+              on ? 'Click again to clear this verdict'
+              : v === 'approved' ? 'Approving also puts this on the client review link'
+              : undefined
+            }
             onClick={async () => {
               // Reject archives the Drive file and sets is_hidden, and the
               // parent passes !is_hidden assets only — so the ad LEAVES this
@@ -525,7 +529,7 @@ export default function ReviewWorkspace({
         onChange={e => run(() => setAssetClientVisible(a.id, e.target.checked, projectId, brandId))}
         style={{ width: 'auto', margin: 0 }}
       />
-      <span style={{ fontSize: 12, fontWeight: 600 }}>Visible to client</span>
+      <span style={{ fontSize: 12, fontWeight: 600 }} title="Approving internally turns this on. Untick it to take the ad back off the link.">Visible to client</span>
       <span style={{ marginLeft: 'auto', fontSize: 11, color: a.client_visible ? 'var(--success)' : 'var(--text-muted)' }}>
         {a.client_visible ? 'on the review link' : 'hidden'}
       </span>

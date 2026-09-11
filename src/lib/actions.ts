@@ -1965,11 +1965,43 @@ export async function updateAssetStatusInternal(
   if (!user) redirect('/login')
   if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
-  // INTERNAL QC writes its OWN column — never the client-facing `status`. This
-  // keeps an internal approve/reject from showing up on the client review link.
+  // INTERNAL QC writes its OWN column — never the client-facing `status`. An
+  // internal verdict must not show up as the CLIENT's verdict on their link.
+  const patch: Record<string, unknown> = { internal_status: status }
+
+  // Approving internally now also puts the ad in front of the client.
+  //
+  // The two were separate steps and the second one kept not happening: 102
+  // finished creatives across four projects were internally approved and
+  // invisible to the client, and three projects reached client review with an
+  // empty link. "Approved" plainly means "the client should see this".
+  //
+  // Publishing follows the same rule as publishAssets: an ad with an uploaded
+  // edit publishes that edit; an ad without one just becomes visible and the
+  // client sees the Drive original.
+  //
+  // Deliberately ONE-WAY. Un-approving does NOT hide it again — by then the
+  // client may already be looking at it and commenting, and yanking an ad out
+  // from under them is a decision someone should make on purpose. The
+  // "Visible to client" switch stays the way to take it back off.
+  if (status === 'approved') {
+    const { data: cur } = await supabase
+      .from('creative_assets')
+      .select('revision_url, client_visible, is_hidden')
+      .eq('id', assetId)
+      .single()
+    const row = cur as { revision_url: string | null; client_visible: boolean | null; is_hidden: boolean | null } | null
+    // A hidden asset stays hidden. It was archived for a reason and the client
+    // link filters it out anyway, so publishing it would be a lie in the UI.
+    if (row && !row.is_hidden) {
+      patch.client_visible = true
+      if (row.revision_url) patch.published_url = row.revision_url
+    }
+  }
+
   const { error } = await supabase
     .from('creative_assets')
-    .update({ internal_status: status })
+    .update(patch)
     .eq('id', assetId)
     .eq('project_id', projectId)
 
