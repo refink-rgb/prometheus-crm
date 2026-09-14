@@ -15,7 +15,7 @@ import { isProjectOverdue, phaseDueTone, STAGE_COLORS, STAGE_DUE_FIELD } from '@
 import KanbanCard from './KanbanCard'
 import CopyMarkdownButton from '@/components/CopyMarkdownButton'
 import { pipelineMarkdown } from '@/lib/markdown-export'
-import { Search, Hourglass, UserRound, Users, ChevronDown, X } from 'lucide-react'
+import { Search, Hourglass, UserRound, Users, Building2, ChevronDown, X } from 'lucide-react'
 
 type PipelineProject = Project & { brands: { id: string; name: string } }
 type StatusFilter = 'all' | 'overdue' | 'in_review'
@@ -36,6 +36,7 @@ type SavedFilters = {
   filterWaiting: boolean
   editor: EditorFilter
   mineOnly: boolean
+  brand: string
 }
 
 function isEditedBy(p: PipelineProject, profileId: string): boolean {
@@ -82,6 +83,8 @@ export default function KanbanView({
   const [status, setStatus] = useState<StatusFilter>('all')
   const [filterWaiting, setFilterWaiting] = useState(false)
   const [editor, setEditor] = useState<EditorFilter>('all')
+  // A brand id, or 'all'. Exact, where the search box is fuzzy.
+  const [brand, setBrand] = useState<string>('all')
   const [mineOnly, setMineOnly] = useState(false)
   const deferredSearch = useDeferredValue(search)
 
@@ -103,16 +106,18 @@ export default function KanbanView({
         if (typeof saved.mineOnly === 'boolean') setMineOnly(saved.mineOnly)
         // An editor who has since left the roster would filter to an empty board.
         if (typeof saved.editor === 'string' && (saved.editor === 'all' || saved.editor === 'unassigned' || editors.some(e => e.id === saved.editor))) setEditor(saved.editor)
+        // A brand with no active projects any more would filter to an empty board.
+        if (typeof saved.brand === 'string' && (saved.brand === 'all' || pipeline.some(p => p.brands.id === saved.brand))) setBrand(saved.brand)
       }
     } catch { /* private window or unreadable value — start clean */ }
     setFiltersReady(true)
     /* eslint-enable react-hooks/set-state-in-effect */
-  }, [editors])
+  }, [editors, pipeline])
   useEffect(() => {
     if (!filtersReady) return
-    const snapshot: SavedFilters = { search, trackView, status, filterWaiting, editor, mineOnly }
+    const snapshot: SavedFilters = { search, trackView, status, filterWaiting, editor, mineOnly, brand }
     try { localStorage.setItem(FILTERS_KEY, JSON.stringify(snapshot)) } catch { /* ignore */ }
-  }, [filtersReady, search, trackView, status, filterWaiting, editor, mineOnly])
+  }, [filtersReady, search, trackView, status, filterWaiting, editor, mineOnly, brand])
 
   const myCount = useMemo(
     () => (currentProfileId ? localProjects.filter(p => isEditedBy(p, currentProfileId)).length : 0),
@@ -125,6 +130,12 @@ export default function KanbanView({
   // Memoized so KanbanCard's memo() holds: a Map built inline would be a new
   // reference on every render and re-render every card on the board.
   const editorsById = useMemo(() => new Map(editors.map(p => [p.id, p])), [editors])
+
+  const brandOptions = useMemo(() => {
+    const seen = new Map<string, string>()
+    for (const p of localProjects) seen.set(p.brands.id, p.brands.name)
+    return [...seen].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name))
+  }, [localProjects])
 
   const [activeId, setActiveId] = useState<string | null>(null)
   const [overId, setOverId] = useState<string | null>(null)
@@ -143,6 +154,7 @@ export default function KanbanView({
     const q = deferredSearch.trim().toLowerCase()
     return localProjects.filter(p => {
       if (q && !p.brands.name.toLowerCase().includes(q)) return false
+      if (brand !== 'all' && p.brands.id !== brand) return false
       if (status === 'overdue' && !isProjectOverdue(p.due_date, p.is_complete, p.lp_stage, p.creatives_stage)) return false
       if (status === 'in_review' && !(p.lp_stage === 'client_review' || p.creatives_stage === 'client_review')) return false
       if (filterWaiting && !isWaitingOnClient(p)) return false
@@ -151,13 +163,14 @@ export default function KanbanView({
       if (editor !== 'all' && editor !== 'unassigned' && !isEditedBy(p, editor)) return false
       return true
     })
-  }, [localProjects, deferredSearch, status, filterWaiting, editor, mineActive, currentProfileId])
+  }, [localProjects, deferredSearch, brand, status, filterWaiting, editor, mineActive, currentProfileId])
 
   // Names the active filters in the exported header, so a pasted table is not
   // mistaken for the whole pipeline.
   function filterNote(): string | undefined {
     const parts: string[] = []
     if (deferredSearch.trim()) parts.push(`search "${deferredSearch.trim()}"`)
+    if (brand !== 'all') parts.push(`brand ${brandOptions.find(b => b.id === brand)?.name ?? brand}`)
     if (status === 'overdue') parts.push('overdue only')
     if (status === 'in_review') parts.push('in client review')
     if (filterWaiting) parts.push('waiting on client')
@@ -242,9 +255,9 @@ export default function KanbanView({
 
   // The track view is a way of reading the board, not a filter; it is left
   // alone by Clear.
-  const filterCount = [deferredSearch.trim() !== '', status !== 'all', filterWaiting, mineActive, editor !== 'all'].filter(Boolean).length
+  const filterCount = [deferredSearch.trim() !== '', brand !== 'all', status !== 'all', filterWaiting, mineActive, editor !== 'all'].filter(Boolean).length
   function clearFilters() {
-    setSearch(''); setStatus('all'); setFilterWaiting(false); setMineOnly(false); setEditor('all')
+    setSearch(''); setBrand('all'); setStatus('all'); setFilterWaiting(false); setMineOnly(false); setEditor('all')
   }
 
   return (
@@ -277,6 +290,51 @@ export default function KanbanView({
             style={{ width: 220, fontSize: 'var(--text-sm)', padding: '7px 12px 7px 34px', borderRadius: 20, background: 'var(--surface)' }}
           />
         </div>
+
+        {/* Brand filter: exact, where the search box is fuzzy. Same chip
+            dress as the editor filter; lit in the accent when a brand is picked. */}
+        {(() => {
+          const picked = brand !== 'all'
+          const tint = 'var(--accent)'
+          return (
+            <div
+              style={{
+                position: 'relative', display: 'inline-flex', alignItems: 'center',
+                borderRadius: 20,
+                border: `1px solid ${picked ? `color-mix(in srgb, ${tint} 55%, transparent)` : 'var(--border)'}`,
+                background: picked ? `color-mix(in srgb, ${tint} 14%, var(--surface))` : 'var(--surface)',
+                color: picked ? tint : 'var(--text-secondary)',
+                transition: 'all 0.15s',
+              }}
+            >
+              <Building2 size={13} strokeWidth={2} aria-hidden style={{ position: 'absolute', left: 12, pointerEvents: 'none' }} />
+              <select
+                value={brand}
+                onChange={e => setBrand(e.target.value)}
+                aria-label="Filter by brand"
+                style={{
+                  width: 'auto', maxWidth: 240,
+                  appearance: 'none', WebkitAppearance: 'none',
+                  fontSize: 'var(--text-sm)',
+                  fontWeight: picked ? 600 : 500,
+                  padding: '6px 30px 6px 32px',
+                  borderRadius: 20,
+                  border: 'none',
+                  background: 'transparent',
+                  color: 'inherit',
+                  cursor: 'pointer',
+                  textOverflow: 'ellipsis',
+                }}
+              >
+                <option value="all">All brands</option>
+                {brandOptions.map(b => (
+                  <option key={b.id} value={b.id}>{b.name}</option>
+                ))}
+              </select>
+              <ChevronDown size={13} strokeWidth={2} aria-hidden style={{ position: 'absolute', right: 11, pointerEvents: 'none' }} />
+            </div>
+          )
+        })()}
 
         {/* Which track's stage the board columns by */}
         <Segmented
