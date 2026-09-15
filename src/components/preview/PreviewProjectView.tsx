@@ -15,7 +15,8 @@ import FinalOutputField from '@/components/FinalOutputField'
 import EditorPicker from '@/components/EditorPicker'
 import { editorsFor } from '@/lib/types'
 import { profileName } from '@/lib/types'
-import type { TrackedCampaign } from '@/lib/results'
+import type { TrackedCampaign, LpTracking, LpAdMatch, FunnelDailyRow } from '@/lib/results'
+import ProjectResultsPanel from '@/components/ProjectResultsPanel'
 import { hypercareFor, hypercareCopyMessage } from '@/lib/hypercare'
 import ShareButton from '@/components/ShareButton'
 import { Pencil } from 'lucide-react'
@@ -161,7 +162,7 @@ function Missing({ tone = 'muted', children }: { tone?: 'warn' | 'muted'; childr
   )
 }
 
-type Tab = 'overview' | 'lp' | 'creatives'
+type Tab = 'overview' | 'lp' | 'creatives' | 'results'
 
 /** One row of the brand's landing-page history. */
 export type BrandLandingPage = {
@@ -213,6 +214,7 @@ function CommentList({ comments, empty }: { comments: ProjectComment[]; empty: s
 
 export default function PreviewProjectView({
   project: p, brand, assets, comments, images, dna, revisionsByAsset, lpEditorName, creativeEditorName, journeyName, journeys, profiles, campaigns, todayIso, authorName, brandLandingPages, brandComments, brandDocuments, currentUserId,
+  lpTracking, lpAdMatches, lpDaily, accountDaily, nowMs,
 }: {
   project: Project; brand: Brand; assets: CreativeAsset[]; comments: ProjectComment[]
   images: ProjectImage[]; dna: BrandDna | null
@@ -225,6 +227,12 @@ export default function PreviewProjectView({
   currentUserId: string | null
   /** Who a note typed here is attributed to. */
   authorName: string
+  /** Results tab data — see 20260915_add_lp_results.sql. */
+  lpTracking: LpTracking | null
+  lpAdMatches: LpAdMatch[]
+  lpDaily: FunnelDailyRow[]
+  accountDaily: FunnelDailyRow[]
+  nowMs: number
 }) {
   const [tab, setTab] = useState<Tab>('overview')
 
@@ -434,7 +442,13 @@ export default function PreviewProjectView({
     { id: 'review', label: 'Review', show: true },
   ]).filter(n => n.show), [hasAdCopy, products.length, competitors.length])
 
-  const activeNav = tab === 'overview' ? overviewNav : tab === 'lp' ? lpNav : creativesNav
+  // Results has no sub-sections — its nav is empty and the rail collapses to
+  // just the toggle. Memoized so the scroll-spy effect's dependency stays
+  // stable across renders.
+  const activeNav = useMemo(
+    () => (tab === 'overview' ? overviewNav : tab === 'lp' ? lpNav : tab === 'creatives' ? creativesNav : []),
+    [tab, overviewNav, lpNav, creativesNav],
+  )
 
   // Scroll-spy. This was written once before and silently did nothing — the edit
   // anchored on a line that had already changed, so activeSection stayed null and
@@ -729,7 +743,7 @@ export default function PreviewProjectView({
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 24, borderBottom: '1px solid var(--border)', marginBottom: 20 }}>
-        {([['overview', 'Project Overview', null], ['lp', 'Landing Page', lpOpen.length || null], ['creatives', 'Creatives', visibleAssets.length]] as const).map(([k, label, count]) => (
+        {([['overview', 'Project Overview', null], ['lp', 'Landing Page', lpOpen.length || null], ['creatives', 'Creatives', visibleAssets.length], ['results', 'Results', null]] as const).map(([k, label, count]) => (
           <button key={k} onClick={() => setTab(k as Tab)} style={{
             background: 'none', border: 'none', cursor: 'pointer', padding: '10px 0 12px',
             fontSize: 13, fontWeight: tab === k ? 700 : 500,
@@ -813,6 +827,22 @@ export default function PreviewProjectView({
         </nav>
 
         <div style={{ minWidth: 0 }}>
+          {tab === 'results' && (
+            <ProjectResultsPanel
+              projectId={p.id}
+              brandId={p.brand_id}
+              projectLpUrl={p.lp_url}
+              resultsClientVisible={p.results_client_visible ?? false}
+              canEdit
+              tracking={lpTracking}
+              matches={lpAdMatches}
+              lpDaily={lpDaily}
+              accountDaily={accountDaily}
+              todayIso={todayIso}
+              nowMs={nowMs}
+              knownAdAccounts={[...new Set(campaigns.map(c => c.meta_ad_account_id))]}
+            />
+          )}
           {tab === 'overview' && (
             <>
               {/* First thing on the tab, by design — "anytime you open up a

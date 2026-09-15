@@ -5,7 +5,12 @@ import { addDaysIso } from '@/lib/results'
 import {
   parsePayload,
   validateRows,
+  validateLpRows,
+  validateAccountRows,
+  validateDiscoveredAds,
+  type AccountRef,
   type CampaignRef,
+  type LpTrackingRef,
   type RawResultRow,
   type RejectedRow,
   type ValidatedRow,
@@ -205,6 +210,139 @@ export async function GET(request: Request) {
     })
   }
 
+  // ── LP-scoped work (see 20260915_add_lp_results.sql) ─────────────────────
+  // Three jobs per live lp_tracking row, all described here so the agent
+  // stays stateless: (1) DISCOVER ads whose destination is the LP URL and
+  // report any not already known, (2) pull the daily breakdown for the
+  // INCLUDED ads, (3) once per account, pull whole-account daily totals for
+  // the rest-of-account comparison.
+  let lpQuery = supabase
+    .from('lp_tracking')
+    .select('id, project_id, brand_id, meta_ad_account_id, lp_url, launched_on, ended_on, projects(name), brands(id, name)')
+    .order('launched_on', { ascending: false })
+  if (!includeEnded) lpQuery = lpQuery.is('ended_on', null)
+  if (brandId) lpQuery = lpQuery.eq('brand_id', brandId)
+
+  const { data: lpTrackingsRaw, error: lpErr } = await lpQuery
+  // Tolerant of the 20260915 migration not having run yet: the campaign half
+  // of the work list must not go down because the LP tables don't exist.
+  const lpRows = lpErr
+    ? []
+    : ((lpTrackingsRaw ?? []) as unknown as Array<{
+        id: string
+        project_id: string
+        brand_id: string
+        meta_ad_account_id: string
+        lp_url: string
+        launched_on: string
+        ended_on: string | null
+        projects: { name: string } | null
+        brands: { id: string; name: string } | null
+      }>)
+
+  const lpFiltered = brandName
+    ? lpRows.filter(t => (t.brands?.name ?? '').toLowerCase().includes(brandName.toLowerCase()))
+    : lpRows
+
+  const lpPages: Array<Record<string, unknown>> = []
+  const accountEarliest = new Map<string, { brand_id: string; brand_name: string | null; earliest: string }>()
+
+  if (lpFiltered.length > 0) {
+    // Same per-row indexed lookups the campaign half uses, for the same
+    // PostgREST-cap reason.
+    const [matchResults, latestResults] = await Promise.all([
+      Promise.all(
+        lpFiltered.map(t =>
+          supabase
+            .from('lp_ad_matches')
+            .select('meta_ad_id, status')
+            .eq('lp_tracking_id', t.id),
+        ),
+      ),
+      Promise.all(
+        lpFiltered.map(t =>
+          supabase
+            .from('lp_daily_results')
+            .select('stat_date')
+            .eq('lp_tracking_id', t.id)
+            .order('stat_date', { ascending: false })
+            .limit(1)
+            .maybeSingle(),
+        ),
+      ),
+    ])
+
+    for (let i = 0; i < lpFiltered.length; i++) {
+      const t = lpFiltered[i]
+      if (t.launched_on > through) continue
+
+      const matches = ((matchResults[i].data ?? []) as Array<{ meta_ad_id: string; status: string }>)
+      const includedAdIds = matches.filter(m => m.status === 'included').map(m => m.meta_ad_id)
+      const knownAdIds = matches.map(m => m.meta_ad_id)
+
+      const latest = (latestResults[i].data as { stat_date: string } | null)?.stat_date
+      const backfill = full || !latest
+      const trailingStart = latest ? maxIso(t.launched_on, addDaysIso(latest, -trailingDays)) : t.launched_on
+
+      lpPages.push({
+        lp_tracking_id: t.id,
+        project_name: t.projects?.name ?? null,
+        brand_name: t.brands?.name ?? null,
+        ad_account_id: t.meta_ad_account_id,
+        lp_url: t.lp_url,
+        // The ads currently feeding the daily aggregate. Pull insights for
+        // EXACTLY these ids and sum them per day.
+        included_ad_ids: includedAdIds,
+        // Every ad already on file (excluded ones included) — report only ads
+        // NOT in this list as discovered_ads.
+        known_ad_ids: knownAdIds,
+        launched_on: t.launched_on,
+        from_date: backfill ? t.launched_on : trailingStart,
+        to_date: through,
+        mode: backfill ? 'backfill' : 'trailing',
+      })
+
+      const acct = accountEarliest.get(t.meta_ad_account_id)
+      if (!acct || t.launched_on < acct.earliest) {
+        accountEarliest.set(t.meta_ad_account_id, {
+          brand_id: t.brand_id,
+          brand_name: t.brands?.name ?? null,
+          earliest: t.launched_on,
+        })
+      }
+    }
+  }
+
+  const accounts: Array<Record<string, unknown>> = []
+  if (accountEarliest.size > 0) {
+    const accountIds = [...accountEarliest.keys()]
+    const latestAccountResults = await Promise.all(
+      accountIds.map(id =>
+        supabase
+          .from('account_daily_results')
+          .select('stat_date')
+          .eq('meta_ad_account_id', id)
+          .order('stat_date', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ),
+    )
+    for (let i = 0; i < accountIds.length; i++) {
+      const id = accountIds[i]
+      const meta = accountEarliest.get(id)!
+      const latest = (latestAccountResults[i].data as { stat_date: string } | null)?.stat_date
+      const backfill = full || !latest
+      const trailingStart = latest ? maxIso(meta.earliest, addDaysIso(latest, -trailingDays)) : meta.earliest
+      accounts.push({
+        ad_account_id: id,
+        brand_name: meta.brand_name,
+        from_date: backfill ? meta.earliest : trailingStart,
+        to_date: through,
+        mode: backfill ? 'backfill' : 'trailing',
+      })
+    }
+  }
+
   const filtered = !!(brandName || brandId || onlyTracked || includeEnded || full || params.get('days'))
 
   return NextResponse.json({
@@ -213,6 +351,8 @@ export async function GET(request: Request) {
     through,
     attribution_window: '7d_click',
     campaign_count: work.length,
+    lp_page_count: lpPages.length,
+    account_count: accounts.length,
     // Echoed so an on-demand run is self-describing. A filter that matched
     // nothing must look different from "nothing is tracked" — otherwise a
     // typo'd brand name reads as a successful empty run.
@@ -240,8 +380,19 @@ export async function GET(request: Request) {
       'together and will be rejected. ' +
       'Report ONLY what the tool returned. If a metric is unavailable, send null — never estimate, ' +
       'interpolate, or round to something that looks better. incremental_revenue comes from the ad ' +
-      'account\'s existing "Incremental Revenue" column; if the account has no such column, send null.',
+      'account\'s existing "Incremental Revenue" column; if the account has no such column, send null. ' +
+      'THE lp_pages SECTION: for each entry, (1) list the account\'s ads and their destination URLs; ' +
+      'any ad pointing at lp_url that is NOT in known_ad_ids goes into POST discovered_ads with its ' +
+      'ad_id, ad_name, campaign_id, campaign_name, adset_id, adset_name and the EXACT destination_url ' +
+      '— the server verifies the URL and rejects near-misses; (2) pull ad-level daily insights for ' +
+      'EXACTLY the included_ad_ids, sum them per day, and POST one lp_rows entry per day carrying ' +
+      'lp_tracking_id, stat_date, spend, revenue, purchases, impressions, link_clicks, ' +
+      'initiate_checkouts, landing_page_views, matched_ad_count. ' +
+      'THE accounts SECTION: pull WHOLE-ACCOUNT daily totals for the same metric set over ' +
+      '[from_date, to_date] and POST them as account_rows keyed by ad_account_id.',
     campaigns: work,
+    lp_pages: lpPages,
+    accounts,
   })
 }
 
@@ -384,33 +535,43 @@ export async function POST(request: Request) {
 
   const allRejected = [...rejected, ...skippedManual]
 
+  // ── LP-scoped sections (see 20260915_add_lp_results.sql) ─────────────────
+  const lpSummary = await processLpSections(
+    supabase,
+    { lp_rows: parsed.payload.lp_rows, account_rows: parsed.payload.account_rows, discovered_ads: parsed.payload.discovered_ads },
+    reported_at,
+    today,
+  )
+
   // Audit trail. Written even on a failed upsert — the run where the agent
   // started returning garbage is exactly the one worth having a record of.
   // A logging failure must never turn a successful ingest into an error, so
   // this is best-effort.
-  const dateRange = rangeLabel(valid.map(r => r.stat_date))
+  const dateRange = rangeLabel([...valid.map(r => r.stat_date), ...lpSummary.stat_dates])
   const { error: logErr } = await supabase.from('campaign_result_ingests').insert({
     date_range: dateRange,
-    rows_received: rows.length,
-    rows_upserted: upserted,
-    rows_rejected: allRejected.length,
+    rows_received: rows.length + lpSummary.rows_received,
+    rows_upserted: upserted + lpSummary.rows_upserted,
+    rows_rejected: allRejected.length + lpSummary.rows_rejected,
     warnings: {
       rejected: allRejected,
       flagged: writable
         .filter(r => r.warnings.length > 0)
         .map(r => ({ stat_date: r.stat_date, tracked_campaign_id: r.tracked_campaign_id, warnings: r.warnings })),
       write_error: writeError,
+      lp: lpSummary.audit,
     },
   })
   if (logErr) console.error(`[results/ingest] audit log write failed: ${logErr.message}`)
 
-  if (writeError) {
+  if (writeError || lpSummary.write_error) {
     return NextResponse.json({
       ok: false,
-      error: `Upsert failed: ${writeError}`,
+      error: `Upsert failed: ${writeError ?? lpSummary.write_error}`,
       rows_received: rows.length,
       rows_rejected: allRejected.length,
       rejected: allRejected,
+      lp: lpSummary.report,
       paused_campaigns_marked_ended: pausedResult.marked_ended,
     }, { status: 500 })
   }
@@ -428,6 +589,9 @@ export async function POST(request: Request) {
     rejected: allRejected,
     rows_flagged: flagged.length,
     flagged: flagged.map(r => ({ stat_date: r.stat_date, warnings: r.warnings })),
+    // The LP-scoped half of the run: lp_rows / account_rows upserts, newly
+    // discovered ads accepted, and every rejection with its reason.
+    lp: lpSummary.report,
     // Campaigns the agent reported PAUSED at Meta: ended_on is now set for
     // marked_ended, so the next GET work-list will stop including them.
     // already_ended means tracking had already been closed out (no-op).
@@ -435,6 +599,171 @@ export async function POST(request: Request) {
     // typo'd id doesn't silently vanish.
     paused_campaigns: pausedResult,
   })
+}
+
+// The LP-scoped half of a POST: validate + upsert lp_rows and account_rows,
+// verify + store discovered_ads. Isolated so a failure here can't corrupt the
+// campaign half's bookkeeping, and tolerant of the 20260915 migration not
+// having run (every section empty = clean no-op).
+async function processLpSections(
+  supabase: ReturnType<typeof createServiceClient>,
+  payload: {
+    lp_rows: Parameters<typeof validateLpRows>[0]
+    account_rows: Parameters<typeof validateAccountRows>[0]
+    discovered_ads: Parameters<typeof validateDiscoveredAds>[0]
+  },
+  reportedAt: string,
+  today: string,
+) {
+  const empty = {
+    stat_dates: [] as string[],
+    rows_received: 0,
+    rows_upserted: 0,
+    rows_rejected: 0,
+    write_error: null as string | null,
+    audit: null as unknown,
+    report: null as unknown,
+  }
+  const total = payload.lp_rows.length + payload.account_rows.length + payload.discovered_ads.length
+  if (total === 0) return empty
+
+  const { data: trackingsRaw, error: trackErr } = await supabase
+    .from('lp_tracking')
+    .select('id, brand_id, meta_ad_account_id, lp_url, launched_on, ended_on')
+  if (trackErr) {
+    return {
+      ...empty,
+      rows_received: total,
+      rows_rejected: total,
+      write_error: `Failed to read lp_tracking: ${trackErr.message}`,
+    }
+  }
+  const trackings = (trackingsRaw ?? []) as unknown as Array<LpTrackingRef & { brand_id: string }>
+
+  // Earliest launch per ad account bounds what account rows may claim.
+  const accountRefs = new Map<string, AccountRef>()
+  for (const t of trackings) {
+    const existing = accountRefs.get(t.meta_ad_account_id)
+    if (!existing || t.launched_on < existing.earliest) {
+      accountRefs.set(t.meta_ad_account_id, {
+        meta_ad_account_id: t.meta_ad_account_id,
+        brand_id: t.brand_id,
+        earliest: t.launched_on,
+      })
+    }
+  }
+
+  const lp = validateLpRows(payload.lp_rows, trackings, today)
+  const accounts = validateAccountRows(payload.account_rows, [...accountRefs.values()], today)
+  const ads = validateDiscoveredAds(payload.discovered_ads, trackings)
+
+  // A MANUAL ROW IS NEVER OVERWRITTEN BY THE AGENT — same guard, same
+  // bounded read, as the campaign half.
+  let writableLp = lp.valid
+  const skippedManualLp: typeof lp.rejected = []
+  if (lp.valid.length > 0) {
+    const dates = lp.valid.map(r => r.stat_date)
+    const { data: manual, error: manualErr } = await supabase
+      .from('lp_daily_results')
+      .select('lp_tracking_id, stat_date')
+      .eq('source', 'manual')
+      .in('lp_tracking_id', [...new Set(lp.valid.map(r => r.lp_tracking_id))])
+      .gte('stat_date', minOf(dates))
+      .lte('stat_date', maxOf(dates))
+    if (manualErr) {
+      return { ...empty, rows_received: total, rows_rejected: total, write_error: `Failed to read manual LP overrides: ${manualErr.message}` }
+    }
+    const protectedKeys = new Set(
+      ((manual ?? []) as unknown as Array<{ lp_tracking_id: string; stat_date: string }>)
+        .map(m => `${m.lp_tracking_id}|${m.stat_date}`),
+    )
+    if (protectedKeys.size > 0) {
+      writableLp = []
+      for (const r of lp.valid) {
+        if (protectedKeys.has(`${r.lp_tracking_id}|${r.stat_date}`)) {
+          skippedManualLp.push({
+            ad_account_id: null,
+            campaign_id: r.lp_tracking_id,
+            stat_date: r.stat_date,
+            reason: 'Skipped: a human manually corrected this day. Agent writes never overwrite source=manual.',
+          })
+        } else {
+          writableLp.push(r)
+        }
+      }
+    }
+  }
+
+  let writeError: string | null = null
+  let lpUpserted = 0
+  if (writableLp.length > 0) {
+    const { error, count } = await supabase
+      .from('lp_daily_results')
+      .upsert(
+        writableLp.map(r => ({ ...r, source: 'mcp_agent' as const, reported_at: reportedAt, updated_at: new Date().toISOString() })),
+        { onConflict: 'lp_tracking_id,stat_date', count: 'exact' },
+      )
+    if (error) writeError = `lp_daily_results upsert failed: ${error.message}`
+    else lpUpserted = count ?? writableLp.length
+  }
+
+  let accountUpserted = 0
+  if (!writeError && accounts.valid.length > 0) {
+    const { error, count } = await supabase
+      .from('account_daily_results')
+      .upsert(
+        accounts.valid.map(r => ({ ...r, source: 'mcp_agent' as const, reported_at: reportedAt, updated_at: new Date().toISOString() })),
+        { onConflict: 'meta_ad_account_id,stat_date', count: 'exact' },
+      )
+    if (error) writeError = `account_daily_results upsert failed: ${error.message}`
+    else accountUpserted = count ?? accounts.valid.length
+  }
+
+  // ignoreDuplicates is what keeps a human's exclusion sticky: a re-reported
+  // known ad hits uq_lp_ad_matches_tracking_ad and is skipped, never reset to
+  // 'included'.
+  let newAds = 0
+  if (!writeError && ads.accepted.length > 0) {
+    const { error, count } = await supabase
+      .from('lp_ad_matches')
+      .upsert(
+        ads.accepted.map(a => ({ ...a, status: 'included' as const, source: 'agent' as const })),
+        { onConflict: 'lp_tracking_id,meta_ad_id', ignoreDuplicates: true, count: 'exact' },
+      )
+    if (error) writeError = `lp_ad_matches insert failed: ${error.message}`
+    else newAds = count ?? 0
+  }
+
+  const lpFlagged = writableLp.filter(r => r.warnings.length > 0)
+  const accountFlagged = accounts.valid.filter(r => r.warnings.length > 0)
+  const allLpRejected = [...lp.rejected, ...skippedManualLp]
+
+  const report = {
+    lp_rows_received: payload.lp_rows.length,
+    lp_rows_upserted: lpUpserted,
+    lp_rows_rejected: allLpRejected.length,
+    lp_rejected: allLpRejected,
+    lp_rows_flagged: lpFlagged.length,
+    lp_flagged: lpFlagged.map(r => ({ stat_date: r.stat_date, warnings: r.warnings })),
+    account_rows_received: payload.account_rows.length,
+    account_rows_upserted: accountUpserted,
+    account_rows_rejected: accounts.rejected.length,
+    account_rejected: accounts.rejected,
+    account_rows_flagged: accountFlagged.length,
+    ads_proposed: payload.discovered_ads.length,
+    ads_accepted_new: newAds,
+    ads_rejected: ads.rejected,
+  }
+
+  return {
+    stat_dates: [...lp.valid.map(r => r.stat_date), ...accounts.valid.map(r => r.stat_date)],
+    rows_received: total,
+    rows_upserted: lpUpserted + accountUpserted + newAds,
+    rows_rejected: allLpRejected.length + accounts.rejected.length + ads.rejected.length,
+    write_error: writeError,
+    audit: report,
+    report,
+  }
 }
 
 // Marks tracked_campaigns as ended when the agent reported them PAUSED at

@@ -497,7 +497,8 @@ export interface FreshnessInfo {
 }
 
 export function freshnessOf(
-  rows: readonly DailyResult[],
+  // Structural on purpose: campaign rows and LP results rows both stamp.
+  rows: readonly Pick<DailyResult, 'stat_date' | 'reported_at'>[],
   nowMs: number,
 ): FreshnessInfo {
   if (rows.length === 0) return { state: 'never', hours_ago: null, data_through: null }
@@ -601,4 +602,198 @@ const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep
 // 'Aug 4' — compact date label for table rows and chart ticks.
 export function shortDateLabel(iso: string): string {
   return `${MONTH_ABBR[Number(iso.slice(5, 7)) - 1]} ${Number(iso.slice(8, 10))}`
+}
+
+// ---------------------------------------------------------------------------
+// LP-scoped results (the per-project Results tab)
+// ---------------------------------------------------------------------------
+//
+// A second grain beside the campaign pipeline: every ad whose destination is
+// the project's landing page, aggregated per day, compared against the REST of
+// the same ad account. See 20260915_add_lp_results.sql.
+//
+// The daily rows store RAW COUNTS only (impressions, clicks, checkouts,
+// purchases) — every KPI on the tab is derived HERE from the summed counts,
+// never averaged from per-day ratios and never taken on faith from the agent.
+
+// A row of `lp_tracking`. `ended_on: null` MEANS LIVE, same as TrackedCampaign.
+export interface LpTracking {
+  id: string
+  project_id: string
+  brand_id: string
+  meta_ad_account_id: string
+  lp_url: string
+  launched_on: string
+  ended_on: string | null
+  created_at: string
+}
+
+export type AdMatchStatus = 'included' | 'excluded'
+
+// A row of `lp_ad_matches` — one discovered (or hand-added) ad, with the
+// campaign + ad set names a human needs to judge the match.
+export interface LpAdMatch {
+  id: string
+  lp_tracking_id: string
+  meta_ad_id: string
+  ad_name: string | null
+  meta_campaign_id: string | null
+  campaign_name: string | null
+  meta_adset_id: string | null
+  adset_name: string | null
+  destination_url: string | null
+  status: AdMatchStatus
+  source: 'agent' | 'manual'
+  first_seen_at: string
+}
+
+// Shared shape of lp_daily_results and account_daily_results rows — the raw
+// funnel counts a day of paid traffic produces.
+export interface FunnelDailyRow {
+  stat_date: string
+  spend_cents: number
+  revenue_cents: number
+  purchases: number
+  impressions: number | null
+  link_clicks: number | null
+  initiate_checkouts: number | null
+  landing_page_views: number | null
+  source: ResultSource
+  warnings: string[]
+  reported_at: string
+}
+
+// URL canonicalization for ad matching. Deterministic and intentionally
+// blunt: lowercase, protocol off, `www.` off, query/hash off, trailing slash
+// off. Two URLs that normalize equal point at the same landing page; UTM
+// variants and http/https variants collapse to one key. The agent proposes
+// matches, but THIS function is the referee — the server re-verifies every
+// discovered ad's destination against the tracked lp_url with it.
+export function normalizeLpUrl(raw: string): string {
+  let s = raw.trim().toLowerCase()
+  s = s.replace(/^https?:\/\//, '')
+  s = s.replace(/^www\./, '')
+  const cut = s.search(/[?#]/)
+  if (cut !== -1) s = s.slice(0, cut)
+  while (s.endsWith('/')) s = s.slice(0, -1)
+  return s
+}
+
+export interface FunnelTotals {
+  days: number
+  spend_cents: number
+  revenue_cents: number
+  purchases: number
+  // NULL when NOT ONE row in the set reported the count — same rule as
+  // ResultTotals.incremental_revenue_cents: an em dash, never a zero.
+  impressions: number | null
+  link_clicks: number | null
+  initiate_checkouts: number | null
+  landing_page_views: number | null
+}
+
+export const EMPTY_FUNNEL_TOTALS: FunnelTotals = {
+  days: 0,
+  spend_cents: 0,
+  revenue_cents: 0,
+  purchases: 0,
+  impressions: null,
+  link_clicks: null,
+  initiate_checkouts: null,
+  landing_page_views: null,
+}
+
+export function sumFunnel(rows: readonly FunnelDailyRow[]): FunnelTotals {
+  if (rows.length === 0) return EMPTY_FUNNEL_TOTALS
+  const t = { ...EMPTY_FUNNEL_TOTALS, days: rows.length }
+  for (const r of rows) {
+    t.spend_cents += r.spend_cents
+    t.revenue_cents += r.revenue_cents
+    t.purchases += r.purchases
+    if (r.impressions !== null) t.impressions = (t.impressions ?? 0) + r.impressions
+    if (r.link_clicks !== null) t.link_clicks = (t.link_clicks ?? 0) + r.link_clicks
+    if (r.initiate_checkouts !== null) t.initiate_checkouts = (t.initiate_checkouts ?? 0) + r.initiate_checkouts
+    if (r.landing_page_views !== null) t.landing_page_views = (t.landing_page_views ?? 0) + r.landing_page_views
+  }
+  return t
+}
+
+// The mockup's KPI row, derived from summed counts. Every ratio is null when
+// its denominator is missing or zero — never 0, never invented.
+export interface FunnelKpis {
+  roas: number | null
+  // Cost per thousand impressions, in cents.
+  cpm_cents: number | null
+  // Average order value, in cents.
+  aov_cents: number | null
+  // All four below are PERCENT (2.45 = 2.45%).
+  ctr: number | null                // link clicks / impressions
+  cvr: number | null                // purchases / link clicks
+  click_to_checkout: number | null  // initiate checkouts / link clicks
+  checkout_cvr: number | null       // purchases / initiate checkouts
+}
+
+export function deriveFunnelKpis(t: FunnelTotals): FunnelKpis {
+  return {
+    roas: safeRoas(t.revenue_cents, t.spend_cents),
+    cpm_cents: t.impressions !== null && t.impressions > 0
+      ? Math.round((t.spend_cents / t.impressions) * 1000)
+      : null,
+    aov_cents: t.purchases > 0 ? Math.round(t.revenue_cents / t.purchases) : null,
+    ctr: t.impressions !== null && t.link_clicks !== null
+      ? safeRate(t.link_clicks, t.impressions)
+      : null,
+    cvr: t.link_clicks !== null ? safeRate(t.purchases, t.link_clicks) : null,
+    click_to_checkout: t.link_clicks !== null && t.initiate_checkouts !== null
+      ? safeRate(t.initiate_checkouts, t.link_clicks)
+      : null,
+    checkout_cvr: t.initiate_checkouts !== null
+      ? safeRate(t.purchases, t.initiate_checkouts)
+      : null,
+  }
+}
+
+// Account totals minus the LP's share = "rest of account". Clamped at zero
+// per metric: under restatement the two pulls can briefly disagree, and a
+// negative impression count is a rendering bug waiting to happen. A clamp is
+// recorded so the UI can badge the comparison instead of silently smoothing
+// it over.
+export interface RestOfAccount {
+  totals: FunnelTotals
+  clamped: string[]
+}
+
+export function restOfAccount(account: FunnelTotals, lp: FunnelTotals): RestOfAccount {
+  const clamped: string[] = []
+  const sub = (label: string, a: number, b: number): number => {
+    const d = a - b
+    if (d < 0) {
+      clamped.push(label)
+      return 0
+    }
+    return d
+  }
+  const subNullable = (label: string, a: number | null, b: number | null): number | null => {
+    if (a === null) return null
+    return sub(label, a, b ?? 0)
+  }
+  return {
+    totals: {
+      days: account.days,
+      spend_cents: sub('spend', account.spend_cents, lp.spend_cents),
+      revenue_cents: sub('revenue', account.revenue_cents, lp.revenue_cents),
+      purchases: sub('purchases', account.purchases, lp.purchases),
+      impressions: subNullable('impressions', account.impressions, lp.impressions),
+      link_clicks: subNullable('link clicks', account.link_clicks, lp.link_clicks),
+      initiate_checkouts: subNullable('checkouts', account.initiate_checkouts, lp.initiate_checkouts),
+      landing_page_views: subNullable('LP views', account.landing_page_views, lp.landing_page_views),
+    },
+    clamped,
+  }
+}
+
+// The LP's share of total account spend — the "18.4% of total ad account
+// spend" line under the Spend tile.
+export function shareOfAccountPct(lpSpendCents: number, accountSpendCents: number): number | null {
+  return safeRate(lpSpendCents, accountSpendCents)
 }

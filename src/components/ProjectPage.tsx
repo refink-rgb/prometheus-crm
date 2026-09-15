@@ -4,7 +4,7 @@ import { canEdit } from '@/lib/permissions'
 import { getCachedProfiles } from '@/lib/profiles'
 import { getRevisionsByAsset } from '@/lib/revisions'
 import { easternToday } from '@/lib/eastern'
-import type { TrackedCampaign } from '@/lib/results'
+import type { TrackedCampaign, LpTracking, FunnelDailyRow, LpAdMatch } from '@/lib/results'
 import type { Project, Brand, CreativeAsset, ProjectComment, BrandDna, ProjectImage, Journey, BrandComment, BrandDocument } from '@/lib/types'
 import PreviewProjectView, { type BrandLandingPage } from '@/components/preview/PreviewProjectView'
 
@@ -99,6 +99,48 @@ export default async function ProjectPage({ projectId }: { projectId: string }) 
   const assets = (assetsRaw ?? []) as CreativeAsset[]
   const revisionsByAsset = await getRevisionsByAsset(supabase, assets.map(a => a.id))
 
+  // Same idiom as /results/page.tsx: captured once per request, drives the
+  // freshness stamp.
+  const nowMs = new Date().getTime()
+
+  // Results tab data (20260915_add_lp_results.sql). Sequential on purpose:
+  // matches/daily rows key off the tracking row's id and account. Tolerant of
+  // the migration not having run — supabase-js returns { data: null, error }
+  // rather than throwing, and the tab renders its opt-in state.
+  const { data: lpTrackingRaw } = await supabase
+    .from('lp_tracking')
+    .select('id, project_id, brand_id, meta_ad_account_id, lp_url, launched_on, ended_on, created_at')
+    .eq('project_id', projectId)
+    .maybeSingle()
+  const lpTracking = (lpTrackingRaw ?? null) as LpTracking | null
+
+  const FUNNEL_COLUMNS =
+    'stat_date, spend_cents, revenue_cents, purchases, impressions, link_clicks, ' +
+    'initiate_checkouts, landing_page_views, source, warnings, reported_at'
+
+  const [{ data: lpAdMatchesRaw }, { data: lpDailyRaw }, { data: accountDailyRaw }] = lpTracking
+    ? await Promise.all([
+        supabase
+          .from('lp_ad_matches')
+          .select('id, lp_tracking_id, meta_ad_id, ad_name, meta_campaign_id, campaign_name, meta_adset_id, adset_name, destination_url, status, source, first_seen_at')
+          .eq('lp_tracking_id', lpTracking.id)
+          .order('first_seen_at', { ascending: true }),
+        supabase
+          .from('lp_daily_results')
+          .select(FUNNEL_COLUMNS)
+          .eq('lp_tracking_id', lpTracking.id)
+          .order('stat_date', { ascending: true }),
+        // Bounded to the tracking window so the rest-of-account comparison
+        // covers the same days as the LP's own rows.
+        supabase
+          .from('account_daily_results')
+          .select(FUNNEL_COLUMNS)
+          .eq('meta_ad_account_id', lpTracking.meta_ad_account_id)
+          .gte('stat_date', lpTracking.launched_on)
+          .order('stat_date', { ascending: true }),
+      ])
+    : [{ data: null }, { data: null }, { data: null }]
+
   return (
     <PreviewProjectView
       project={p}
@@ -120,6 +162,14 @@ export default async function ProjectPage({ projectId }: { projectId: string }) 
       campaigns={(trackedCampaignsRaw ?? []) as unknown as TrackedCampaign[]}
       todayIso={easternToday()}
       authorName={profiles.find(x => x.email.toLowerCase() === (user.email ?? '').toLowerCase())?.full_name || user.email || 'Unknown'}
+      lpTracking={lpTracking}
+      lpAdMatches={(lpAdMatchesRaw ?? []) as unknown as LpAdMatch[]}
+      lpDaily={(lpDailyRaw ?? []) as unknown as FunnelDailyRow[]}
+      accountDaily={((accountDailyRaw ?? []) as unknown as FunnelDailyRow[])
+        // The comparison must cover the same window as the LP's rows, so an
+        // ended tracking's account series stops at the end date too.
+        .filter(r => !lpTracking?.ended_on || r.stat_date <= lpTracking.ended_on)}
+      nowMs={nowMs}
     />
   )
 }

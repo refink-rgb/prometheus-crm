@@ -236,6 +236,10 @@ export interface Project {
   lp_url: string | null
   creatives_notes: string | null
   shopify_coupon_code: string | null
+  /** "Push to client" for the Results tab — the client review link renders the
+   *  results section only when true. Optional so a DB predating the 20260915
+   *  migration reads as undefined (treated as false), not as a crash. */
+  results_client_visible?: boolean
   // Motion share link holding the videos the static editors work on
   motion_link: string | null
   is_complete: boolean

@@ -48,6 +48,12 @@ import {
   trackedSublabel,
   type DailyResult,
   type TrackedCampaign,
+  normalizeLpUrl,
+  sumFunnel,
+  deriveFunnelKpis,
+  restOfAccount,
+  shareOfAccountPct,
+  type FunnelDailyRow,
 } from '../src/lib/results.ts'
 
 import {
@@ -60,9 +66,13 @@ import {
   withinTolerance,
   campaignKey,
   identityOf,
+  validateLpRows,
+  validateAccountRows,
+  validateDiscoveredAds,
   type CampaignRef,
   type RawResultRow,
   type ValidatedRow,
+  type LpTrackingRef,
 } from '../src/lib/results/validate.ts'
 
 let fails = 0
@@ -799,6 +809,115 @@ const incoming = run([raw({ revenue: 1000 })]).valid
 const writable = incoming.filter(r => !protectedIds.has(r.stat_date))
 check('an agent row targeting a manual date is filtered out', writable.length, 0)
 check('a manual row keeps source=manual', manualRow.source, 'manual')
+
+// ---------------------------------------------------------------------------
+// LP-scoped results (20260915_add_lp_results.sql)
+// ---------------------------------------------------------------------------
+
+console.log('\n--- URL normalization is the match referee ---')
+check('UTM/protocol/www/trailing-slash variants collapse',
+  normalizeLpUrl('https://www.Brand.com/pages/offer/?utm_source=fb&fbclid=x'),
+  normalizeLpUrl('http://brand.com/pages/offer'))
+checkTrue('a different path does NOT match',
+  normalizeLpUrl('https://brand.com/pages/offer-2') !== normalizeLpUrl('https://brand.com/pages/offer'))
+checkTrue('a different subdomain does NOT match',
+  normalizeLpUrl('https://shop.brand.com/pages/offer') !== normalizeLpUrl('https://brand.com/pages/offer'))
+
+const funnelDay = (over: Partial<FunnelDailyRow>): FunnelDailyRow => ({
+  stat_date: '2026-09-01',
+  spend_cents: 100_000,      // $1,000
+  revenue_cents: 250_000,    // $2,500
+  purchases: 20,
+  impressions: 50_000,
+  link_clicks: 700,
+  initiate_checkouts: 70,
+  landing_page_views: 650,
+  source: 'mcp_agent',
+  warnings: [],
+  reported_at: '2026-09-02T11:00:00Z',
+  ...over,
+})
+
+console.log('\n--- funnel rollups and derived KPIs ---')
+const ft = sumFunnel([funnelDay({}), funnelDay({ stat_date: '2026-09-02' })])
+check('spend sums in cents', ft.spend_cents, 200_000)
+check('impressions sum', ft.impressions, 100_000)
+const kpis = deriveFunnelKpis(ft)
+check('ROAS from summed cents', kpis.roas, 2.5)
+check('CPM = spend/impressions*1000 in cents', kpis.cpm_cents, 2_000)          // $20.00
+check('AOV = revenue/purchases in cents', kpis.aov_cents, 12_500)              // $125.00
+check('CTR = clicks/impressions as percent', kpis.ctr, 1.4)
+check('CVR = purchases/clicks as percent', kpis.cvr, 2.8571)
+check('click-to-checkout as percent', kpis.click_to_checkout, 10)
+check('checkout conversion as percent', kpis.checkout_cvr, 28.5714)
+const nullFt = sumFunnel([funnelDay({ impressions: null, link_clicks: null })])
+check('all-null impressions stays null, not 0', nullFt.impressions, null)
+check('KPIs on missing denominators are null, not 0', deriveFunnelKpis(nullFt).ctr, null)
+
+console.log('\n--- rest of account subtracts and clamps ---')
+const accountTotals = sumFunnel([funnelDay({ spend_cents: 500_000, revenue_cents: 900_000, purchases: 60, impressions: 400_000, link_clicks: 4_000, initiate_checkouts: 400, landing_page_views: 3_600 })])
+const lpTotals = sumFunnel([funnelDay({})])
+const rest = restOfAccount(accountTotals, lpTotals)
+check('rest spend = account - lp', rest.totals.spend_cents, 400_000)
+check('rest purchases', rest.totals.purchases, 40)
+check('nothing clamped on a sane pair', rest.clamped, [])
+const skewed = restOfAccount(sumFunnel([funnelDay({ purchases: 5 })]), sumFunnel([funnelDay({ purchases: 9 })]))
+check('a restatement inversion clamps to 0…', skewed.totals.purchases, 0)
+checkTrue('…and is REPORTED, not silently smoothed', skewed.clamped.includes('purchases'))
+check('share of account spend', shareOfAccountPct(100_000, 500_000), 20)
+
+console.log('\n--- LP row validation ---')
+const trackings: (LpTrackingRef & { brand_id: string })[] = [{
+  id: 'trk-1', meta_ad_account_id: 'act_1', brand_id: 'brand-1',
+  lp_url: 'https://brand.com/pages/offer', launched_on: '2026-09-01', ended_on: null,
+}]
+const LP_TODAY = '2026-09-15'
+const lpOk = validateLpRows([{
+  lp_tracking_id: 'trk-1', stat_date: '2026-09-03', spend: '1234.56', revenue: 2000,
+  purchases: 10, impressions: 40000, link_clicks: 500, initiate_checkouts: 50, landing_page_views: 460,
+}], trackings, LP_TODAY)
+check('a good LP row validates', lpOk.valid.length, 1)
+check('spend converted to cents at the boundary', lpOk.valid[0].spend_cents, 123_456)
+check('no warnings on a clean row', lpOk.valid[0].warnings, [])
+const lpBad = validateLpRows([
+  { lp_tracking_id: 'trk-404', stat_date: '2026-09-03', spend: 1, revenue: 1 },
+  { lp_tracking_id: 'trk-1', stat_date: '2026-08-20', spend: 1, revenue: 1 },
+  { lp_tracking_id: 'trk-1', stat_date: '2026-09-20', spend: 1, revenue: 1 },
+], trackings, LP_TODAY)
+check('unknown tracking / pre-launch / future all rejected', lpBad.rejected.length, 3)
+const lpWarn = validateLpRows([{
+  lp_tracking_id: 'trk-1', stat_date: '2026-09-03', spend: 100, revenue: 500,
+  purchases: 99, impressions: 1000, link_clicks: 2000, initiate_checkouts: 10,
+}], trackings, LP_TODAY)
+check('funnel inversions WARN, the row is stored', lpWarn.valid.length, 1)
+checkTrue('clicks>impressions flagged', lpWarn.valid[0].warnings.some(w => w.includes('exceeds impressions')))
+checkTrue('purchases>checkouts flagged', lpWarn.valid[0].warnings.some(w => w.includes('exceed initiate_checkouts')))
+
+console.log('\n--- account row validation ---')
+const accounts = [{ meta_ad_account_id: 'act_1', brand_id: 'brand-1', earliest: '2026-09-01' }]
+const acctOk = validateAccountRows([{ ad_account_id: 'act_1', stat_date: '2026-09-03', spend: 100, revenue: 200 }], accounts, LP_TODAY)
+check('a good account row validates and carries brand_id', acctOk.valid[0].brand_id, 'brand-1')
+const acctBad = validateAccountRows([{ ad_account_id: 'act_999', stat_date: '2026-09-03', spend: 1, revenue: 1 }], accounts, LP_TODAY)
+check('an account nobody tracks is rejected', acctBad.rejected.length, 1)
+
+console.log('\n--- discovered ads: the server is the referee ---')
+const adsResult = validateDiscoveredAds([
+  { lp_tracking_id: 'trk-1', ad_id: '111', ad_name: 'Hook 3', campaign_name: 'ACQ', adset_name: 'Broad',
+    destination_url: 'https://www.brand.com/pages/offer?utm_source=fb' },
+  { lp_tracking_id: 'trk-1', ad_id: '222', destination_url: 'https://brand.com/pages/other' },
+  { lp_tracking_id: 'trk-1', ad_id: '333' },
+], trackings)
+check('a UTM-variant of the LP URL is accepted', adsResult.accepted.length, 1)
+check('accepted ad keeps its campaign/adset context', adsResult.accepted[0].campaign_name, 'ACQ')
+check('a different path and a missing URL are both rejected', adsResult.rejected.length, 2)
+checkTrue('the URL mismatch names both normalized URLs',
+  adsResult.rejected[0].reason.includes('brand.com/pages/other'))
+
+console.log('\n--- LP payload envelope ---')
+const lpEnvelope = parsePayload({ rows: [], lp_rows: [{ lp_tracking_id: 'trk-1' }] })
+checkTrue('an lp_rows-only payload is not "nothing to ingest"', 'payload' in lpEnvelope)
+const emptyEnvelope = parsePayload({ rows: [] })
+checkTrue('an all-empty payload is still rejected', 'error' in emptyEnvelope)
 
 console.log(fails === 0 ? '\nALL CHECKS PASSED' : `\n${fails} CHECK(S) FAILED`)
 process.exit(fails === 0 ? 0 : 1)

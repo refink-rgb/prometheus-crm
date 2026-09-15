@@ -412,3 +412,162 @@ export async function releaseDailyRowToAgent(trackedCampaignId: string, statDate
 
   revalidatePath(`/results/${trackedCampaignId}`)
 }
+
+// ---------------------------------------------------------------------------
+// LP-scoped results (the per-project Results tab — 20260915_add_lp_results.sql)
+// ---------------------------------------------------------------------------
+//
+// Same three invariants as the campaign actions above, with one addition:
+//
+//   4. DISCOVERY IS SUGGEST-AND-CONFIRM. The agent proposes ads, the server
+//      verifies each destination URL deterministically, and the human on this
+//      panel has the last word — excludeAdMatch is a veto that survives
+//      re-discovery (the ingest insert ignores duplicates, so an excluded ad
+//      is never resurrected).
+
+// Start LP tracking for a project: the opt-in that puts it on the ingest work
+// list. One per project (DB unique on project_id).
+export async function startLpTracking(formData: FormData) {
+  const { supabase, user } = await requireEditor()
+
+  const projectId = (formData.get('project_id') as string)?.trim()
+  const brandId = (formData.get('brand_id') as string)?.trim()
+  const accountRaw = (formData.get('meta_ad_account_id') as string)?.trim() ?? ''
+  const lpUrl = (formData.get('lp_url') as string)?.trim() ?? ''
+  const launchedOn = (formData.get('launched_on') as string)?.trim() ?? ''
+
+  if (!projectId || !brandId) throw new Error('Project and brand are required.')
+
+  const adAccountId = normalizeAdAccountId(accountRaw)
+  if (!adAccountId) throw new Error('Ad account ID must look like act_1234567890.')
+  if (!/^https?:\/\/\S+\.\S+/.test(lpUrl)) {
+    throw new Error('Landing page URL must be a full URL (https://…).')
+  }
+  if (!ISO_DATE.test(launchedOn)) throw new Error('Launch date is required (YYYY-MM-DD).')
+  const today = easternToday()
+  if (launchedOn > today) throw new Error('Launch date cannot be in the future.')
+
+  const { error } = await supabase.from('lp_tracking').insert({
+    project_id: projectId,
+    brand_id: brandId,
+    meta_ad_account_id: adAccountId,
+    lp_url: lpUrl,
+    launched_on: launchedOn,
+    created_by: user.id,
+  })
+  if (error) {
+    if (error.code === '23505') throw new Error('This project already has LP tracking.')
+    throw new Error(`Failed to start LP tracking: ${error.message}`)
+  }
+
+  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+}
+
+// Sets ended_on: the agent stops pulling new days, every stored day survives.
+export async function endLpTracking(lpTrackingId: string, projectId: string, brandId: string) {
+  const { supabase } = await requireEditor()
+  const { error } = await supabase
+    .from('lp_tracking')
+    .update({ ended_on: easternToday() })
+    .eq('id', lpTrackingId)
+  if (error) throw new Error(`Failed to end LP tracking: ${error.message}`)
+  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+}
+
+export async function resumeLpTracking(lpTrackingId: string, projectId: string, brandId: string) {
+  const { supabase } = await requireEditor()
+  const { error } = await supabase
+    .from('lp_tracking')
+    .update({ ended_on: null })
+    .eq('id', lpTrackingId)
+  if (error) throw new Error(`Failed to resume LP tracking: ${error.message}`)
+  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+}
+
+// DESTROYS the tracking row and (via cascade) every matched ad and every
+// stored day. The panel's confirm form says so.
+export async function unlinkLpTracking(lpTrackingId: string, projectId: string, brandId: string) {
+  const { supabase } = await requireEditor()
+  const { error } = await supabase.from('lp_tracking').delete().eq('id', lpTrackingId)
+  if (error) throw new Error(`Failed to remove LP tracking: ${error.message}`)
+  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+}
+
+// The human veto / un-veto on one matched ad. Excluded ads stop feeding the
+// daily aggregate from the NEXT pull onward; days already stored keep the
+// numbers they were pulled with (matched_ad_count on each row records the
+// coverage that produced it).
+export async function setAdMatchStatus(
+  matchId: string,
+  status: 'included' | 'excluded',
+  projectId: string,
+  brandId: string,
+) {
+  const { supabase, user } = await requireEditor()
+  const { error } = await supabase
+    .from('lp_ad_matches')
+    .update({ status, decided_by: user.id, decided_at: new Date().toISOString() })
+    .eq('id', matchId)
+  if (error) throw new Error(`Failed to update the ad match: ${error.message}`)
+  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+}
+
+// The manual fallback: an ad the discovery missed (different domain, redirect,
+// dynamic URL). Added by Meta ad ID; names are optional context. If the ad is
+// already on file (e.g. previously excluded), this re-includes it rather than
+// failing — adding an ad you can see in the list IS the un-exclude gesture.
+export async function addManualAdMatch(formData: FormData) {
+  const { supabase, user } = await requireEditor()
+
+  const lpTrackingId = (formData.get('lp_tracking_id') as string)?.trim()
+  const projectId = (formData.get('project_id') as string)?.trim()
+  const brandId = (formData.get('brand_id') as string)?.trim()
+  const adId = (formData.get('meta_ad_id') as string)?.trim() ?? ''
+  const adName = (formData.get('ad_name') as string)?.trim() ?? ''
+
+  if (!lpTrackingId || !projectId || !brandId) throw new Error('Missing tracking context.')
+  if (!/^\d+$/.test(adId)) throw new Error('Ad ID must be the numeric Meta ad ID.')
+
+  const { data: existing, error: readErr } = await supabase
+    .from('lp_ad_matches')
+    .select('id')
+    .eq('lp_tracking_id', lpTrackingId)
+    .eq('meta_ad_id', adId)
+    .maybeSingle()
+  if (readErr) throw new Error(`Failed to check existing matches: ${readErr.message}`)
+
+  if (existing) {
+    const { error } = await supabase
+      .from('lp_ad_matches')
+      .update({ status: 'included', decided_by: user.id, decided_at: new Date().toISOString() })
+      .eq('id', existing.id)
+    if (error) throw new Error(`Failed to re-include the ad: ${error.message}`)
+  } else {
+    const { error } = await supabase.from('lp_ad_matches').insert({
+      lp_tracking_id: lpTrackingId,
+      meta_ad_id: adId,
+      ad_name: adName === '' ? null : adName,
+      status: 'included',
+      source: 'manual',
+      decided_by: user.id,
+      decided_at: new Date().toISOString(),
+    })
+    if (error) throw new Error(`Failed to add the ad: ${error.message}`)
+  }
+
+  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+}
+
+// The "push to client" flag. True = the client review link (/review/[token])
+// renders the results section. Internal-first, exactly like creative
+// client_visible: nothing on the client link changes until a human presses
+// the button.
+export async function setResultsClientVisible(projectId: string, brandId: string, visible: boolean) {
+  const { supabase } = await requireEditor()
+  const { error } = await supabase
+    .from('projects')
+    .update({ results_client_visible: visible })
+    .eq('id', projectId)
+  if (error) throw new Error(`Failed to update client visibility: ${error.message}`)
+  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+}

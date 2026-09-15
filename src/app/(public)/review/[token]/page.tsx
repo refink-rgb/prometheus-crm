@@ -1,6 +1,9 @@
 import { notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/service'
 import { canEdit } from '@/lib/permissions'
+import ClientResultsSection from '@/components/ClientResultsSection'
+import type { FunnelDailyRow, LpTracking } from '@/lib/results'
 import LpReviewPanel from '@/components/LpReviewPanel'
 import ImageReviewPanel from '@/components/ImageReviewPanel'
 import NotesThread from '@/components/NotesThread'
@@ -58,6 +61,44 @@ export default async function ReviewPage({
 
   const due = parseDueDate(p.due_date)
   const dueStr = due?.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+
+  // Results — rendered ONLY when the team pressed "Push to client" on the
+  // internal Results tab (projects.results_client_visible). Read with the
+  // SERVICE ROLE because this page runs as anon and the lp_* tables
+  // intentionally have no anon policy (the marketing_reports precedent); the
+  // share_token lookup above plus the visibility flag are the gate.
+  let resultsLpDaily: FunnelDailyRow[] = []
+  let resultsAccountDaily: FunnelDailyRow[] = []
+  if (p.results_client_visible) {
+    const service = createServiceClient()
+    const { data: trackingRaw } = await service
+      .from('lp_tracking')
+      .select('id, meta_ad_account_id, launched_on, ended_on')
+      .eq('project_id', p.id)
+      .maybeSingle()
+    const tracking = trackingRaw as Pick<LpTracking, 'id' | 'meta_ad_account_id' | 'launched_on' | 'ended_on'> | null
+    if (tracking) {
+      const FUNNEL_COLUMNS =
+        'stat_date, spend_cents, revenue_cents, purchases, impressions, link_clicks, ' +
+        'initiate_checkouts, landing_page_views, source, warnings, reported_at'
+      const [{ data: lpRows }, { data: accountRows }] = await Promise.all([
+        service
+          .from('lp_daily_results')
+          .select(FUNNEL_COLUMNS)
+          .eq('lp_tracking_id', tracking.id)
+          .order('stat_date', { ascending: true }),
+        service
+          .from('account_daily_results')
+          .select(FUNNEL_COLUMNS)
+          .eq('meta_ad_account_id', tracking.meta_ad_account_id)
+          .gte('stat_date', tracking.launched_on)
+          .order('stat_date', { ascending: true }),
+      ])
+      resultsLpDaily = (lpRows ?? []) as unknown as FunnelDailyRow[]
+      resultsAccountDaily = ((accountRows ?? []) as unknown as FunnelDailyRow[])
+        .filter(r => !tracking.ended_on || r.stat_date <= tracking.ended_on)
+    }
+  }
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--background)' }}>
@@ -194,6 +235,14 @@ export default async function ReviewPage({
             </div>
           )}
         </section>
+
+        {/* Results — only after the team pushed them, and only with data. */}
+        {p.results_client_visible && resultsLpDaily.length > 0 && (
+          <section style={{ marginBottom: 'var(--space-8)' }}>
+            <SectionTitle>Results</SectionTitle>
+            <ClientResultsSection lpDaily={resultsLpDaily} accountDaily={resultsAccountDaily} />
+          </section>
+        )}
 
         {/* Offer Details */}
         {(p.offer_description || p.inspiration || p.headline || p.body_copy || p.supporting_message || p.offer || p.cta || p.discount || p.tiered_offer || p.product_featured) && (

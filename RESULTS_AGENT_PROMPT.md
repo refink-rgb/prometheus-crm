@@ -369,3 +369,81 @@ will never overwrite that day again. "Hand back to agent" undoes it.
   generated commentary is a separate layer with a `findUnverifiedNumbers`-style
   guard over it, so a persuasive sentence can never quietly introduce a figure
   that isn't in the table.
+
+---
+
+## Added Sep 15 2026 — LP-scoped results (the per-project Results tab)
+
+The work list now carries two extra sections beside `campaigns`. The same GET
+tells you everything; the same POST takes everything back. Nothing about the
+campaign flow above changed.
+
+### `lp_pages` — one entry per tracked landing page
+
+Each entry: `lp_tracking_id`, `brand_name`, `project_name`, `ad_account_id`,
+`lp_url`, `included_ad_ids`, `known_ad_ids`, `from_date`, `to_date`, `mode`.
+
+Two jobs per entry:
+
+1. **Discovery.** List the account's ads with their creatives and destination
+   URLs (check `link_url` / `object_story_spec` / `asset_feed_spec` — wherever
+   the destination lives for that ad format). Any ad whose destination is
+   `lp_url` — ignore UTM/query parameters, http vs https, `www.`, trailing
+   slash — that is **NOT already in `known_ad_ids`** goes into the POST's
+   `discovered_ads` array:
+
+   ```json
+   { "lp_tracking_id": "…", "ad_id": "…", "ad_name": "…",
+     "campaign_id": "…", "campaign_name": "…",
+     "adset_id": "…", "adset_name": "…",
+     "destination_url": "https://exactly-what-meta-reports.com/pages/offer?utm_…" }
+   ```
+
+   Send `destination_url` EXACTLY as Meta reports it — the server normalizes
+   and verifies it itself and rejects near-misses. Always include the campaign
+   and ad set names: the review UI shows them so a human can judge each match.
+   Do NOT re-send ads already in `known_ad_ids` (some are deliberately
+   excluded by a human; re-sending is harmless but noise).
+
+2. **Daily pull.** Ad-level daily insights for **exactly `included_ad_ids`**
+   (filter `ad.id IN (...)`), 7d_click, `[from_date, to_date]` inclusive.
+   Sum per day across those ads and POST one `lp_rows` entry per day:
+
+   ```json
+   { "lp_tracking_id": "…", "stat_date": "YYYY-MM-DD",
+     "spend": 4120.55, "revenue": 11723.10, "purchases": 91,
+     "impressions": 223711, "link_clicks": 3177,
+     "initiate_checkouts": 311, "landing_page_views": 2904,
+     "matched_ad_count": 14 }
+   ```
+
+   Metrics: spend, purchase value (revenue), purchases, impressions, link
+   clicks, initiate-checkout actions, landing page views. Unavailable → null,
+   never 0, never estimated. `matched_ad_count` = how many of the included ads
+   the pull actually covered.
+
+   If `included_ad_ids` is empty, skip the daily pull (discovery still runs) —
+   there is nothing to aggregate yet.
+
+### `accounts` — one entry per ad account
+
+Each entry: `ad_account_id`, `brand_name`, `from_date`, `to_date`, `mode`.
+Pull **whole-account** daily totals for the same metric set and window and
+POST them as `account_rows`:
+
+```json
+{ "ad_account_id": "act_…", "stat_date": "YYYY-MM-DD",
+  "spend": 22350.00, "revenue": 52700.90, "purchases": 405,
+  "impressions": 1213551, "link_clicks": 11889,
+  "initiate_checkouts": 1533, "landing_page_views": 10904 }
+```
+
+These are the "rest of account" denominator — the CRM subtracts the LP's share
+itself. Never subtract on your end.
+
+### Response reading
+
+The POST response gains an `lp` object: `lp_rows_upserted`, `ads_accepted_new`,
+and — the part to READ — `lp_rejected` and `ads_rejected` with per-row reasons.
+An ad rejected for a URL mismatch usually means a redirect or a different
+domain: report it in the run output rather than retrying with a "fixed" URL.

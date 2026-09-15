@@ -1,5 +1,9 @@
 import { freshnessOf, easternTimeLabel, shortDateLabel, STALE_AFTER_HOURS, type DailyResult } from '@/lib/results'
 
+// The two fields freshness actually reads. Structural so the LP results rows
+// (FunnelDailyRow) stamp with the same component as campaign rows.
+type StampRow = Pick<DailyResult, 'stat_date' | 'reported_at'>
+
 // "updated 6:58am · data through Aug 4", tinted amber past ~36h.
 //
 // NON-NEGOTIABLE for an LLM-fed pipeline. A stale dashboard that LOOKS fresh
@@ -17,7 +21,7 @@ export default function FreshnessStamp({
   nowMs,
   align = 'right',
 }: {
-  rows: readonly DailyResult[]
+  rows: readonly StampRow[]
   nowMs: number
   align?: 'left' | 'right'
 }) {
@@ -52,7 +56,7 @@ export default function FreshnessStamp({
   )
 }
 
-function latestReportedAt(rows: readonly DailyResult[]): string | null {
+function latestReportedAt(rows: readonly StampRow[]): string | null {
   let best: string | null = null
   let bestMs = -1
   for (const r of rows) {

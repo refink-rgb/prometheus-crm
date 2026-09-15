@@ -510,6 +510,11 @@ export interface IngestPayload {
   // stops asking the agent to pull them — a paused campaign never resumes on
   // its own in this pipeline, so re-checking it every run is pure waste.
   paused_campaigns: string[]
+  // LP-scoped sections (see 20260915_add_lp_results.sql). All optional so the
+  // pre-existing campaign-only agent flow keeps working unchanged.
+  lp_rows: RawLpRow[]
+  account_rows: RawAccountRow[]
+  discovered_ads: RawDiscoveredAd[]
 }
 
 // Validates the envelope only — row-level checks are validateRows(). Returns
@@ -524,15 +529,28 @@ export function parsePayload(body: unknown): { payload: IngestPayload } | { erro
     : []
 
   if (!Array.isArray(b.rows)) return { error: 'Body must include a `rows` array.' }
-  // Rows may be empty ONLY when the call exists purely to report paused
-  // campaigns (e.g. every one of today's entities came back paused, so there
-  // was nothing left to pull) — otherwise an empty payload is a no-op mistake.
-  if (b.rows.length === 0 && pausedCampaigns.length === 0) {
-    return { error: '`rows` is empty and no `paused_campaigns` were reported — nothing to ingest.' }
+
+  // LP-scoped sections, all optional (absent = empty). Typed as raw-row arrays
+  // at the boundary the same way `rows` is: every field inside is `unknown`
+  // until its validator coerces it.
+  const lpRows = Array.isArray(b.lp_rows) ? (b.lp_rows as RawLpRow[]) : []
+  const accountRows = Array.isArray(b.account_rows) ? (b.account_rows as RawAccountRow[]) : []
+  const discoveredAds = Array.isArray(b.discovered_ads) ? (b.discovered_ads as RawDiscoveredAd[]) : []
+
+  // The payload must carry SOMETHING — otherwise it's a no-op mistake worth
+  // telling the agent about rather than logging as a successful empty run.
+  if (
+    b.rows.length === 0 && pausedCampaigns.length === 0 &&
+    lpRows.length === 0 && accountRows.length === 0 && discoveredAds.length === 0
+  ) {
+    return { error: 'Every section is empty — nothing to ingest.' }
   }
   // A cap so a runaway agent loop can't try to write a million rows in one
   // request. ~50 campaigns × 90 days of backfill fits comfortably.
   if (b.rows.length > 5000) return { error: '`rows` exceeds the 5000-row limit for a single request.' }
+  if (lpRows.length > 5000) return { error: '`lp_rows` exceeds the 5000-row limit for a single request.' }
+  if (accountRows.length > 5000) return { error: '`account_rows` exceeds the 5000-row limit for a single request.' }
+  if (discoveredAds.length > 2000) return { error: '`discovered_ads` exceeds the 2000-row limit for a single request.' }
 
   // Absent or unparseable reported_at falls back to the server's clock. The
   // freshness stamp depends on this being real, so a bad value must not be
@@ -541,5 +559,427 @@ export function parsePayload(body: unknown): { payload: IngestPayload } | { erro
     ? new Date(b.reported_at).toISOString()
     : new Date().toISOString()
 
-  return { payload: { reported_at: reportedAt, rows: b.rows as RawResultRow[], paused_campaigns: pausedCampaigns } }
+  return {
+    payload: {
+      reported_at: reportedAt,
+      rows: b.rows as RawResultRow[],
+      paused_campaigns: pausedCampaigns,
+      lp_rows: lpRows,
+      account_rows: accountRows,
+      discovered_ads: discoveredAds,
+    },
+  }
+}
+
+// ---------------------------------------------------------------------------
+// LP-scoped results (the per-project Results tab — see 20260915_add_lp_results.sql)
+// ---------------------------------------------------------------------------
+
+// Duplicated from src/lib/results.ts on purpose — this file is import-free so
+// scripts/verify-results.ts can run it under bare node (same reason billing.ts
+// has its own daysBetweenIso). Keep the two implementations identical.
+export function normalizeLpUrl(raw: string): string {
+  let s = raw.trim().toLowerCase()
+  s = s.replace(/^https?:\/\//, '')
+  s = s.replace(/^www\./, '')
+  const cut = s.search(/[?#]/)
+  if (cut !== -1) s = s.slice(0, cut)
+  while (s.endsWith('/')) s = s.slice(0, -1)
+  return s
+}
+
+// The subset of an lp_tracking row validation needs.
+export interface LpTrackingRef {
+  id: string
+  meta_ad_account_id: string
+  lp_url: string
+  launched_on: string
+  ended_on: string | null
+}
+
+// What the agent POSTs for one LP per day — aggregated over the included ads
+// the work list gave it. Identified by lp_tracking_id, which the work list
+// carries: the server assigned the work, so the server's id is the identity
+// (no meta-id matching dance like campaign rows need).
+export interface RawLpRow {
+  lp_tracking_id?: unknown
+  stat_date?: unknown
+  spend?: unknown
+  revenue?: unknown
+  purchases?: unknown
+  impressions?: unknown
+  link_clicks?: unknown
+  initiate_checkouts?: unknown
+  landing_page_views?: unknown
+  matched_ad_count?: unknown
+  attribution_window?: unknown
+}
+
+export interface ValidatedLpRow {
+  lp_tracking_id: string
+  stat_date: string
+  spend_cents: number
+  revenue_cents: number
+  purchases: number
+  impressions: number | null
+  link_clicks: number | null
+  initiate_checkouts: number | null
+  landing_page_views: number | null
+  matched_ad_count: number | null
+  attribution_window: string
+  warnings: string[]
+}
+
+// Whole-account totals per day — the "rest of account" denominator.
+export interface RawAccountRow {
+  ad_account_id?: unknown
+  stat_date?: unknown
+  spend?: unknown
+  revenue?: unknown
+  purchases?: unknown
+  impressions?: unknown
+  link_clicks?: unknown
+  initiate_checkouts?: unknown
+  landing_page_views?: unknown
+  attribution_window?: unknown
+}
+
+export interface ValidatedAccountRow {
+  meta_ad_account_id: string
+  brand_id: string
+  stat_date: string
+  spend_cents: number
+  revenue_cents: number
+  purchases: number
+  impressions: number | null
+  link_clicks: number | null
+  initiate_checkouts: number | null
+  landing_page_views: number | null
+  attribution_window: string
+  warnings: string[]
+}
+
+// An account the work list asked for, with the earliest date it may report.
+export interface AccountRef {
+  meta_ad_account_id: string
+  brand_id: string
+  earliest: string
+}
+
+// An ad the agent proposes as pointing at a tracked LP. The server is the
+// referee: destination_url must NORMALIZE EQUAL to the tracking's lp_url or
+// the proposal is rejected — an LLM's "close enough" is exactly what this
+// check exists to catch.
+export interface RawDiscoveredAd {
+  lp_tracking_id?: unknown
+  ad_id?: unknown
+  ad_name?: unknown
+  campaign_id?: unknown
+  campaign_name?: unknown
+  adset_id?: unknown
+  adset_name?: unknown
+  destination_url?: unknown
+}
+
+export interface AcceptedAdMatch {
+  lp_tracking_id: string
+  meta_ad_id: string
+  ad_name: string | null
+  meta_campaign_id: string | null
+  campaign_name: string | null
+  meta_adset_id: string | null
+  adset_name: string | null
+  destination_url: string
+}
+
+export interface RejectedAd {
+  lp_tracking_id: string | null
+  ad_id: string | null
+  reason: string
+}
+
+function trimmed(v: unknown): string | null {
+  if (typeof v !== 'string') return null
+  const t = v.trim()
+  return t === '' ? null : t
+}
+
+// Shared funnel-count coercion + cross-checks for LP and account rows. The
+// checks are soft (warn, don't drop) except the two hard ones every pipeline
+// row already has: spend/revenue present and non-negative, date sane.
+function coerceFunnelCounts(
+  raw: { purchases?: unknown; impressions?: unknown; link_clicks?: unknown; initiate_checkouts?: unknown; landing_page_views?: unknown },
+  warnings: string[],
+): {
+  purchases: number
+  impressions: number | null
+  link_clicks: number | null
+  initiate_checkouts: number | null
+  landing_page_views: number | null
+} {
+  const rawPurchases = toInt(raw.purchases)
+  const purchases = Math.max(0, rawPurchases ?? 0)
+  if (rawPurchases === null) warnings.push('purchases missing — stored as 0')
+  else if (rawPurchases < 0) warnings.push('purchases was negative — stored as 0')
+
+  const impressions = nonNegativeOrNull(toInt(raw.impressions), 'impressions', warnings)
+  const linkClicks = nonNegativeOrNull(toInt(raw.link_clicks), 'link_clicks', warnings)
+  const checkouts = nonNegativeOrNull(toInt(raw.initiate_checkouts), 'initiate_checkouts', warnings)
+  const lpViews = nonNegativeOrNull(toInt(raw.landing_page_views), 'landing_page_views', warnings)
+
+  // Funnel-shape checks. Soft: attribution windows make each step's count a
+  // different population, so a small inversion can be legitimate — but a large
+  // one is a units or column mix-up and a human should look.
+  if (impressions !== null && linkClicks !== null && linkClicks > impressions) {
+    warnings.push(`link_clicks (${linkClicks}) exceeds impressions (${impressions})`)
+  }
+  if (linkClicks !== null && checkouts !== null && checkouts > linkClicks) {
+    warnings.push(`initiate_checkouts (${checkouts}) exceeds link_clicks (${linkClicks})`)
+  }
+  if (checkouts !== null && purchases > checkouts) {
+    warnings.push(`purchases (${purchases}) exceed initiate_checkouts (${checkouts})`)
+  }
+
+  return { purchases, impressions, link_clicks: linkClicks, initiate_checkouts: checkouts, landing_page_views: lpViews }
+}
+
+function checkWindow(raw: unknown, warnings: string[]): string {
+  const window = trimmed(raw) ?? DEFAULT_ATTRIBUTION_WINDOW
+  if (!KNOWN_WINDOWS.has(window)) {
+    warnings.push(`unrecognized attribution window '${window}'`)
+  } else if (!EXPECTED_WINDOWS.has(window)) {
+    warnings.push(`attribution window is '${window}', not the expected 7-day click`)
+  }
+  return window
+}
+
+export function validateLpRows(
+  rows: readonly RawLpRow[],
+  trackings: readonly LpTrackingRef[],
+  todayIso: string,
+): { valid: ValidatedLpRow[]; rejected: RejectedRow[] } {
+  const byId = new Map(trackings.map(t => [t.id, t]))
+  const valid: ValidatedLpRow[] = []
+  const rejected: RejectedRow[] = []
+  const seen = new Map<string, number>()
+
+  for (const raw of rows) {
+    const trackingId = trimmed(raw.lp_tracking_id)
+    const statDate = trimmed(raw.stat_date)
+    // RejectedRow is reused for the run report; campaign_id carries the
+    // tracking id so the echo names the row that failed.
+    const echo = { ad_account_id: null, campaign_id: trackingId, stat_date: statDate }
+
+    if (!trackingId) {
+      rejected.push({ ...echo, reason: 'Missing lp_tracking_id.' })
+      continue
+    }
+    const tracking = byId.get(trackingId)
+    if (!tracking) {
+      rejected.push({ ...echo, reason: `No lp_tracking row with id ${trackingId}. Use the ids from the work list.` })
+      continue
+    }
+    if (!isIsoDate(statDate)) {
+      rejected.push({ ...echo, reason: `stat_date must be YYYY-MM-DD, got ${JSON.stringify(raw.stat_date)}.` })
+      continue
+    }
+    if (statDate < tracking.launched_on) {
+      rejected.push({ ...echo, reason: `stat_date ${statDate} precedes launch ${tracking.launched_on}.` })
+      continue
+    }
+    if (statDate > todayIso) {
+      rejected.push({ ...echo, reason: `stat_date ${statDate} is in the future (today is ${todayIso}).` })
+      continue
+    }
+    if (tracking.ended_on && statDate > tracking.ended_on) {
+      rejected.push({ ...echo, reason: `stat_date ${statDate} is after tracking ended ${tracking.ended_on}.` })
+      continue
+    }
+
+    const spendCents = dollarsToCents(toNumber(raw.spend))
+    const revenueCents = dollarsToCents(toNumber(raw.revenue))
+    if (spendCents === null || revenueCents === null) {
+      rejected.push({ ...echo, reason: 'spend and revenue are required and must be numeric.' })
+      continue
+    }
+    if (spendCents < 0 || revenueCents < 0) {
+      rejected.push({ ...echo, reason: 'spend and revenue must not be negative.' })
+      continue
+    }
+
+    const warnings: string[] = []
+    const counts = coerceFunnelCounts(raw, warnings)
+    const matchedAdCount = nonNegativeOrNull(toInt(raw.matched_ad_count), 'matched_ad_count', warnings)
+
+    if (revenueCents > 0 && counts.purchases === 0) {
+      warnings.push('revenue reported with 0 purchases')
+    }
+    if (statDate === todayIso) {
+      warnings.push('partial day — today is still accruing')
+    }
+    const window = checkWindow(raw.attribution_window, warnings)
+
+    const row: ValidatedLpRow = {
+      lp_tracking_id: trackingId,
+      stat_date: statDate,
+      spend_cents: spendCents,
+      revenue_cents: revenueCents,
+      ...counts,
+      matched_ad_count: matchedAdCount,
+      attribution_window: window,
+      warnings,
+    }
+
+    const key = `${trackingId}|${statDate}`
+    const existing = seen.get(key)
+    if (existing !== undefined) {
+      row.warnings.push('duplicate row for this date in the same payload — last one kept')
+      valid[existing] = row
+    } else {
+      seen.set(key, valid.length)
+      valid.push(row)
+    }
+  }
+
+  return { valid, rejected }
+}
+
+export function validateAccountRows(
+  rows: readonly RawAccountRow[],
+  accounts: readonly AccountRef[],
+  todayIso: string,
+): { valid: ValidatedAccountRow[]; rejected: RejectedRow[] } {
+  const byAccount = new Map(accounts.map(a => [a.meta_ad_account_id, a]))
+  const valid: ValidatedAccountRow[] = []
+  const rejected: RejectedRow[] = []
+  const seen = new Map<string, number>()
+
+  for (const raw of rows) {
+    const accountId = trimmed(raw.ad_account_id)
+    const statDate = trimmed(raw.stat_date)
+    const echo = { ad_account_id: accountId, campaign_id: null, stat_date: statDate }
+
+    if (!accountId) {
+      rejected.push({ ...echo, reason: 'Missing ad_account_id.' })
+      continue
+    }
+    const account = byAccount.get(accountId)
+    if (!account) {
+      rejected.push({ ...echo, reason: `Account ${accountId} is not in the work list. Account totals are only stored for accounts with live LP tracking.` })
+      continue
+    }
+    if (!isIsoDate(statDate)) {
+      rejected.push({ ...echo, reason: `stat_date must be YYYY-MM-DD, got ${JSON.stringify(raw.stat_date)}.` })
+      continue
+    }
+    if (statDate < account.earliest) {
+      rejected.push({ ...echo, reason: `stat_date ${statDate} precedes the earliest tracked launch ${account.earliest} for this account.` })
+      continue
+    }
+    if (statDate > todayIso) {
+      rejected.push({ ...echo, reason: `stat_date ${statDate} is in the future (today is ${todayIso}).` })
+      continue
+    }
+
+    const spendCents = dollarsToCents(toNumber(raw.spend))
+    const revenueCents = dollarsToCents(toNumber(raw.revenue))
+    if (spendCents === null || revenueCents === null) {
+      rejected.push({ ...echo, reason: 'spend and revenue are required and must be numeric.' })
+      continue
+    }
+    if (spendCents < 0 || revenueCents < 0) {
+      rejected.push({ ...echo, reason: 'spend and revenue must not be negative.' })
+      continue
+    }
+
+    const warnings: string[] = []
+    const counts = coerceFunnelCounts(raw, warnings)
+    if (revenueCents > 0 && counts.purchases === 0) {
+      warnings.push('revenue reported with 0 purchases')
+    }
+    if (statDate === todayIso) {
+      warnings.push('partial day — today is still accruing')
+    }
+    const window = checkWindow(raw.attribution_window, warnings)
+
+    const row: ValidatedAccountRow = {
+      meta_ad_account_id: accountId,
+      brand_id: account.brand_id,
+      stat_date: statDate,
+      spend_cents: spendCents,
+      revenue_cents: revenueCents,
+      ...counts,
+      attribution_window: window,
+      warnings,
+    }
+
+    const key = `${accountId}|${statDate}`
+    const existing = seen.get(key)
+    if (existing !== undefined) {
+      row.warnings.push('duplicate row for this date in the same payload — last one kept')
+      valid[existing] = row
+    } else {
+      seen.set(key, valid.length)
+      valid.push(row)
+    }
+  }
+
+  return { valid, rejected }
+}
+
+export function validateDiscoveredAds(
+  ads: readonly RawDiscoveredAd[],
+  trackings: readonly LpTrackingRef[],
+): { accepted: AcceptedAdMatch[]; rejected: RejectedAd[] } {
+  const byId = new Map(trackings.map(t => [t.id, t]))
+  const accepted: AcceptedAdMatch[] = []
+  const rejected: RejectedAd[] = []
+  const seen = new Set<string>()
+
+  for (const raw of ads) {
+    const trackingId = trimmed(raw.lp_tracking_id)
+    const adId = trimmed(raw.ad_id)
+    if (!trackingId || !adId) {
+      rejected.push({ lp_tracking_id: trackingId, ad_id: adId, reason: 'Missing lp_tracking_id or ad_id.' })
+      continue
+    }
+    const tracking = byId.get(trackingId)
+    if (!tracking) {
+      rejected.push({ lp_tracking_id: trackingId, ad_id: adId, reason: `No lp_tracking row with id ${trackingId}.` })
+      continue
+    }
+    const destination = trimmed(raw.destination_url)
+    if (!destination) {
+      rejected.push({ lp_tracking_id: trackingId, ad_id: adId, reason: 'Missing destination_url — every proposed ad must carry the URL it points at.' })
+      continue
+    }
+    // THE REFEREE. The agent's judgment got the ad here; deterministic URL
+    // equality decides whether it stays. Reject, don't warn: a stored
+    // mis-match feeds wrong spend into the tiles from day one.
+    if (normalizeLpUrl(destination) !== normalizeLpUrl(tracking.lp_url)) {
+      rejected.push({
+        lp_tracking_id: trackingId,
+        ad_id: adId,
+        reason: `destination_url does not match the tracked LP after normalization (${normalizeLpUrl(destination)} vs ${normalizeLpUrl(tracking.lp_url)}).`,
+      })
+      continue
+    }
+
+    const key = `${trackingId}|${adId}`
+    if (seen.has(key)) continue
+    seen.add(key)
+
+    accepted.push({
+      lp_tracking_id: trackingId,
+      meta_ad_id: adId,
+      ad_name: trimmed(raw.ad_name),
+      meta_campaign_id: trimmed(raw.campaign_id),
+      campaign_name: trimmed(raw.campaign_name),
+      meta_adset_id: trimmed(raw.adset_id),
+      adset_name: trimmed(raw.adset_name),
+      destination_url: destination,
+    })
+  }
+
+  return { accepted, rejected }
 }
