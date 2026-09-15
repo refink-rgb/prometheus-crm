@@ -67,6 +67,7 @@ export default function ProjectResultsPanel({
   todayIso,
   nowMs,
   knownAdAccounts,
+  brandAdAccount,
 }: {
   projectId: string
   brandId: string
@@ -79,11 +80,16 @@ export default function ProjectResultsPanel({
   accountDaily: FunnelDailyRow[]
   todayIso: string
   nowMs: number
-  /** Ad accounts already used by this brand's campaign tracking — prefill. */
+  /** Ad accounts already used by this brand's campaign tracking — fallback options. */
   knownAdAccounts: string[]
+  /** brands.meta_ad_account_id — the preferred, brand-managed option. */
+  brandAdAccount: string | null
 }) {
   // ── No tracking yet: the opt-in form ────────────────────────────────────
   if (!tracking) {
+    // The brand's own account first, then anything campaign tracking has
+    // already used. Usually one entry — the select is confirmation, not work.
+    const accountOptions = [...new Set([brandAdAccount, ...knownAdAccounts].filter((a): a is string => !!a))]
     return (
       <section className="card" style={{ padding: '20px 22px' }}>
         <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>
@@ -100,41 +106,83 @@ export default function ProjectResultsPanel({
             <input type="hidden" name="project_id" value={projectId} />
             <input type="hidden" name="brand_id" value={brandId} />
             <div>
-              <label style={LABEL_STYLE} htmlFor="lp_meta_ad_account_id">Ad account ID</label>
-              <input
-                id="lp_meta_ad_account_id"
-                name="meta_ad_account_id"
-                placeholder="act_10035647"
-                defaultValue={knownAdAccounts[0] ?? ''}
-                required
-                style={{ ...INPUT_STYLE, maxWidth: 260 }}
-              />
+              <label style={LABEL_STYLE} htmlFor="lp_meta_ad_account_id">Ad account</label>
+              {accountOptions.length > 0 ? (
+                <>
+                  <select
+                    id="lp_meta_ad_account_id"
+                    name="meta_ad_account_id"
+                    defaultValue={accountOptions[0]}
+                    required
+                    style={{ ...INPUT_STYLE, maxWidth: 260 }}
+                  >
+                    {accountOptions.map(a => (
+                      <option key={a} value={a}>{a}{a === brandAdAccount ? ' (brand default)' : ''}</option>
+                    ))}
+                  </select>
+                  <span style={{ display: 'block', marginTop: 4, fontSize: 11, color: 'var(--text-muted)' }}>
+                    Managed on the brand page (Account Details).
+                  </span>
+                </>
+              ) : (
+                <>
+                  <input
+                    id="lp_meta_ad_account_id"
+                    name="meta_ad_account_id"
+                    placeholder="act_10035647"
+                    required
+                    style={{ ...INPUT_STYLE, maxWidth: 260 }}
+                  />
+                  <span style={{ display: 'block', marginTop: 4, fontSize: 11, color: 'var(--text-muted)' }}>
+                    Tip: set the Meta Ad Account ID once on the brand page (Account Details) and
+                    this becomes a dropdown.
+                  </span>
+                </>
+              )}
             </div>
+            {projectLpUrl ? (
+              // The project already knows its LP URL — no retyping. Hidden
+              // input + read-only display; the snapshot rule still applies.
+              <div>
+                <label style={LABEL_STYLE}>Landing page URL</label>
+                <input type="hidden" name="lp_url" value={projectLpUrl} />
+                <div style={{ ...INPUT_STYLE, background: 'var(--surface-raised)', color: 'var(--text-secondary)', wordBreak: 'break-all' }}>
+                  {projectLpUrl}
+                </div>
+                <span style={{ display: 'block', marginTop: 4, fontSize: 11, color: 'var(--text-muted)' }}>
+                  From the project&apos;s Final output. Ads are matched on this URL (UTM parameters
+                  and http/https ignored); snapshotted at start — if the page moves, restart tracking.
+                </span>
+              </div>
+            ) : (
+              <div>
+                <label style={LABEL_STYLE} htmlFor="lp_url">Landing page URL</label>
+                <input
+                  id="lp_url"
+                  name="lp_url"
+                  placeholder="https://brand.com/pages/offer"
+                  required
+                  style={INPUT_STYLE}
+                />
+                <span style={{ display: 'block', marginTop: 4, fontSize: 11, color: 'var(--text-muted)' }}>
+                  This project has no LP URL yet — set it on the Landing Page tab and it will
+                  prefill here. Ads are matched on this URL (UTM parameters and http/https ignored).
+                </span>
+              </div>
+            )}
             <div>
-              <label style={LABEL_STYLE} htmlFor="lp_url">Landing page URL</label>
-              <input
-                id="lp_url"
-                name="lp_url"
-                placeholder="https://brand.com/pages/offer"
-                defaultValue={projectLpUrl ?? ''}
-                required
-                style={INPUT_STYLE}
-              />
-              <span style={{ display: 'block', marginTop: 4, fontSize: 11, color: 'var(--text-muted)' }}>
-                Ads are matched on this URL (UTM parameters and http/https ignored). Snapshotted
-                at start — if the page moves, restart tracking.
-              </span>
-            </div>
-            <div>
-              <label style={LABEL_STYLE} htmlFor="lp_launched_on">Launch date</label>
+              <label style={LABEL_STYLE} htmlFor="lp_launched_on">Launch date (optional)</label>
               <input
                 id="lp_launched_on"
                 name="launched_on"
                 type="date"
                 max={todayIso}
-                required
                 style={{ ...INPUT_STYLE, maxWidth: 200 }}
               />
+              <span style={{ display: 'block', marginTop: 4, fontSize: 11, color: 'var(--text-muted)' }}>
+                Leave blank and the nightly agent detects it — the first day any of this page&apos;s
+                ads delivered.
+              </span>
             </div>
             <div>
               <SubmitButton className="btn-primary btn-sm" pendingText="Starting…">
@@ -224,7 +272,10 @@ function TrackingView({
               {live ? '● Tracking live' : 'Tracking ended'}
             </span>
             <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-              {tracking.meta_ad_account_id} · day {daysLive(tracking.launched_on, tracking.ended_on, todayIso)}
+              {tracking.meta_ad_account_id}
+              {tracking.launched_on
+                ? ` · day ${daysLive(tracking.launched_on, tracking.ended_on, todayIso)}`
+                : ' · launch date: detecting from the ads’ first delivery'}
             </span>
           </div>
           <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, wordBreak: 'break-all' }}>
@@ -277,8 +328,9 @@ function TrackingView({
 
       {lpDaily.length === 0 ? (
         <section className="card" style={{ padding: '20px 22px', color: 'var(--text-muted)', fontSize: 13, lineHeight: 1.6 }}>
-          No daily results yet. The nightly agent discovers this page&apos;s ads and pulls their
-          daily numbers on its next run (~7am Eastern) — matched ads will appear below for review.
+          {tracking.launched_on
+            ? 'No daily results yet. The nightly agent discovers this page’s ads and pulls their daily numbers on its next run (~7am Eastern) — matched ads will appear below for review.'
+            : 'No daily results yet. On its next run (~7am Eastern) the nightly agent finds this page’s ads and detects the launch date from their first day of delivery; the daily history backfills on the run after the date is set (or immediately, if the agent reports both in one run).'}
         </section>
       ) : (
         <>

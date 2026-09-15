@@ -234,7 +234,9 @@ export async function GET(request: Request) {
         brand_id: string
         meta_ad_account_id: string
         lp_url: string
-        launched_on: string
+        // NULL = launch date not detected yet — the entry goes out as
+        // discovery-only until the agent reports launch_dates.
+        launched_on: string | null
         ended_on: string | null
         projects: { name: string } | null
         brands: { id: string; name: string } | null
@@ -274,11 +276,35 @@ export async function GET(request: Request) {
 
     for (let i = 0; i < lpFiltered.length; i++) {
       const t = lpFiltered[i]
-      if (t.launched_on > through) continue
+      // Launch date known and in the future = nothing complete to pull yet.
+      // NULL launch date still goes out: discovery has to run before the date
+      // can be detected.
+      if (t.launched_on !== null && t.launched_on > through) continue
 
       const matches = ((matchResults[i].data ?? []) as Array<{ meta_ad_id: string; status: string }>)
       const includedAdIds = matches.filter(m => m.status === 'included').map(m => m.meta_ad_id)
       const knownAdIds = matches.map(m => m.meta_ad_id)
+
+      // No launch date yet → a DISCOVERY-ONLY entry: find the ads, report the
+      // earliest day any of them delivered (launch_dates in the POST), and
+      // skip the daily pull — there is no window to pull over.
+      if (t.launched_on === null) {
+        lpPages.push({
+          lp_tracking_id: t.id,
+          project_name: t.projects?.name ?? null,
+          brand_name: t.brands?.name ?? null,
+          ad_account_id: t.meta_ad_account_id,
+          lp_url: t.lp_url,
+          included_ad_ids: includedAdIds,
+          known_ad_ids: knownAdIds,
+          launched_on: null,
+          needs_launch_date: true,
+          from_date: null,
+          to_date: null,
+          mode: 'discovery',
+        })
+        continue
+      }
 
       const latest = (latestResults[i].data as { stat_date: string } | null)?.stat_date
       const backfill = full || !latest
@@ -297,6 +323,7 @@ export async function GET(request: Request) {
         // NOT in this list as discovered_ads.
         known_ad_ids: knownAdIds,
         launched_on: t.launched_on,
+        needs_launch_date: false,
         from_date: backfill ? t.launched_on : trailingStart,
         to_date: through,
         mode: backfill ? 'backfill' : 'trailing',
@@ -381,7 +408,10 @@ export async function GET(request: Request) {
       'Report ONLY what the tool returned. If a metric is unavailable, send null — never estimate, ' +
       'interpolate, or round to something that looks better. incremental_revenue comes from the ad ' +
       'account\'s existing "Incremental Revenue" column; if the account has no such column, send null. ' +
-      'THE lp_pages SECTION: for each entry, (1) list the account\'s ads and their destination URLs; ' +
+      'THE lp_pages SECTION: an entry with needs_launch_date=true is DISCOVERY-ONLY — find its ads ' +
+      '(step 1 below), then report the EARLIEST day any matched ad delivered as ' +
+      'launch_dates: [{lp_tracking_id, launched_on}] in the POST, and skip the daily pull for it ' +
+      '(from_date/to_date are null). For every other entry: (1) list the account\'s ads and their destination URLs; ' +
       'any ad pointing at lp_url that is NOT in known_ad_ids goes into POST discovered_ads with its ' +
       'ad_id, ad_name, campaign_id, campaign_name, adset_id, adset_name and the EXACT destination_url ' +
       '— the server verifies the URL and rejects near-misses; (2) pull ad-level daily insights for ' +
@@ -538,7 +568,12 @@ export async function POST(request: Request) {
   // ── LP-scoped sections (see 20260915_add_lp_results.sql) ─────────────────
   const lpSummary = await processLpSections(
     supabase,
-    { lp_rows: parsed.payload.lp_rows, account_rows: parsed.payload.account_rows, discovered_ads: parsed.payload.discovered_ads },
+    {
+      lp_rows: parsed.payload.lp_rows,
+      account_rows: parsed.payload.account_rows,
+      discovered_ads: parsed.payload.discovered_ads,
+      launch_dates: parsed.payload.launch_dates,
+    },
     reported_at,
     today,
   )
@@ -611,6 +646,7 @@ async function processLpSections(
     lp_rows: Parameters<typeof validateLpRows>[0]
     account_rows: Parameters<typeof validateAccountRows>[0]
     discovered_ads: Parameters<typeof validateDiscoveredAds>[0]
+    launch_dates: Array<{ lp_tracking_id?: unknown; launched_on?: unknown }>
   },
   reportedAt: string,
   today: string,
@@ -624,7 +660,8 @@ async function processLpSections(
     audit: null as unknown,
     report: null as unknown,
   }
-  const total = payload.lp_rows.length + payload.account_rows.length + payload.discovered_ads.length
+  const total = payload.lp_rows.length + payload.account_rows.length +
+    payload.discovered_ads.length + payload.launch_dates.length
   if (total === 0) return empty
 
   const { data: trackingsRaw, error: trackErr } = await supabase
@@ -640,9 +677,47 @@ async function processLpSections(
   }
   const trackings = (trackingsRaw ?? []) as unknown as Array<LpTrackingRef & { brand_id: string }>
 
-  // Earliest launch per ad account bounds what account rows may claim.
+  // ── Detected launch dates ────────────────────────────────────────────────
+  // Applied BEFORE row validation so a run that detects the date and pulls
+  // the history can land both in one POST. Only fills a NULL launched_on —
+  // a date a human set (or a prior detection) is never overwritten.
+  const launchDatesSet: string[] = []
+  const launchDatesRejected: Array<{ lp_tracking_id: string | null; reason: string }> = []
+  for (const raw of payload.launch_dates) {
+    const trackingId = typeof raw.lp_tracking_id === 'string' ? raw.lp_tracking_id.trim() : ''
+    const launchedOn = typeof raw.launched_on === 'string' ? raw.launched_on.trim() : ''
+    const tracking = trackings.find(t => t.id === trackingId)
+    if (!tracking) {
+      launchDatesRejected.push({ lp_tracking_id: trackingId || null, reason: 'Unknown lp_tracking_id.' })
+      continue
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(launchedOn) || launchedOn > today) {
+      launchDatesRejected.push({ lp_tracking_id: trackingId, reason: `launched_on must be a past-or-today YYYY-MM-DD, got ${JSON.stringify(raw.launched_on)}.` })
+      continue
+    }
+    if (tracking.launched_on !== null) {
+      launchDatesRejected.push({ lp_tracking_id: trackingId, reason: `Launch date already set (${tracking.launched_on}) — not overwritten.` })
+      continue
+    }
+    const { error } = await supabase
+      .from('lp_tracking')
+      .update({ launched_on: launchedOn })
+      .eq('id', trackingId)
+      .is('launched_on', null)
+    if (error) {
+      launchDatesRejected.push({ lp_tracking_id: trackingId, reason: `Failed to set launch date: ${error.message}` })
+      continue
+    }
+    tracking.launched_on = launchedOn   // patch in-memory so this POST's rows validate
+    launchDatesSet.push(trackingId)
+  }
+
+  // Earliest launch per ad account bounds what account rows may claim. A
+  // tracking whose launch date isn't detected yet contributes no bound (and
+  // no account pull was asked for on its behalf).
   const accountRefs = new Map<string, AccountRef>()
   for (const t of trackings) {
+    if (t.launched_on === null) continue
     const existing = accountRefs.get(t.meta_ad_account_id)
     if (!existing || t.launched_on < existing.earliest) {
       accountRefs.set(t.meta_ad_account_id, {
@@ -753,13 +828,15 @@ async function processLpSections(
     ads_proposed: payload.discovered_ads.length,
     ads_accepted_new: newAds,
     ads_rejected: ads.rejected,
+    launch_dates_set: launchDatesSet,
+    launch_dates_rejected: launchDatesRejected,
   }
 
   return {
     stat_dates: [...lp.valid.map(r => r.stat_date), ...accounts.valid.map(r => r.stat_date)],
     rows_received: total,
-    rows_upserted: lpUpserted + accountUpserted + newAds,
-    rows_rejected: allLpRejected.length + accounts.rejected.length + ads.rejected.length,
+    rows_upserted: lpUpserted + accountUpserted + newAds + launchDatesSet.length,
+    rows_rejected: allLpRejected.length + accounts.rejected.length + ads.rejected.length + launchDatesRejected.length,
     write_error: writeError,
     audit: report,
     report,

@@ -623,7 +623,9 @@ export interface LpTracking {
   brand_id: string
   meta_ad_account_id: string
   lp_url: string
-  launched_on: string
+  // NULL = not detected yet: the agent reports the earliest day the matched
+  // ads delivered, and the ingest endpoint fills this in.
+  launched_on: string | null
   ended_on: string | null
   created_at: string
 }

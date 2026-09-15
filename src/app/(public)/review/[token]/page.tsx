@@ -77,7 +77,9 @@ export default async function ReviewPage({
       .eq('project_id', p.id)
       .maybeSingle()
     const tracking = trackingRaw as Pick<LpTracking, 'id' | 'meta_ad_account_id' | 'launched_on' | 'ended_on'> | null
-    if (tracking) {
+    // launched_on null = detection pending, so no daily rows exist yet and
+    // there is nothing to render (or bound the account query with).
+    if (tracking && tracking.launched_on) {
       const FUNNEL_COLUMNS =
         'stat_date, spend_cents, revenue_cents, purchases, impressions, link_clicks, ' +
         'initiate_checkouts, landing_page_views, source, warnings, reported_at'

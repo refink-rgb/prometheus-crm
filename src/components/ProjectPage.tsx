@@ -114,6 +114,16 @@ export default async function ProjectPage({ projectId }: { projectId: string }) 
     .maybeSingle()
   const lpTracking = (lpTrackingRaw ?? null) as LpTracking | null
 
+  // Separate, tolerant read: the column arrives with migration
+  // 20260915_lp_tracking_ux.sql, and selecting a missing column errors the
+  // whole query — this one failing must not take the brand header down.
+  const { data: brandAcctRaw } = await supabase
+    .from('brands')
+    .select('meta_ad_account_id')
+    .eq('id', p.brand_id)
+    .maybeSingle()
+  const brandAdAccount = (brandAcctRaw as { meta_ad_account_id: string | null } | null)?.meta_ad_account_id ?? null
+
   const FUNNEL_COLUMNS =
     'stat_date, spend_cents, revenue_cents, purchases, impressions, link_clicks, ' +
     'initiate_checkouts, landing_page_views, source, warnings, reported_at'
@@ -131,13 +141,16 @@ export default async function ProjectPage({ projectId }: { projectId: string }) 
           .eq('lp_tracking_id', lpTracking.id)
           .order('stat_date', { ascending: true }),
         // Bounded to the tracking window so the rest-of-account comparison
-        // covers the same days as the LP's own rows.
-        supabase
-          .from('account_daily_results')
-          .select(FUNNEL_COLUMNS)
-          .eq('meta_ad_account_id', lpTracking.meta_ad_account_id)
-          .gte('stat_date', lpTracking.launched_on)
-          .order('stat_date', { ascending: true }),
+        // covers the same days as the LP's own rows. No launch date yet =
+        // no window = nothing to compare (daily rows can't exist either).
+        lpTracking.launched_on
+          ? supabase
+              .from('account_daily_results')
+              .select(FUNNEL_COLUMNS)
+              .eq('meta_ad_account_id', lpTracking.meta_ad_account_id)
+              .gte('stat_date', lpTracking.launched_on)
+              .order('stat_date', { ascending: true })
+          : Promise.resolve({ data: null }),
       ])
     : [{ data: null }, { data: null }, { data: null }]
 
@@ -170,6 +183,7 @@ export default async function ProjectPage({ projectId }: { projectId: string }) 
         // ended tracking's account series stops at the end date too.
         .filter(r => !lpTracking?.ended_on || r.stat_date <= lpTracking.ended_on)}
       nowMs={nowMs}
+      brandAdAccount={brandAdAccount}
     />
   )
 }

@@ -515,6 +515,16 @@ export interface IngestPayload {
   lp_rows: RawLpRow[]
   account_rows: RawAccountRow[]
   discovered_ads: RawDiscoveredAd[]
+  // Detected launch dates for trackings the work list marked
+  // needs_launch_date: the earliest day any matched ad delivered. The route
+  // fills lp_tracking.launched_on ONLY while it is NULL — a date a human set
+  // is never overwritten.
+  launch_dates: RawLaunchDate[]
+}
+
+export interface RawLaunchDate {
+  lp_tracking_id?: unknown
+  launched_on?: unknown
 }
 
 // Validates the envelope only — row-level checks are validateRows(). Returns
@@ -536,12 +546,14 @@ export function parsePayload(body: unknown): { payload: IngestPayload } | { erro
   const lpRows = Array.isArray(b.lp_rows) ? (b.lp_rows as RawLpRow[]) : []
   const accountRows = Array.isArray(b.account_rows) ? (b.account_rows as RawAccountRow[]) : []
   const discoveredAds = Array.isArray(b.discovered_ads) ? (b.discovered_ads as RawDiscoveredAd[]) : []
+  const launchDates = Array.isArray(b.launch_dates) ? (b.launch_dates as RawLaunchDate[]) : []
 
   // The payload must carry SOMETHING — otherwise it's a no-op mistake worth
   // telling the agent about rather than logging as a successful empty run.
   if (
     b.rows.length === 0 && pausedCampaigns.length === 0 &&
-    lpRows.length === 0 && accountRows.length === 0 && discoveredAds.length === 0
+    lpRows.length === 0 && accountRows.length === 0 && discoveredAds.length === 0 &&
+    launchDates.length === 0
   ) {
     return { error: 'Every section is empty — nothing to ingest.' }
   }
@@ -567,6 +579,7 @@ export function parsePayload(body: unknown): { payload: IngestPayload } | { erro
       lp_rows: lpRows,
       account_rows: accountRows,
       discovered_ads: discoveredAds,
+      launch_dates: launchDates,
     },
   }
 }
@@ -593,7 +606,9 @@ export interface LpTrackingRef {
   id: string
   meta_ad_account_id: string
   lp_url: string
-  launched_on: string
+  // NULL = launch date not detected yet — daily rows for this tracking are
+  // rejected until it exists (there is no lower bound to validate against).
+  launched_on: string | null
   ended_on: string | null
 }
 
@@ -781,6 +796,12 @@ export function validateLpRows(
     }
     if (!isIsoDate(statDate)) {
       rejected.push({ ...echo, reason: `stat_date must be YYYY-MM-DD, got ${JSON.stringify(raw.stat_date)}.` })
+      continue
+    }
+    // No launch date = no lower bound to validate against. Daily rows wait
+    // until the agent's detected date (or a human's) lands on the tracking.
+    if (tracking.launched_on === null) {
+      rejected.push({ ...echo, reason: 'Launch date not set yet — report launch_dates for this tracking first; daily rows start next run.' })
       continue
     }
     if (statDate < tracking.launched_on) {

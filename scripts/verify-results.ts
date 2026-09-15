@@ -893,6 +893,17 @@ check('funnel inversions WARN, the row is stored', lpWarn.valid.length, 1)
 checkTrue('clicks>impressions flagged', lpWarn.valid[0].warnings.some(w => w.includes('exceeds impressions')))
 checkTrue('purchases>checkouts flagged', lpWarn.valid[0].warnings.some(w => w.includes('exceed initiate_checkouts')))
 
+console.log('\n--- launch-date detection gate ---')
+const pendingTracking: (LpTrackingRef & { brand_id: string })[] = [{
+  id: 'trk-pending', meta_ad_account_id: 'act_1', brand_id: 'brand-1',
+  lp_url: 'https://brand.com/pages/new', launched_on: null, ended_on: null,
+}]
+const pendingRows = validateLpRows([{ lp_tracking_id: 'trk-pending', stat_date: '2026-09-03', spend: 1, revenue: 1 }], pendingTracking, LP_TODAY)
+check('daily rows wait until the launch date exists', pendingRows.valid.length, 0)
+checkTrue('the rejection tells the agent to send launch_dates', pendingRows.rejected[0].reason.includes('launch_dates'))
+const pendingAds = validateDiscoveredAds([{ lp_tracking_id: 'trk-pending', ad_id: '444', destination_url: 'https://brand.com/pages/new?utm_x=1' }], pendingTracking)
+check('discovery still works while the date is pending', pendingAds.accepted.length, 1)
+
 console.log('\n--- account row validation ---')
 const accounts = [{ meta_ad_account_id: 'act_1', brand_id: 'brand-1', earliest: '2026-09-01' }]
 const acctOk = validateAccountRows([{ ad_account_id: 'act_1', stat_date: '2026-09-03', spend: 100, revenue: 200 }], accounts, LP_TODAY)

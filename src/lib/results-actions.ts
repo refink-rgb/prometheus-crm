@@ -443,16 +443,21 @@ export async function startLpTracking(formData: FormData) {
   if (!/^https?:\/\/\S+\.\S+/.test(lpUrl)) {
     throw new Error('Landing page URL must be a full URL (https://…).')
   }
-  if (!ISO_DATE.test(launchedOn)) throw new Error('Launch date is required (YYYY-MM-DD).')
+  // OPTIONAL: blank = the nightly agent detects it (the earliest day any
+  // matched ad delivered) and the ingest endpoint fills it in. Daily pulls
+  // start once the date exists.
+  if (launchedOn !== '' && !ISO_DATE.test(launchedOn)) {
+    throw new Error('Launch date must be YYYY-MM-DD, or left blank to auto-detect.')
+  }
   const today = easternToday()
-  if (launchedOn > today) throw new Error('Launch date cannot be in the future.')
+  if (launchedOn !== '' && launchedOn > today) throw new Error('Launch date cannot be in the future.')
 
   const { error } = await supabase.from('lp_tracking').insert({
     project_id: projectId,
     brand_id: brandId,
     meta_ad_account_id: adAccountId,
     lp_url: lpUrl,
-    launched_on: launchedOn,
+    launched_on: launchedOn === '' ? null : launchedOn,
     created_by: user.id,
   })
   if (error) {

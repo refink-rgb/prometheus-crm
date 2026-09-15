@@ -208,6 +208,17 @@ export default async function BrandPage({ params }: { params: Promise<{ brandId:
                   />
                 </div>
                 <div>
+                  <label>Meta Ad Account ID</label>
+                  <input
+                    name="meta_ad_account_id"
+                    defaultValue={b.meta_ad_account_id ?? ''}
+                    placeholder="act_1234567890"
+                  />
+                  <span style={{ display: 'block', marginTop: 4, fontSize: 11, color: 'var(--text-muted)' }}>
+                    Feeds the Results tab on this brand&apos;s projects.
+                  </span>
+                </div>
+                <div>
                   <label>Account Created</label>
                   <div style={{
                     background: 'var(--surface-raised)',

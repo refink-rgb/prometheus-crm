@@ -509,18 +509,29 @@ export async function updateBrandDetails(formData: FormData) {
   const brand_notes = (formData.get('brand_notes') as string)?.trim() || null
   const onboarding_transcript = (formData.get('onboarding_transcript') as string)?.trim() || null
 
+  // Meta ad account — feeds the Results tab's tracking form as a select.
+  // Accepts a bare numeric id and normalizes it to act_…; blank clears it.
+  const adAccountRaw = (formData.get('meta_ad_account_id') as string)?.trim() ?? ''
+  let meta_ad_account_id: string | null = null
+  if (adAccountRaw !== '') {
+    if (/^act_\d+$/.test(adAccountRaw)) meta_ad_account_id = adAccountRaw
+    else if (/^\d+$/.test(adAccountRaw)) meta_ad_account_id = `act_${adAccountRaw}`
+    else throw new Error('Meta ad account ID must look like act_1234567890.')
+  }
+
   const core = { monthly_retainer, start_date, growth_strategist, is_active, is_trial, profit_engineer, pipeline_status, brand_notes }
 
-  // Try with onboarding_transcript. If the column doesn't exist yet (migration
-  // 20260701_add_onboarding_transcript.sql not applied), fall back to a save
-  // without it so the rest of the account details still persist.
+  // Try with onboarding_transcript + meta_ad_account_id. If either column
+  // doesn't exist yet (migrations 20260701_add_onboarding_transcript.sql /
+  // 20260915_lp_tracking_ux.sql not applied), fall back to a save without
+  // them so the rest of the account details still persist.
   const { error } = await supabase
     .from('brands')
-    .update({ ...core, onboarding_transcript })
+    .update({ ...core, onboarding_transcript, meta_ad_account_id })
     .eq('id', brandId)
 
   if (error) {
-    const missingColumn = error.code === '42703' || /onboarding_transcript/.test(error.message ?? '')
+    const missingColumn = error.code === '42703' || /onboarding_transcript|meta_ad_account_id/.test(error.message ?? '')
     if (!missingColumn) throw new Error(error.message)
     await supabase.from('brands').update(core).eq('id', brandId)
   }

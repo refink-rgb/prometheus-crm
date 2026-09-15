@@ -118,6 +118,10 @@ export interface Brand {
   brand_notes: string | null
   onboarding_transcript: string | null
   client_token: string | null
+  /** The brand's Meta ad account (act_…), managed on the brand page. The
+   *  Results tab's tracking form offers it as a select. Optional so a DB
+   *  predating migration 20260915_lp_tracking_ux reads as undefined. */
+  meta_ad_account_id?: string | null
   created_at: string
   created_by: string
   /** 0 = doesn't mind AI … 3 = will reject anything that reads as AI. NULL = unset. */

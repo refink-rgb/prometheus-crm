@@ -214,7 +214,7 @@ function CommentList({ comments, empty }: { comments: ProjectComment[]; empty: s
 
 export default function PreviewProjectView({
   project: p, brand, assets, comments, images, dna, revisionsByAsset, lpEditorName, creativeEditorName, journeyName, journeys, profiles, campaigns, todayIso, authorName, brandLandingPages, brandComments, brandDocuments, currentUserId,
-  lpTracking, lpAdMatches, lpDaily, accountDaily, nowMs,
+  lpTracking, lpAdMatches, lpDaily, accountDaily, nowMs, brandAdAccount,
 }: {
   project: Project; brand: Brand; assets: CreativeAsset[]; comments: ProjectComment[]
   images: ProjectImage[]; dna: BrandDna | null
@@ -233,6 +233,8 @@ export default function PreviewProjectView({
   lpDaily: FunnelDailyRow[]
   accountDaily: FunnelDailyRow[]
   nowMs: number
+  /** brands.meta_ad_account_id — the tracking form's preferred account option. */
+  brandAdAccount: string | null
 }) {
   const [tab, setTab] = useState<Tab>('overview')
 
@@ -841,6 +843,7 @@ export default function PreviewProjectView({
               todayIso={todayIso}
               nowMs={nowMs}
               knownAdAccounts={[...new Set(campaigns.map(c => c.meta_ad_account_id))]}
+              brandAdAccount={brandAdAccount}
             />
           )}
           {tab === 'overview' && (

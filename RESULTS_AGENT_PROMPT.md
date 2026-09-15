@@ -447,3 +447,29 @@ The POST response gains an `lp` object: `lp_rows_upserted`, `ads_accepted_new`,
 and — the part to READ — `lp_rejected` and `ads_rejected` with per-row reasons.
 An ad rejected for a URL mismatch usually means a redirect or a different
 domain: report it in the run output rather than retrying with a "fixed" URL.
+
+### Launch-date detection (added same day)
+
+An `lp_pages` entry with `needs_launch_date: true` (its `launched_on`,
+`from_date` and `to_date` are null) is **discovery-only**: nobody typed a
+launch date, so you detect it.
+
+1. Run discovery for it exactly as above.
+2. Across the ads you matched (plus any already in `known_ad_ids`), find the
+   **earliest day any of them delivered** — first day with impressions or
+   spend, from lifetime insights or the ads' first activity.
+3. Report it in the POST:
+
+   ```json
+   "launch_dates": [ { "lp_tracking_id": "…", "launched_on": "YYYY-MM-DD" } ]
+   ```
+
+4. Skip the daily pull for that entry this run — next run's work list carries
+   the date and a normal backfill window. (If it's trivial to do in the same
+   run, you MAY also send the daily `lp_rows` in the same POST — launch dates
+   are applied before row validation, so both land.)
+
+The endpoint only fills a launch date that is still empty; it never overwrites
+one a human set, and the response's `lp.launch_dates_set` /
+`lp.launch_dates_rejected` tell you what happened. If the matched ads have no
+delivery at all yet, send nothing and say so in the run output.
