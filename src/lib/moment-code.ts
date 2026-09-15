@@ -71,10 +71,17 @@ export function momentCode(
   brandName: string,
   projectName: string | null,
   dueDate: string | null,
+  /**
+   * A version letter, slotted between the offer and the date: ILLD$OB050926.
+   * Used by duplication. The name cannot carry it — offerCode strips
+   * everything after the month and year, so "…July 2026 (copy)" produces the
+   * SAME code as the original and the unique index rejects the copy.
+   */
+  variant?: string,
 ): string | null {
   if (!dueDate) return null
   const b = brandCode(brandName)
   const o = offerCode(projectName, brandName)
   if (!b || !o) return null
-  return `${b}${o}${dmy(dueDate)}`
+  return `${b}${o}${(variant ?? '').toUpperCase()}${dmy(dueDate)}`
 }

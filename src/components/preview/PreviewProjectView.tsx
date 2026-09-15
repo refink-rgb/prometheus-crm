@@ -25,6 +25,7 @@ import type { AssetRevision } from '@/lib/revisions'
 import ReviewWorkspace from '@/components/preview/ReviewWorkspace'
 import Link from 'next/link'
 import CopyMarkdownButton from '@/components/CopyMarkdownButton'
+import DuplicateProjectButton from '@/components/DuplicateProjectButton'
 import ListEditor, { type ListRow } from '@/components/preview/ListEditor'
 import { readProducts, readCompetitors, readTopPerformers, readCopyApprovals, readAssetFolders, groupProducts, productsDrifted, offerSource, splitSkus } from '@/lib/products'
 import ProductGroupEditor from '@/components/preview/ProductGroupEditor'
@@ -567,6 +568,7 @@ export default function PreviewProjectView({
               label="Copy brief"
               title="Copy the brief as markdown"
             />
+            <DuplicateProjectButton projectId={p.id} brandId={p.brand_id} />
             {p.is_complete ? (
               // Complete was a dead end: rails disabled, edit hidden, nothing
               // able to move. A client coming back a week later with one more

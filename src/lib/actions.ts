@@ -3942,3 +3942,139 @@ export async function reopenProject(
   revalidatePath(`/preview/project/${projectId}`)
   revalidatePath('/')
 }
+
+// ── Duplicate a project ─────────────────────────────────────────────────────
+//
+// "Everything exactly the same, including all the links" — the brief, the
+// offer, products, competitors, top performers, asset folders, the copy deck,
+// every link field, the reference images, the editors and the journey.
+//
+// What is deliberately NOT carried over, and why each one would be wrong:
+//
+//   share_token           The client review link. Shared between two projects,
+//                         one token would resolve to whichever the page found
+//                         first — a client reviewing the wrong set.
+//   moment_code           Unique index, and a code that matched another project
+//                         would merge two moments in every report built on it.
+//                         Re-minted from the duplicate's own name.
+//   source_offer_card_id  The approved offer points back 1:1 at the ORIGINAL.
+//   stages, approvals,    Starts at brief (Roberto, 15 Sep). A copy has not
+//   is_complete, lock     been reviewed, approved or signed off by anyone.
+//   copy_approvals        The tick log records who approved which line ON THE
+//                         ORIGINAL; carried over it would claim sign-offs that
+//                         never happened here.
+//
+// And whole child tables that stay behind:
+//
+//   creative_assets       Their approvals, visibility, revisions and comments are
+//                         the original's review history. Copied into a project
+//                         at brief they would be approved and client-visible on
+//                         a project nobody has reviewed. drive_folder_url IS
+//                         copied, so one Sync pulls the files in fresh.
+//   project_comments      The conversation belongs to the original.
+//   tracked_campaigns     Copying them double-counts Meta results in every
+//                         report.
+//
+// project_images ARE copied: reference images are brief, not work. Safe because
+// deleting a project's images only removes rows, never the stored file — so the
+// two projects can point at the same objects without one breaking the other.
+
+const DUPLICATE_OMIT = new Set([
+  'id', 'created_at', 'created_by',
+  'share_token', 'moment_code', 'source_offer_card_id',
+  'lp_stage', 'creatives_stage', 'is_complete',
+  'client_approved', 'lp_approved', 'creatives_approved', 'needs_revisions',
+  'offer_locked', 'offer_locked_at', 'offer_locked_by',
+  'copy_approvals',
+])
+
+export async function duplicateProject(
+  projectId: string,
+  brandId: string,
+): Promise<{ ok: true; id: string; href: string } | { ok: false; error: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
+
+  const [{ data: src, error: srcErr }, { data: brandRow }] = await Promise.all([
+    supabase.from('projects').select('*').eq('id', projectId).eq('brand_id', brandId).single(),
+    supabase.from('brands').select('name').eq('id', brandId).single(),
+  ])
+  if (srcErr || !src) return { ok: false, error: 'That project could not be found.' }
+  const brandName = (brandRow as { name: string } | null)?.name ?? ''
+  const source = src as Record<string, unknown>
+
+  // Every column the table has, minus the omit list. Built from the row rather
+  // than a hand-kept list, so a column added next month is copied by default
+  // instead of silently dropped.
+  const base: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(source)) if (!DUPLICATE_OMIT.has(k)) base[k] = v
+
+  // A fresh start.
+  Object.assign(base, {
+    created_by: user.id,
+    lp_stage: 'brief',
+    creatives_stage: 'brief',
+    is_complete: false,
+    client_approved: false,
+    lp_approved: false,
+    creatives_approved: false,
+    needs_revisions: false,
+    offer_locked: false,
+    offer_locked_at: null,
+    offer_locked_by: null,
+    // NULL, not []: the column is CHECK'd to be a JSON object, and
+    // readCopyApprovals already reads NULL as "no verdicts". [] fails the
+    // constraint and the whole duplicate is rejected.
+    copy_approvals: null,
+  })
+
+  // Find an unused name: "X (copy)", then "X (copy 2)"... Two identically named
+  // projects on one brand are indistinguishable in every list, and the name
+  // also feeds the moment code, so a distinct name is what keeps that unique.
+  const originalName = String(source.name ?? 'Untitled')
+  const { data: siblings } = await supabase.from('projects').select('name').eq('brand_id', brandId)
+  const taken = new Set(((siblings ?? []) as { name: string }[]).map(r => r.name))
+
+  // The code gets a version letter (B, C, D…) rather than relying on the name
+  // to differ: offerCode strips everything after the month and year, so the
+  // "(copy)" suffix never reaches the code and the unique index rejected every
+  // duplicate. Caught by inserting a real copy, not by the build.
+  const VARIANTS = 'BCDEFGHJ'
+
+  let newId: string | null = null
+  let lastErr = ''
+  for (let n = 1; n <= VARIANTS.length && !newId; n++) {
+    const name = n === 1 ? `${originalName} (copy)` : `${originalName} (copy ${n})`
+    if (taken.has(name)) continue
+    const row = {
+      ...base,
+      name,
+      moment_code: momentCode(brandName, name, (source.due_date as string | null) ?? null, VARIANTS[n - 1]),
+    }
+    const { data: ins, error } = await supabase.from('projects').insert(row).select('id').single()
+    if (!error && ins) { newId = (ins as { id: string }).id; break }
+    lastErr = error?.message ?? 'no row returned'
+    // 23505 = a unique index (the moment code) — try the next name. Anything
+    // else is a real failure and retrying will not fix it.
+    if ((error as { code?: string } | null)?.code !== '23505') break
+  }
+  if (!newId) return { ok: false, error: `Could not duplicate: ${lastErr}` }
+
+  // Reference images, pointing at the same stored files.
+  const { data: imgs } = await supabase
+    .from('project_images').select('storage_path, storage_url').eq('project_id', projectId)
+  if (imgs && imgs.length) {
+    const { error: imgErr } = await supabase.from('project_images').insert(
+      (imgs as { storage_path: string; storage_url: string }[])
+        .map(i => ({ project_id: newId, storage_path: i.storage_path, storage_url: i.storage_url })),
+    )
+    // The project exists either way; missing images are recoverable by hand,
+    // a thrown error here would leave a duplicate the user thinks failed.
+    if (imgErr) console.error('[duplicateProject] images not copied:', imgErr.message)
+  }
+
+  revalidatePath(`/brands/${brandId}`)
+  return { ok: true, id: newId, href: `/brands/${brandId}/projects/${newId}` }
+}
