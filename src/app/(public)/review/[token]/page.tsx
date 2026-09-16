@@ -197,6 +197,73 @@ export default async function ReviewPage({
           />
         </section>
 
+          </>}
+          creatives={<>
+        {/* Creatives track — capped narrower than the LP so the images keep
+            their original (smaller) size; the LP needs the full width, creatives
+            don't. */}
+        <section style={{ marginBottom: 'var(--space-8)', maxWidth: 960 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
+            <SectionTitle>
+              Creatives {assets.length > 0 ? `(${assets.length})` : ''}
+            </SectionTitle>
+            {assets.length > 0 && (
+              <a
+                href={`/api/review/${token}/download`}
+                download
+                title={`Download all ${assets.length} creatives as a zip`}
+                className="btn-secondary btn-sm"
+                style={{ borderColor: 'var(--accent)', color: 'var(--accent)', background: 'var(--accent-muted)' }}
+              >
+                ⬇ Download all ({assets.length})
+              </a>
+            )}
+          </div>
+
+          {assets.length > 0 ? (
+            <ImageReviewPanel
+              token={token}
+              assets={assets}
+              creativesApproved={p.creatives_approved}
+              initialComments={imageComments}
+              canDelete={canDeleteComments}
+            />
+          ) : (
+            <div className="card">
+              {p.creatives_notes ? (
+                <div style={{ marginBottom: p.creatives_approved ? 0 : 20 }}>
+                  <FieldLabel>Link / Notes</FieldLabel>
+                  <div style={{ fontSize: 14, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>
+                    {p.creatives_notes}
+                  </div>
+                </div>
+              ) : (
+                <p style={{ color: 'var(--text-muted)', fontSize: 14, marginBottom: p.creatives_approved ? 0 : 20 }}>
+                  Creatives coming soon — check back later.
+                </p>
+              )}
+              {p.creatives_approved ? (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 'var(--space-2)',
+                  padding: 'var(--space-3) var(--space-3)', borderRadius: 8,
+                  background: 'color-mix(in srgb, var(--success) 10%, transparent)',
+                  border: '1px solid color-mix(in srgb, var(--success) 20%, transparent)',
+                }}>
+                  <span style={{ fontSize: 16 }}>✓</span>
+                  <span style={{ fontSize: 'var(--text-base)', fontWeight: 600, color: 'var(--success)' }}>Creatives approved</span>
+                </div>
+              ) : null}
+            </div>
+          )}
+        </section>
+          </>}
+          results={p.results_client_visible && resultsLpDaily.length > 0 ? (
+            <section style={{ marginBottom: 'var(--space-8)' }}>
+              <SectionTitle>Results</SectionTitle>
+              <ClientResultsSection lpDaily={resultsLpDaily} accountDaily={resultsAccountDaily} />
+            </section>
+          ) : null}
+          offer={(p.offer_description || p.inspiration || p.headline || p.body_copy || p.supporting_message || p.offer || p.cta || p.discount || p.tiered_offer || p.product_featured) ? (<>
         {/* Offer Details */}
         {(p.offer_description || p.inspiration || p.headline || p.body_copy || p.supporting_message || p.offer || p.cta || p.discount || p.tiered_offer || p.product_featured) && (
           <section style={{ marginBottom: 'var(--space-8)', ...TEXT_COLUMN }}>
@@ -279,72 +346,7 @@ export default async function ReviewPage({
             </div>
           </section>
         )}
-          </>}
-          creatives={<>
-        {/* Creatives track — capped narrower than the LP so the images keep
-            their original (smaller) size; the LP needs the full width, creatives
-            don't. */}
-        <section style={{ marginBottom: 'var(--space-8)', maxWidth: 960 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
-            <SectionTitle>
-              Creatives {assets.length > 0 ? `(${assets.length})` : ''}
-            </SectionTitle>
-            {assets.length > 0 && (
-              <a
-                href={`/api/review/${token}/download`}
-                download
-                title={`Download all ${assets.length} creatives as a zip`}
-                className="btn-secondary btn-sm"
-                style={{ borderColor: 'var(--accent)', color: 'var(--accent)', background: 'var(--accent-muted)' }}
-              >
-                ⬇ Download all ({assets.length})
-              </a>
-            )}
-          </div>
-
-          {assets.length > 0 ? (
-            <ImageReviewPanel
-              token={token}
-              assets={assets}
-              creativesApproved={p.creatives_approved}
-              initialComments={imageComments}
-              canDelete={canDeleteComments}
-            />
-          ) : (
-            <div className="card">
-              {p.creatives_notes ? (
-                <div style={{ marginBottom: p.creatives_approved ? 0 : 20 }}>
-                  <FieldLabel>Link / Notes</FieldLabel>
-                  <div style={{ fontSize: 14, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>
-                    {p.creatives_notes}
-                  </div>
-                </div>
-              ) : (
-                <p style={{ color: 'var(--text-muted)', fontSize: 14, marginBottom: p.creatives_approved ? 0 : 20 }}>
-                  Creatives coming soon — check back later.
-                </p>
-              )}
-              {p.creatives_approved ? (
-                <div style={{
-                  display: 'flex', alignItems: 'center', gap: 'var(--space-2)',
-                  padding: 'var(--space-3) var(--space-3)', borderRadius: 8,
-                  background: 'color-mix(in srgb, var(--success) 10%, transparent)',
-                  border: '1px solid color-mix(in srgb, var(--success) 20%, transparent)',
-                }}>
-                  <span style={{ fontSize: 16 }}>✓</span>
-                  <span style={{ fontSize: 'var(--text-base)', fontWeight: 600, color: 'var(--success)' }}>Creatives approved</span>
-                </div>
-              ) : null}
-            </div>
-          )}
-        </section>
-          </>}
-          results={p.results_client_visible && resultsLpDaily.length > 0 ? (
-            <section style={{ marginBottom: 'var(--space-8)' }}>
-              <SectionTitle>Results</SectionTitle>
-              <ClientResultsSection lpDaily={resultsLpDaily} accountDaily={resultsAccountDaily} />
-            </section>
-          ) : null}
+          </>) : null}
           notes={<>
         {/* Notes thread */}
         <section style={{ marginBottom: 'var(--space-8)', ...TEXT_COLUMN }}>

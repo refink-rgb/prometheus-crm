@@ -12,12 +12,13 @@
 
 import { useState } from 'react'
 
-type TabId = 'lp' | 'creatives' | 'results' | 'notes'
+type TabId = 'lp' | 'creatives' | 'results' | 'offer' | 'notes'
 
 export default function ClientReviewTabs({
   lp,
   creatives,
   results,
+  offer,
   notes,
   creativesCount,
   lpOpenCount,
@@ -27,6 +28,8 @@ export default function ClientReviewTabs({
   creatives: React.ReactNode
   /** Null until the team pushes results — the tab does not render at all. */
   results: React.ReactNode | null
+  /** Null when the project carries no offer fields yet — tab hidden. */
+  offer: React.ReactNode | null
   notes: React.ReactNode
   creativesCount: number
   /** Open landing-page feedback items — the badge that says "you have
@@ -40,6 +43,7 @@ export default function ClientReviewTabs({
     ['lp', 'Landing Page', lpOpenCount || null],
     ['creatives', 'Creatives', creativesCount || null],
     ...(results !== null ? [['results', 'Results', null] as [TabId, string, number | null]] : []),
+    ...(offer !== null ? [['offer', 'Offer', null] as [TabId, string, number | null]] : []),
     ['notes', 'Notes', notesCount || null],
   ]
 
@@ -47,7 +51,7 @@ export default function ClientReviewTabs({
     <div>
       <div style={{
         display: 'flex', gap: 24, borderBottom: '1px solid var(--border)',
-        marginBottom: 24, overflowX: 'auto',
+        marginBottom: 24, overflowX: 'auto', overflowY: 'hidden',
       }}>
         {tabs.map(([k, label, count]) => (
           <button key={k} onClick={() => setTab(k)} style={{
@@ -75,6 +79,7 @@ export default function ClientReviewTabs({
       <div hidden={tab !== 'lp'}>{lp}</div>
       <div hidden={tab !== 'creatives'}>{creatives}</div>
       {results !== null && <div hidden={tab !== 'results'}>{results}</div>}
+      {offer !== null && <div hidden={tab !== 'offer'}>{offer}</div>}
       <div hidden={tab !== 'notes'}>{notes}</div>
     </div>
   )
