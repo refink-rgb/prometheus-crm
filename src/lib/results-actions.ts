@@ -576,3 +576,19 @@ export async function setResultsClientVisible(projectId: string, brandId: string
   if (error) throw new Error(`Failed to update client visibility: ${error.message}`)
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)
 }
+
+// Pull fresh numbers from Meta for ONE brand, right now — the Results tab's
+// "Refresh from Meta" button. Runs the same engine the nightly cron runs
+// (discovery, launch detection, daily rows, account rows), narrowed to the
+// brand, and every write still goes through the validated ingest endpoint.
+// Takes ~10-30s; the project page's maxDuration (300s) governs it.
+export async function refreshResultsFromMeta(projectId: string, brandId: string) {
+  await requireEditor()
+  const { runResultsPull } = await import('@/lib/meta/engine')
+  const summary = await runResultsPull({ brandId })
+  if (summary.errors.length > 0) {
+    console.error(`[refreshResultsFromMeta] ${summary.errors.join(' | ')}`)
+  }
+  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+  revalidatePath('/results')
+}

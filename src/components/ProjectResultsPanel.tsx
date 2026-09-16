@@ -22,7 +22,7 @@ import {
 } from 'recharts'
 import {
   startLpTracking, endLpTracking, resumeLpTracking, unlinkLpTracking,
-  setAdMatchStatus, addManualAdMatch, setResultsClientVisible,
+  setAdMatchStatus, addManualAdMatch, setResultsClientVisible, refreshResultsFromMeta,
 } from '@/lib/results-actions'
 import SubmitButton from '@/components/SubmitButton'
 import ConfirmDeleteForm from '@/components/ConfirmDeleteForm'
@@ -285,6 +285,13 @@ function TrackingView({
         <FreshnessStamp rows={lpDaily} nowMs={nowMs} />
         {canEdit && (
           <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+            {/* On-demand engine run for this brand — same code path as the
+                nightly cron, so being one day behind is a choice, not a wait. */}
+            <form action={refreshResultsFromMeta.bind(null, projectId, brandId)}>
+              <SubmitButton className="btn-secondary btn-sm" pendingText="Pulling from Meta… (~30s)">
+                ⟳ Refresh from Meta
+              </SubmitButton>
+            </form>
             {/* Push to client: internal-first, same contract as creative
                 client_visible. The button is the ONLY thing that changes the
                 client link. */}

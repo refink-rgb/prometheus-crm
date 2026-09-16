@@ -473,3 +473,26 @@ The endpoint only fills a launch date that is still empty; it never overwrites
 one a human set, and the response's `lp.launch_dates_set` /
 `lp.launch_dates_rejected` tell you what happened. If the matched ads have no
 delivery at all yet, send nothing and say so in the run output.
+
+---
+
+## Sep 16 2026 — SUPERSEDED by the in-app engine
+
+The scheduled Claude agent is retired (it had silently stopped running on
+Aug 18). Everything this document specifies is now executed by code inside
+the CRM itself:
+
+- **`src/lib/meta/engine.ts`** — fetches the same work list, pulls from the
+  Meta Marketing API directly (`META_ACCESS_TOKEN`, a Business Manager
+  system-user token in Vercel env), and POSTs to the same ingest endpoint.
+  Same validation, same audit log, same manual-row protection.
+- **`/api/cron/results-pull`** — nightly Vercel cron (11:00 UTC ≈ 7am ET),
+  also callable on demand with the CRON or ingest secret.
+- **"Refresh from Meta"** button on each project's Results tab — the same
+  engine, narrowed to one brand.
+- **`/api/results/meta-health`** — token/coverage check: which wired brands
+  the token can actually pull.
+
+This document stays as the CONTRACT documentation (the work-list and POST
+shapes are unchanged), not as an agent prompt. Do not stand the scheduled
+agent back up — two writers doubles restatement churn for nothing.

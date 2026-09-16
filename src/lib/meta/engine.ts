@@ -1,0 +1,401 @@
+// The in-app results engine — the scheduled Claude agent, as code.
+//
+// It fulfills the exact contract in RESULTS_AGENT_PROMPT.md, deterministically:
+//
+//   1. GET  /api/results/ingest        → the work list (the CRM decides WHAT)
+//   2. Meta Marketing API              → the numbers (this module decides HOW)
+//   3. POST /api/results/ingest        → the same validated, audited write path
+//
+// Deliberately self-calling over HTTP rather than importing the route's
+// internals: every guarantee the ingest endpoint enforces (URL verification on
+// discovered ads, launch-date fill-only-when-null, manual-row protection,
+// warn-don't-drop validation, the audit log) applies to the engine EXACTLY as
+// it did to the agent, because the endpoint cannot tell them apart.
+//
+// Scope per run: everything the work list carries — campaign/ad-set rows for
+// the classic /results pipeline, plus the LP sections (ad discovery by
+// landing-page URL, launch-date detection, daily LP rows, whole-account rows).
+
+import {
+  metaGetAll, actionNumber, MetaApiError,
+  INSIGHTS_FIELDS, ATTRIBUTION, type InsightsRow,
+} from '@/lib/meta/graph'
+import { normalizeLpUrl, addDaysIso } from '@/lib/results'
+
+// ---------------------------------------------------------------------------
+// Work-list shapes (what GET /api/results/ingest returns)
+// ---------------------------------------------------------------------------
+
+interface CampaignWork {
+  tracked_campaign_id: string
+  ad_account_id: string
+  campaign_id: string | null
+  campaign_name: string | null
+  brand_name: string | null
+  adset_id: string | null
+  adset_name: string | null
+  level: 'campaign' | 'adset'
+  from_date: string
+  to_date: string
+}
+
+interface LpWork {
+  lp_tracking_id: string
+  project_name: string | null
+  brand_name: string | null
+  ad_account_id: string
+  lp_url: string
+  included_ad_ids: string[]
+  known_ad_ids: string[]
+  launched_on: string | null
+  needs_launch_date: boolean
+  from_date: string | null
+  to_date: string | null
+}
+
+interface AccountWork {
+  ad_account_id: string
+  from_date: string
+  to_date: string
+}
+
+interface WorkList {
+  ok: boolean
+  through: string
+  campaigns: CampaignWork[]
+  lp_pages: LpWork[]
+  accounts: AccountWork[]
+}
+
+// ---------------------------------------------------------------------------
+// Config
+// ---------------------------------------------------------------------------
+
+function baseUrl(): string {
+  const prod = process.env.VERCEL_PROJECT_PRODUCTION_URL
+  if (prod) return `https://${prod}`
+  const dep = process.env.VERCEL_URL
+  if (dep) return `https://${dep}`
+  return 'http://localhost:3000'
+}
+
+function ingestSecret(): string {
+  const s = process.env.RESULTS_INGEST_SECRET
+  if (!s) throw new Error('RESULTS_INGEST_SECRET is not set.')
+  return s
+}
+
+// How far back ad discovery looks for candidate ads, relative to the launch
+// date (or tracking creation when the launch isn't known yet). Ads made for a
+// landing page are created around its launch; genuinely older ads that point
+// at it are the manual-add path's job.
+const DISCOVERY_LOOKBACK_DAYS = 90
+
+// ---------------------------------------------------------------------------
+// Meta pulls
+// ---------------------------------------------------------------------------
+
+interface AdListing {
+  id: string
+  name?: string
+  created_time?: string
+  adset?: { id: string; name?: string }
+  campaign?: { id: string; name?: string }
+  creative?: {
+    object_story_spec?: StorySpec
+    effective_object_story_spec?: StorySpec
+    asset_feed_spec?: { link_urls?: Array<{ website_url?: string }> }
+  }
+}
+
+interface StorySpec {
+  link_data?: { link?: string; child_attachments?: Array<{ link?: string }> }
+  video_data?: { call_to_action?: { value?: { link?: string } } }
+}
+
+function destinationUrls(ad: AdListing): string[] {
+  const urls: string[] = []
+  for (const spec of [ad.creative?.object_story_spec, ad.creative?.effective_object_story_spec]) {
+    if (!spec) continue
+    if (spec.link_data?.link) urls.push(spec.link_data.link)
+    for (const child of spec.link_data?.child_attachments ?? []) {
+      if (child.link) urls.push(child.link)
+    }
+    const ctaLink = spec.video_data?.call_to_action?.value?.link
+    if (ctaLink) urls.push(ctaLink)
+  }
+  for (const lu of ad.creative?.asset_feed_spec?.link_urls ?? []) {
+    if (lu.website_url) urls.push(lu.website_url)
+  }
+  return urls
+}
+
+// Every ad in the account whose destination matches the LP URL. Bounded by
+// created_time so a decade-old account doesn't get walked end to end.
+async function discoverAds(work: LpWork) {
+  const sinceIso = addDaysIso(work.launched_on ?? work.to_date ?? new Date().toISOString().slice(0, 10), -DISCOVERY_LOOKBACK_DAYS)
+  const sinceUnix = Math.floor(Date.parse(`${sinceIso}T00:00:00Z`) / 1000)
+
+  const ads = await metaGetAll<AdListing>(`${work.ad_account_id}/ads`, {
+    fields: 'id,name,created_time,adset{id,name},campaign{id,name},creative{object_story_spec,effective_object_story_spec,asset_feed_spec}',
+    filtering: [{ field: 'ad.created_time', operator: 'GREATER_THAN', value: sinceUnix }],
+    limit: 100,
+  })
+
+  const wanted = normalizeLpUrl(work.lp_url)
+  const known = new Set(work.known_ad_ids)
+  const matches: Array<{
+    lp_tracking_id: string
+    ad_id: string
+    ad_name: string | null
+    campaign_id: string | null
+    campaign_name: string | null
+    adset_id: string | null
+    adset_name: string | null
+    destination_url: string
+  }> = []
+
+  for (const ad of ads) {
+    if (known.has(ad.id)) continue
+    const hit = destinationUrls(ad).find(u => normalizeLpUrl(u) === wanted)
+    if (!hit) continue
+    matches.push({
+      lp_tracking_id: work.lp_tracking_id,
+      ad_id: ad.id,
+      ad_name: ad.name ?? null,
+      campaign_id: ad.campaign?.id ?? null,
+      campaign_name: ad.campaign?.name ?? null,
+      adset_id: ad.adset?.id ?? null,
+      adset_name: ad.adset?.name ?? null,
+      destination_url: hit,
+    })
+  }
+  return matches
+}
+
+// Daily insights for a set of ads, summed per day.
+async function adDaily(accountId: string, adIds: string[], since: string, until: string) {
+  const rows = await metaGetAll<InsightsRow>(`${accountId}/insights`, {
+    level: 'ad',
+    filtering: [{ field: 'ad.id', operator: 'IN', value: adIds }],
+    fields: INSIGHTS_FIELDS,
+    action_attribution_windows: ATTRIBUTION,
+    time_range: { since, until },
+    time_increment: 1,
+    limit: 500,
+  })
+
+  // Counts start at ZERO, not null: Meta omits zero-value actions from a
+  // delivery day's row, so absence on a day we received means 0, not unknown.
+  const byDay = new Map<string, {
+    spend: number; revenue: number; purchases: number
+    impressions: number; link_clicks: number
+    initiate_checkouts: number; landing_page_views: number
+    ads: Set<string>
+  }>()
+
+  for (const r of rows) {
+    const d = byDay.get(r.date_start) ?? {
+      spend: 0, revenue: 0, purchases: 0,
+      impressions: 0, link_clicks: 0, initiate_checkouts: 0, landing_page_views: 0,
+      ads: new Set<string>(),
+    }
+    const spend = Number(r.spend ?? 0)
+    d.spend += spend
+    d.revenue += actionNumber(r.action_values, 'omni_purchase', 'purchase') ?? 0
+    d.purchases += actionNumber(r.actions, 'omni_purchase', 'purchase') ?? 0
+    const imp = Number(r.impressions ?? 0)
+    d.impressions += imp
+    d.link_clicks += actionNumber(r.actions, 'link_click') ?? 0
+    d.initiate_checkouts += actionNumber(r.actions, 'omni_initiated_checkout', 'initiate_checkout') ?? 0
+    d.landing_page_views += actionNumber(r.actions, 'landing_page_view', 'omni_landing_page_view') ?? 0
+    if (imp > 0 || spend > 0) d.ads.add(r.ad_id ?? '')
+    byDay.set(r.date_start, d)
+  }
+  return byDay
+}
+
+// ---------------------------------------------------------------------------
+// The run
+// ---------------------------------------------------------------------------
+
+export interface EngineSummary {
+  campaigns_pulled: number
+  lp_pages_pulled: number
+  accounts_pulled: number
+  ads_discovered: number
+  launch_dates_detected: number
+  rows_posted: number
+  errors: string[]
+  ingest: unknown
+}
+
+export async function runResultsPull(filters: { brandId?: string } = {}): Promise<EngineSummary> {
+  const secret = ingestSecret()
+  const qs = filters.brandId ? `?brand_id=${encodeURIComponent(filters.brandId)}` : ''
+  const workRes = await fetch(`${baseUrl()}/api/results/ingest${qs}`, {
+    headers: { authorization: `Bearer ${secret}` },
+  })
+  if (!workRes.ok) throw new Error(`Work list fetch failed: HTTP ${workRes.status}`)
+  const work = (await workRes.json()) as WorkList
+
+  const errors: string[] = []
+  const payload = {
+    reported_at: new Date().toISOString(),
+    rows: [] as Array<Record<string, unknown>>,
+    paused_campaigns: [] as string[],
+    lp_rows: [] as Array<Record<string, unknown>>,
+    account_rows: [] as Array<Record<string, unknown>>,
+    discovered_ads: [] as Array<Record<string, unknown>>,
+    launch_dates: [] as Array<Record<string, unknown>>,
+  }
+
+  // ── Campaign / ad-set rows (the classic /results pipeline) ───────────────
+  let campaignsPulled = 0
+  for (const c of work.campaigns ?? []) {
+    const entityId = c.adset_id ?? c.campaign_id
+    if (!entityId) continue
+    try {
+      const rows = await metaGetAll<InsightsRow>(`${entityId}/insights`, {
+        fields: INSIGHTS_FIELDS,
+        action_attribution_windows: ATTRIBUTION,
+        time_range: { since: c.from_date, until: c.to_date },
+        time_increment: 1,
+        limit: 500,
+      })
+      for (const r of rows) {
+        payload.rows.push({
+          ad_account_id: c.ad_account_id,
+          campaign_id: c.campaign_id,
+          adset_id: c.adset_id,
+          campaign_name: c.campaign_name,
+          adset_name: c.adset_name,
+          stat_date: r.date_start,
+          spend: Number(r.spend ?? 0),
+          revenue: actionNumber(r.action_values, 'omni_purchase', 'purchase') ?? 0,
+          // Zero, not null: Meta omits zero-value actions from delivery days.
+          purchases: actionNumber(r.actions, 'omni_purchase', 'purchase') ?? 0,
+          landing_page_views: actionNumber(r.actions, 'landing_page_view', 'omni_landing_page_view') ?? 0,
+          // As-reported only: the engine derives nothing the account doesn't
+          // report. Ratio columns stay null; the UI recomputes from raws.
+          incremental_revenue: null,
+          roas: null, cpa: null, unique_outbound_ctr: null, lp_conversion_rate: null,
+          attribution_window: '7d_click',
+        })
+      }
+      campaignsPulled++
+    } catch (err) {
+      errors.push(`campaign ${c.campaign_name ?? entityId}: ${err instanceof MetaApiError ? err.message : String(err)}`)
+    }
+  }
+
+  // ── LP pages: discovery → launch detection → daily rows ──────────────────
+  let lpPulled = 0
+  let launchDetected = 0
+  for (const p of work.lp_pages ?? []) {
+    try {
+      const discovered = await discoverAds(p)
+      payload.discovered_ads.push(...discovered)
+
+      const allIds = [...new Set([...p.included_ad_ids, ...discovered.map(d => d.ad_id)])]
+      if (allIds.length === 0) continue
+
+      let since = p.from_date
+      let until = p.to_date
+      if (p.needs_launch_date || !since || !until) {
+        since = addDaysIso(work.through, -DISCOVERY_LOOKBACK_DAYS)
+        until = work.through
+      }
+
+      const byDay = await adDaily(p.ad_account_id, allIds, since, until)
+
+      let launch = p.launched_on
+      if (!launch) {
+        launch = [...byDay.entries()]
+          .filter(([, d]) => (d.impressions ?? 0) > 0 || d.spend > 0)
+          .map(([day]) => day)
+          .sort()[0] ?? null
+        if (launch) {
+          payload.launch_dates.push({ lp_tracking_id: p.lp_tracking_id, launched_on: launch })
+          launchDetected++
+        }
+      }
+      if (!launch) continue // no delivery at all yet — nothing to report
+
+      for (const [day, d] of [...byDay.entries()].sort()) {
+        if (day < launch) continue
+        payload.lp_rows.push({
+          lp_tracking_id: p.lp_tracking_id,
+          stat_date: day,
+          spend: Math.round(d.spend * 100) / 100,
+          revenue: Math.round(d.revenue * 100) / 100,
+          purchases: d.purchases,
+          impressions: d.impressions,
+          link_clicks: d.link_clicks,
+          initiate_checkouts: d.initiate_checkouts,
+          landing_page_views: d.landing_page_views,
+          matched_ad_count: d.ads.size,
+        })
+      }
+      lpPulled++
+    } catch (err) {
+      errors.push(`lp ${p.project_name ?? p.lp_tracking_id}: ${err instanceof MetaApiError ? err.message : String(err)}`)
+    }
+  }
+
+  // ── Whole-account rows (the rest-of-account denominator) ─────────────────
+  let accountsPulled = 0
+  for (const a of work.accounts ?? []) {
+    try {
+      const rows = await metaGetAll<InsightsRow>(`${a.ad_account_id}/insights`, {
+        fields: INSIGHTS_FIELDS,
+        action_attribution_windows: ATTRIBUTION,
+        time_range: { since: a.from_date, until: a.to_date },
+        time_increment: 1,
+        limit: 500,
+      })
+      for (const r of rows) {
+        payload.account_rows.push({
+          ad_account_id: a.ad_account_id,
+          stat_date: r.date_start,
+          spend: Number(r.spend ?? 0),
+          revenue: actionNumber(r.action_values, 'omni_purchase', 'purchase') ?? 0,
+          // Zero, not null: Meta omits zero-value actions from delivery days.
+          purchases: actionNumber(r.actions, 'omni_purchase', 'purchase') ?? 0,
+          impressions: Number(r.impressions ?? 0),
+          link_clicks: actionNumber(r.actions, 'link_click') ?? 0,
+          initiate_checkouts: actionNumber(r.actions, 'omni_initiated_checkout', 'initiate_checkout') ?? 0,
+          landing_page_views: actionNumber(r.actions, 'landing_page_view', 'omni_landing_page_view') ?? 0,
+        })
+      }
+      accountsPulled++
+    } catch (err) {
+      errors.push(`account ${a.ad_account_id}: ${err instanceof MetaApiError ? err.message : String(err)}`)
+    }
+  }
+
+  // ── POST it all back through the validated path ──────────────────────────
+  const total = payload.rows.length + payload.lp_rows.length +
+    payload.account_rows.length + payload.discovered_ads.length + payload.launch_dates.length
+  let ingest: unknown = { skipped: 'nothing to ingest' }
+  if (total > 0) {
+    const postRes = await fetch(`${baseUrl()}/api/results/ingest`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${secret}`, 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    ingest = await postRes.json().catch(() => ({ error: `HTTP ${postRes.status}` }))
+    if (!postRes.ok) errors.push(`ingest POST: HTTP ${postRes.status}`)
+  }
+
+  return {
+    campaigns_pulled: campaignsPulled,
+    lp_pages_pulled: lpPulled,
+    accounts_pulled: accountsPulled,
+    ads_discovered: payload.discovered_ads.length,
+    launch_dates_detected: launchDetected,
+    rows_posted: total,
+    errors,
+    ingest,
+  }
+}
