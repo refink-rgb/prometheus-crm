@@ -14,7 +14,7 @@ import {
   formatCents, formatCentsCompact, formatPercent, formatRoas, shortDateLabel,
   type FunnelDailyRow,
 } from '@/lib/results'
-import { ResultsTile, ResultsCompareTile, ResultsChartPair } from '@/components/ProjectResultsPanel'
+import { ResultsTile, ResultsCompareTile, ResultsChartPair, ResultsTileGroup } from '@/components/ProjectResultsPanel'
 
 export default function ClientResultsSection({
   lpDaily,
@@ -23,21 +23,33 @@ export default function ClientResultsSection({
   lpDaily: FunnelDailyRow[]
   accountDaily: FunnelDailyRow[]
 }) {
-  const { lpTotals, lpKpis, restKpis, sharePct, chartData, dataThrough } = useMemo(() => {
+  const { lpTotals, lpKpis, restKpis, sharePct, revenueSharePct, chartData, dataThrough } = useMemo(() => {
     const lpTotals = sumFunnel(lpDaily)
     const accountTotals = sumFunnel(accountDaily)
     const rest = restOfAccount(accountTotals, lpTotals)
     const sorted = [...lpDaily].sort((a, b) => a.stat_date.localeCompare(b.stat_date))
+    // Cumulative ROAS for the line, daily in the tooltip — same reasoning as
+    // the internal tab (a tiny-spend outlier day must not bend the chart).
+    let cumSpend = 0
+    let cumRevenue = 0
+    const chartData: Array<{ label: string; spend: number; roas: number | null; roasDaily: number | null }> = []
+    for (const r of sorted) {
+      cumSpend += r.spend_cents
+      cumRevenue += r.revenue_cents
+      chartData.push({
+        label: shortDateLabel(r.stat_date),
+        spend: r.spend_cents / 100,
+        roas: safeRoas(cumRevenue, cumSpend),
+        roasDaily: safeRoas(r.revenue_cents, r.spend_cents),
+      })
+    }
     return {
       lpTotals,
       lpKpis: deriveFunnelKpis(lpTotals),
       restKpis: deriveFunnelKpis(rest.totals),
       sharePct: shareOfAccountPct(lpTotals.spend_cents, accountTotals.spend_cents),
-      chartData: sorted.map(r => ({
-        label: shortDateLabel(r.stat_date),
-        spend: r.spend_cents / 100,
-        roas: safeRoas(r.revenue_cents, r.spend_cents),
-      })),
+      revenueSharePct: shareOfAccountPct(lpTotals.revenue_cents, accountTotals.revenue_cents),
+      chartData,
       dataThrough: sorted.length > 0 ? sorted[sorted.length - 1].stat_date : null,
     }
   }, [lpDaily, accountDaily])
@@ -46,23 +58,30 @@ export default function ClientResultsSection({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 'var(--space-3)' }}>
-        <ResultsTile
-          label="Spend"
-          value={formatCentsCompact(lpTotals.spend_cents)}
-          sub={sharePct !== null ? `${formatPercent(sharePct, 1)} of total ad account spend` : 'this landing page’s ads'}
-        />
-        <ResultsTile
-          label="ROAS"
-          value={formatRoas(lpKpis.roas)}
-          sub="Meta attributed, 7-day click"
-        />
-        <ResultsCompareTile label="CPM" lp={lpKpis} rest={restKpis} metric="cpm_cents" goodWhenHigher={false} format={v => formatCents(v)} />
-        <ResultsCompareTile label="AOV" lp={lpKpis} rest={restKpis} metric="aov_cents" goodWhenHigher format={v => formatCents(v)} />
-        <ResultsCompareTile label="CVR" lp={lpKpis} rest={restKpis} metric="cvr" goodWhenHigher format={v => formatPercent(v)} />
-        <ResultsCompareTile label="CTR" lp={lpKpis} rest={restKpis} metric="ctr" goodWhenHigher format={v => formatPercent(v)} />
-        <ResultsCompareTile label="Click-to-checkout rate" lp={lpKpis} rest={restKpis} metric="click_to_checkout" goodWhenHigher format={v => formatPercent(v, 1)} />
-        <ResultsCompareTile label="Checkout conversion rate" lp={lpKpis} rest={restKpis} metric="checkout_cvr" goodWhenHigher format={v => formatPercent(v, 1)} />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+        <ResultsTileGroup label="Overall">
+          <ResultsTile
+            label="Spend"
+            value={formatCentsCompact(lpTotals.spend_cents)}
+            sub={sharePct !== null ? `${formatPercent(sharePct, 1)} of total ad account spend` : 'this landing page’s ads'}
+          />
+          <ResultsTile
+            label="Revenue"
+            value={formatCentsCompact(lpTotals.revenue_cents)}
+            sub={revenueSharePct !== null ? `${formatPercent(revenueSharePct, 1)} of account revenue · purchase value, 7-day click` : 'purchase conversion value, 7-day click'}
+          />
+          <ResultsCompareTile label="ROAS" lp={lpKpis} rest={restKpis} metric="roas" goodWhenHigher format={v => formatRoas(v)} />
+          <ResultsCompareTile label="AOV" lp={lpKpis} rest={restKpis} metric="aov_cents" goodWhenHigher format={v => formatCents(v)} />
+        </ResultsTileGroup>
+        <ResultsTileGroup label="Creative">
+          <ResultsCompareTile label="CPM" lp={lpKpis} rest={restKpis} metric="cpm_cents" goodWhenHigher={false} format={v => formatCents(v)} />
+          <ResultsCompareTile label="CTR" lp={lpKpis} rest={restKpis} metric="ctr" goodWhenHigher format={v => formatPercent(v)} />
+        </ResultsTileGroup>
+        <ResultsTileGroup label="Landing Page">
+          <ResultsCompareTile label="CVR" lp={lpKpis} rest={restKpis} metric="cvr" goodWhenHigher format={v => formatPercent(v)} />
+          <ResultsCompareTile label="Click-to-checkout rate" lp={lpKpis} rest={restKpis} metric="click_to_checkout" goodWhenHigher format={v => formatPercent(v, 1)} />
+          <ResultsCompareTile label="Checkout conversion rate" lp={lpKpis} rest={restKpis} metric="checkout_cvr" goodWhenHigher format={v => formatPercent(v, 1)} />
+        </ResultsTileGroup>
       </div>
 
       <section className="card" style={{ padding: '18px 20px' }}>

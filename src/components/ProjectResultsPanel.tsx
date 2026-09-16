@@ -238,22 +238,36 @@ function TrackingView({
 }) {
   const live = tracking.ended_on === null
 
-  const { lpTotals, lpKpis, rest, restKpis, sharePct, chartData, warningDays } = useMemo(() => {
+  const { lpTotals, lpKpis, rest, restKpis, sharePct, revenueSharePct, chartData, warningDays } = useMemo(() => {
     const lpTotals = sumFunnel(lpDaily)
     const accountTotals = sumFunnel(accountDaily)
     const rest = restOfAccount(accountTotals, lpTotals)
     const sorted = [...lpDaily].sort((a, b) => a.stat_date.localeCompare(b.stat_date))
+    // Cumulative ROAS is the plotted line: spend-weighted since launch, so a
+    // $4 day with one lucky attributed purchase cannot bend the chart the way
+    // it bends a daily-ROAS line. The raw daily value stays in the tooltip.
+    // Same choice CampaignDailyCharts made, for the same reason.
+    let cumSpend = 0
+    let cumRevenue = 0
+    const chartData: Array<{ label: string; spend: number; roas: number | null; roasDaily: number | null }> = []
+    for (const r of sorted) {
+      cumSpend += r.spend_cents
+      cumRevenue += r.revenue_cents
+      chartData.push({
+        label: shortDateLabel(r.stat_date),
+        spend: r.spend_cents / 100,
+        roas: safeRoas(cumRevenue, cumSpend),
+        roasDaily: safeRoas(r.revenue_cents, r.spend_cents),
+      })
+    }
     return {
       lpTotals,
       lpKpis: deriveFunnelKpis(lpTotals),
       rest,
       restKpis: deriveFunnelKpis(rest.totals),
       sharePct: shareOfAccountPct(lpTotals.spend_cents, accountTotals.spend_cents),
-      chartData: sorted.map(r => ({
-        label: shortDateLabel(r.stat_date),
-        spend: r.spend_cents / 100,
-        roas: safeRoas(r.revenue_cents, r.spend_cents),
-      })),
+      revenueSharePct: shareOfAccountPct(lpTotals.revenue_cents, accountTotals.revenue_cents),
+      chartData,
       warningDays: lpDaily.filter(r => r.warnings.length > 0).length,
     }
   }, [lpDaily, accountDaily])
@@ -341,25 +355,31 @@ function TrackingView({
         </section>
       ) : (
         <>
-          {/* ── KPI tiles ──────────────────────────────────────────────────── */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 'var(--space-3)' }}>
+          {/* ── KPI tiles, grouped as the funnel reads: money → did the ads
+                 earn attention → did the page convert the click ───────────── */}
+          <TileGroup label="Overall">
             <Tile
               label="Spend"
               value={formatCentsCompact(lpTotals.spend_cents)}
               sub={sharePct !== null ? `${formatPercent(sharePct, 1)} of total ad account spend` : 'account totals pending'}
             />
             <Tile
-              label="ROAS"
-              value={formatRoas(lpKpis.roas)}
-              sub="Meta attributed, 7-day click"
+              label="Revenue"
+              value={formatCentsCompact(lpTotals.revenue_cents)}
+              sub={revenueSharePct !== null ? `${formatPercent(revenueSharePct, 1)} of account revenue · purchase value, 7-day click` : 'purchase conversion value, 7-day click'}
             />
-            <CompareTile label="CPM" lp={lpKpis} rest={restKpis} metric="cpm_cents" goodWhenHigher={false} format={v => formatCents(v)} />
+            <CompareTile label="ROAS" lp={lpKpis} rest={restKpis} metric="roas" goodWhenHigher format={v => formatRoas(v)} />
             <CompareTile label="AOV" lp={lpKpis} rest={restKpis} metric="aov_cents" goodWhenHigher format={v => formatCents(v)} />
-            <CompareTile label="CVR" lp={lpKpis} rest={restKpis} metric="cvr" goodWhenHigher format={v => formatPercent(v)} />
+          </TileGroup>
+          <TileGroup label="Creative">
+            <CompareTile label="CPM" lp={lpKpis} rest={restKpis} metric="cpm_cents" goodWhenHigher={false} format={v => formatCents(v)} />
             <CompareTile label="CTR" lp={lpKpis} rest={restKpis} metric="ctr" goodWhenHigher format={v => formatPercent(v)} />
+          </TileGroup>
+          <TileGroup label="Landing Page">
+            <CompareTile label="CVR" lp={lpKpis} rest={restKpis} metric="cvr" goodWhenHigher format={v => formatPercent(v)} />
             <CompareTile label="Click-to-checkout rate" lp={lpKpis} rest={restKpis} metric="click_to_checkout" goodWhenHigher format={v => formatPercent(v, 1)} />
             <CompareTile label="Checkout conversion rate" lp={lpKpis} rest={restKpis} metric="checkout_cvr" goodWhenHigher format={v => formatPercent(v, 1)} />
-          </div>
+          </TileGroup>
 
           {(rest.clamped.length > 0 || warningDays > 0) && (
             <div style={{ fontSize: 11, color: 'var(--warning)', lineHeight: 1.5 }}>
@@ -470,6 +490,24 @@ function TrackingView({
 const TH: React.CSSProperties = { padding: '6px 10px 6px 0', fontWeight: 600 }
 const TD: React.CSSProperties = { padding: '9px 10px 9px 0', color: 'var(--text-secondary)', verticalAlign: 'top' }
 
+// A labeled band of tiles — Overall / Creative / Landing Page. The label is
+// the funnel stage; the tiles inside answer that stage's question.
+function TileGroup({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <div style={{
+        fontSize: 10, fontWeight: 700, color: 'var(--text-muted)',
+        textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6,
+      }}>
+        {label}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 'var(--space-3)' }}>
+        {children}
+      </div>
+    </div>
+  )
+}
+
 function Tile({ label, value, sub }: { label: string; value: string; sub: string }) {
   return (
     <div className="card" style={{ padding: '14px 16px' }}>
@@ -528,7 +566,11 @@ function CompareTile({
 interface ChartDatum {
   label: string
   spend: number
+  /** CUMULATIVE spend-weighted ROAS since launch — the plotted line. */
   roas: number | null
+  /** That day's raw ROAS — tooltip only. A $4 day with one attributed
+   *  purchase reads 100x; plotting it would drown the real trajectory. */
+  roasDaily: number | null
 }
 
 function ChartPair({ data }: { data: ChartDatum[] }) {
@@ -556,7 +598,7 @@ function ChartPair({ data }: { data: ChartDatum[] }) {
       </div>
       <div>
         <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>
-          ROAS <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>7-day click</span>
+          ROAS <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>cumulative since launch · 7-day click · day&apos;s own ROAS in the tooltip</span>
         </div>
         <ResponsiveContainer width="100%" height={140}>
           <LineChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
@@ -565,7 +607,10 @@ function ChartPair({ data }: { data: ChartDatum[] }) {
             <YAxis tick={axisTick} axisLine={false} tickLine={false} tickFormatter={(v: number) => `${v}x`} width={52} />
             <Tooltip
               contentStyle={{ background: 'var(--surface-raised)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }}
-              formatter={(v) => [formatRoas(v as number), 'ROAS']}
+              formatter={(v, _name, item) => {
+                const daily = (item?.payload as ChartDatum | undefined)?.roasDaily
+                return [`${formatRoas(v as number)} cumulative · ${formatRoas(daily)} this day`, 'ROAS']
+              }}
             />
             <Line dataKey="roas" stroke="var(--viz-ontime)" strokeWidth={2} dot={{ r: 2.5 }} connectNulls />
           </LineChart>
@@ -578,4 +623,4 @@ function ChartPair({ data }: { data: ChartDatum[] }) {
 // Reused by the client review section — the formatting must match what the
 // internal tab shows, so the number the client quotes back is the number the
 // team sees.
-export { Tile as ResultsTile, CompareTile as ResultsCompareTile, ChartPair as ResultsChartPair }
+export { Tile as ResultsTile, CompareTile as ResultsCompareTile, ChartPair as ResultsChartPair, TileGroup as ResultsTileGroup }
