@@ -2284,13 +2284,6 @@ export default function PreviewProjectView({
                   <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: -6, marginBottom: 14 }}>
                     {hasAdCopy ? "Tick what's approved." : 'Write it, or generate a first pass.'}
                   </div>
-                  {!hasAdCopy && (
-                    <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 14 }}>
-                      No copy on this project yet. Type the lines below, or hit{' '}
-                      <strong style={{ color: 'var(--text-primary)' }}>✦ Generate Copy</strong> to draft headlines,
-                      subheadlines and eyebrows from the offer — then edit what it gives you.
-                    </div>
-                  )}
                   {hasAdCopy && (
                     <CopyApprovalDeck
                       // Same reason as BrandBrief: the tick/cross draft is seeded
