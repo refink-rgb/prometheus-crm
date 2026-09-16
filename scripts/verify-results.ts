@@ -845,6 +845,7 @@ check('impressions sum', ft.impressions, 100_000)
 const kpis = deriveFunnelKpis(ft)
 check('ROAS from summed cents', kpis.roas, 2.5)
 check('CPM = spend/impressions*1000 in cents', kpis.cpm_cents, 2_000)          // $20.00
+check('CPC = spend/link clicks in cents', kpis.cpc_cents, 143)                 // 200000c / 1400 clicks = 142.86 -> 143
 check('AOV = revenue/purchases in cents', kpis.aov_cents, 12_500)              // $125.00
 check('CTR = clicks/impressions as percent', kpis.ctr, 1.4)
 check('CVR = purchases/clicks as percent', kpis.cvr, 2.8571)

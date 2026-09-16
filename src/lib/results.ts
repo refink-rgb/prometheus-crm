@@ -726,6 +726,8 @@ export interface FunnelKpis {
   roas: number | null
   // Cost per thousand impressions, in cents.
   cpm_cents: number | null
+  // Cost per link click, in cents.
+  cpc_cents: number | null
   // Average order value, in cents.
   aov_cents: number | null
   // All four below are PERCENT (2.45 = 2.45%).
@@ -740,6 +742,9 @@ export function deriveFunnelKpis(t: FunnelTotals): FunnelKpis {
     roas: safeRoas(t.revenue_cents, t.spend_cents),
     cpm_cents: t.impressions !== null && t.impressions > 0
       ? Math.round((t.spend_cents / t.impressions) * 1000)
+      : null,
+    cpc_cents: t.link_clicks !== null && t.link_clicks > 0
+      ? Math.round(t.spend_cents / t.link_clicks)
       : null,
     aov_cents: t.purchases > 0 ? Math.round(t.revenue_cents / t.purchases) : null,
     ctr: t.impressions !== null && t.link_clicks !== null

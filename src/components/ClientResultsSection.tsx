@@ -76,6 +76,7 @@ export default function ClientResultsSection({
         <ResultsTileGroup label="Creative">
           <ResultsCompareTile label="CPM" lp={lpKpis} rest={restKpis} metric="cpm_cents" goodWhenHigher={false} format={v => formatCents(v)} />
           <ResultsCompareTile label="CTR" lp={lpKpis} rest={restKpis} metric="ctr" goodWhenHigher format={v => formatPercent(v)} />
+            <ResultsCompareTile label="CPC" lp={lpKpis} rest={restKpis} metric="cpc_cents" goodWhenHigher={false} format={v => formatCents(v)} />
         </ResultsTileGroup>
         <ResultsTileGroup label="Landing Page">
           <ResultsCompareTile label="CVR" lp={lpKpis} rest={restKpis} metric="cvr" goodWhenHigher format={v => formatPercent(v)} />

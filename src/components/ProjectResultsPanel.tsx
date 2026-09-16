@@ -374,6 +374,7 @@ function TrackingView({
           <TileGroup label="Creative">
             <CompareTile label="CPM" lp={lpKpis} rest={restKpis} metric="cpm_cents" goodWhenHigher={false} format={v => formatCents(v)} />
             <CompareTile label="CTR" lp={lpKpis} rest={restKpis} metric="ctr" goodWhenHigher format={v => formatPercent(v)} />
+            <CompareTile label="CPC" lp={lpKpis} rest={restKpis} metric="cpc_cents" goodWhenHigher={false} format={v => formatCents(v)} />
           </TileGroup>
           <TileGroup label="Landing Page">
             <CompareTile label="CVR" lp={lpKpis} rest={restKpis} metric="cvr" goodWhenHigher format={v => formatPercent(v)} />
