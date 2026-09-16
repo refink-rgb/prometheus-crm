@@ -17,7 +17,7 @@ import type { BrandDocument } from '@/lib/types'
 // Collapsed on Creatives, where it is reference rather than reading.
 
 export default function BrandGuidelines({
-  brandId, brandName, projectId, guidelines, documents = [], collapsed = false,
+  brandId, brandName, projectId, guidelines, documents = [], collapsed = false, embedded = false,
 }: {
   brandId: string
   brandName: string
@@ -27,6 +27,11 @@ export default function BrandGuidelines({
   /** The client's own files. Empty when the brand has none. */
   documents?: BrandDocument[]
   collapsed?: boolean
+  /**
+   * Inside a parent section that has its own title and toggle (Creatives tab):
+   * no box, no toggle, compact document viewer, long text clamped.
+   */
+  embedded?: boolean
 }) {
   const router = useRouter()
   const [editing, setEditing] = useState(false)
@@ -34,6 +39,10 @@ export default function BrandGuidelines({
   const [draft, setDraft] = useState(guidelines ?? '')
   const [pending, startTransition] = useTransition()
   const [err, setErr] = useState('')
+  const [showAllText, setShowAllText] = useState(false)
+  // Clamped only when embedded: there the guidelines share a section with the
+  // DNA and the comments, and a 4,000-character paste would bury both.
+  const clampText = embedded && !showAllText && (guidelines?.length ?? 0) > 700
 
   function save() {
     setErr('')
@@ -72,8 +81,16 @@ export default function BrandGuidelines({
     <>
       {/* pre-wrap: pasted guidelines arrive as a list and their line breaks are
           the structure. Reflowing them into a paragraph destroys it. */}
-      <div style={{ fontSize: 13, lineHeight: 1.65, whiteSpace: 'pre-wrap', color: 'var(--text-secondary)', maxWidth: '80ch' }}>{guidelines}</div>
-      <button onClick={() => { setDraft(guidelines ?? ''); setEditing(true) }} style={linkBtn}>Edit</button>
+      <div style={{
+        fontSize: 13, lineHeight: 1.65, whiteSpace: 'pre-wrap', color: 'var(--text-secondary)', maxWidth: '80ch',
+        ...(clampText ? { maxHeight: 180, overflow: 'hidden', maskImage: 'linear-gradient(to bottom, #000 60%, transparent)' } : {}),
+      }}>{guidelines}</div>
+      <div style={{ display: 'flex', gap: 14 }}>
+        {embedded && (guidelines.length > 700) && (
+          <button onClick={() => setShowAllText(v => !v)} style={linkBtn}>{showAllText ? 'Show less' : 'Show all'}</button>
+        )}
+        <button onClick={() => { setDraft(guidelines ?? ''); setEditing(true) }} style={linkBtn}>Edit</button>
+      </div>
     </>
   ) : (
     <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
@@ -81,6 +98,15 @@ export default function BrandGuidelines({
       <button onClick={() => { setDraft(guidelines ?? ''); setEditing(true) }} style={{ ...linkBtn, marginTop: 0 }}>Paste {brandName}&rsquo;s guidelines</button>
     </div>
   )
+
+  if (embedded) {
+    return (
+      <>
+        {body}
+        <BrandDocuments brandId={brandId} projectId={projectId} documents={documents} compact />
+      </>
+    )
+  }
 
   if (collapsed) {
     return (

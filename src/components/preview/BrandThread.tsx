@@ -16,7 +16,7 @@ import type { BrandComment } from '@/lib/types'
 // Nobody overwrites anyone here.
 
 export default function BrandThread({
-  brandId, brandName, projectId, comments, currentUserId, compact = false,
+  brandId, brandName, projectId, comments, currentUserId, compact = false, embedded = false,
 }: {
   brandId: string
   brandName: string
@@ -24,6 +24,8 @@ export default function BrandThread({
   comments: BrandComment[]
   currentUserId: string | null
   compact?: boolean
+  /** Inside a parent section that has its own title and toggle: no box, no toggle, newest 3 first. */
+  embedded?: boolean
 }) {
   const router = useRouter()
   const [draft, setDraft] = useState('')
@@ -34,7 +36,7 @@ export default function BrandThread({
 
   // On the Creatives tab this is reference an editor skims before starting, so
   // it opens showing the newest few rather than a wall of history.
-  const shown = compact && !showAll ? comments.slice(0, 3) : comments
+  const shown = (compact || embedded) && !showAll ? comments.slice(0, 3) : comments
 
   function post() {
     const text = draft.trim()
@@ -126,7 +128,7 @@ export default function BrandThread({
               />
             </div>
           ))}
-          {compact && comments.length > shown.length && (
+          {(compact || embedded) && comments.length > shown.length && (
             <button
               onClick={() => setShowAll(true)}
               style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--accent)', background: 'none', border: 'none', padding: '8px 0 0', cursor: 'pointer' }}
@@ -138,6 +140,8 @@ export default function BrandThread({
       {err && <div style={{ fontSize: 12, color: 'var(--danger)', marginTop: 8 }}>{err}</div>}
     </>
   )
+
+  if (embedded) return body
 
   if (compact) {
     return (

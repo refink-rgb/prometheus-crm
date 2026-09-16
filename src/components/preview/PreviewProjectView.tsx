@@ -150,6 +150,128 @@ function Card({ id, title, purpose, children }: { id: string; title: string; pur
   )
 }
 
+// Creatives-tab sections. Each has its own colour, so a section is found by its
+// colour before its title is read.
+//
+// Collapsible ones keep their content MOUNTED while closed (the `hidden`
+// attribute, not conditional rendering): copy drafts, product edits and a
+// half-typed brand comment live in local state, and closing a section must not
+// throw them away.
+//
+// No transform, filter or z-index on the box: Review's Gallery view and zoom
+// lightbox are position: fixed, and a new stacking context would trap them.
+const SECTION_HUES = {
+  offer: '#F97316',
+  brand: '#A78BFA',
+  products: '#0EA5E9',
+  motion: '#F43F5E',
+  brief: '#10B981',
+  review: '#6366F1',
+} as const
+type SectionTone = keyof typeof SECTION_HUES
+type Chip = { text: string; state?: 'warn' | 'empty' }
+
+// Creatives sections that open and close. Offer and Review are always open.
+const COLLAPSIBLE_SECTIONS = new Set(['brand', 'products', 'motion', 'creative-brief'])
+
+function Section({ id, tone, title, purpose, chips = [], open = true, onToggle, children }: {
+  id: string
+  tone: SectionTone
+  title: string
+  purpose?: string
+  /** The callout: what is inside, readable while the section is closed. */
+  chips?: Chip[]
+  open?: boolean
+  /** Absent: the section is always open and has no toggle. */
+  onToggle?: () => void
+  children: React.ReactNode
+}) {
+  const hue = SECTION_HUES[tone]
+  const collapsible = !!onToggle
+  const shown = !collapsible || open
+  const headStyle: React.CSSProperties = {
+    display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', width: '100%', textAlign: 'left',
+    padding: '14px 20px', border: 'none', color: 'var(--text-primary)', font: 'inherit',
+    background: `color-mix(in srgb, ${hue} ${shown ? 11 : 8}%, var(--surface))`,
+    borderBottom: shown ? `1px solid color-mix(in srgb, ${hue} 30%, var(--border))` : 'none',
+    borderRadius: shown ? '8px 11px 0 0' : '8px 11px 11px 8px',
+    cursor: collapsible ? 'pointer' : 'default',
+  }
+  const head = (
+    <>
+      <span aria-hidden style={{ width: 10, height: 10, borderRadius: 3, background: hue, flexShrink: 0 }} />
+      <span style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', flex: '1 1 220px', minWidth: 0 }}>
+        <span style={{ fontSize: 15, fontWeight: 700 }}>{title}</span>
+        {purpose && <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{purpose}</span>}
+      </span>
+      {chips.length > 0 && (
+        <span style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {chips.map(c => (
+            <span key={c.text} style={{
+              fontSize: 11, fontWeight: 600, padding: '3px 9px', borderRadius: 999, whiteSpace: 'nowrap',
+              color: c.state === 'warn' ? 'var(--urgent-soon)' : c.state === 'empty' ? 'var(--text-muted)' : 'var(--text-primary)',
+              background: c.state === 'warn' ? 'var(--urgent-soon-bg)' : c.state === 'empty' ? 'transparent' : `color-mix(in srgb, ${hue} 18%, transparent)`,
+              border: c.state === 'warn'
+                ? '1px solid color-mix(in srgb, var(--urgent-soon) 45%, transparent)'
+                : c.state === 'empty' ? '1px dashed var(--border-strong)' : `1px solid color-mix(in srgb, ${hue} 40%, transparent)`,
+            }}>{c.text}</span>
+          ))}
+        </span>
+      )}
+      {collapsible && (
+        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', whiteSpace: 'nowrap', marginLeft: 'auto' }}>
+          {open ? 'Hide ▴' : 'Show ▾'}
+        </span>
+      )}
+    </>
+  )
+  return (
+    <section id={id} className="card" style={{ marginBottom: 20, scrollMarginTop: 20, padding: 0, borderLeft: `4px solid ${hue}` }}>
+      {collapsible
+        ? <button type="button" onClick={onToggle} aria-expanded={open} aria-controls={`${id}-body`} style={headStyle}>{head}</button>
+        : <div style={headStyle}>{head}</div>}
+      <div id={`${id}-body`} hidden={!shown} style={{ padding: '20px 24px 24px' }}>{children}</div>
+    </section>
+  )
+}
+
+// A heading inside a section (Brand guidelines, Brand DNA, Copy deck...).
+function SubHead({ tone, first = false, children }: { tone: SectionTone; first?: boolean; children: React.ReactNode }) {
+  return (
+    <div style={{
+      fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
+      color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 8,
+      marginBottom: 12, ...(first ? {} : { marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)' }),
+    }}>
+      <span aria-hidden style={{ width: 6, height: 6, borderRadius: 2, background: SECTION_HUES[tone] }} />
+      {children}
+    </div>
+  )
+}
+
+// A link an editor has to find and click: a Motion report, a product page, a
+// folder. A button, not orange text — plain text links were being missed.
+function LinkButton({ href, tone, title, children }: { href: string; tone: SectionTone; title?: string; children: React.ReactNode }) {
+  const hue = SECTION_HUES[tone]
+  return (
+    <a
+      href={href} target="_blank" rel="noreferrer" title={title ?? href} className="link-btn"
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 6, maxWidth: '100%', flexShrink: 0,
+        fontSize: 12, fontWeight: 600, lineHeight: 1.2, padding: '7px 12px', borderRadius: 8,
+        textDecoration: 'none', color: 'var(--text-primary)',
+        background: `color-mix(in srgb, ${hue} 14%, var(--surface))`,
+        border: `1px solid color-mix(in srgb, ${hue} 55%, var(--border))`,
+      }}
+    >
+      {/* Wraps rather than ellipsizes: in a narrow column an ellipsis ate the
+          whole label and left a bare arrow. */}
+      <span style={{ overflowWrap: 'break-word', minWidth: 0 }}>{children}</span>
+      <span aria-hidden style={{ color: hue, fontWeight: 700, flexShrink: 0 }}>↗</span>
+    </a>
+  )
+}
+
 // A missing fact an editor can act on, not a blank to skim past.
 function Missing({ tone = 'muted', children }: { tone?: 'warn' | 'muted'; children: React.ReactNode }) {
   const warn = tone === 'warn'
@@ -285,6 +407,10 @@ export default function PreviewProjectView({
   // Which section the reader is actually in, so the sub-nav reports position
   // rather than only offering destinations.
   const [activeSection, setActiveSection] = useState<string | null>(null)
+  // Creatives-tab sections that are open. Closed on every visit: an editor opens
+  // what this job needs. Offer and Review have no toggle.
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({})
+  const toggleSection = (id: string) => setOpenSections(s => ({ ...s, [id]: !s[id] }))
 
   // Notifications deep-link to #client-feedback, and that anchor lives inside the
   // Landing Page tab. Arriving with the hash while Overview is showing meant the
@@ -297,14 +423,19 @@ export default function PreviewProjectView({
     const owner: Record<string, Tab> = {
       'client-feedback': 'lp', feedback: 'lp', page: 'lp', offer: 'lp', copy: 'lp',
       library: 'lp', notes: 'lp', product: 'lp',
-      brief: 'creatives', products: 'creatives', motion: 'creatives', review: 'creatives',
+      brief: 'creatives', 'creative-offer': 'creatives', brand: 'creatives', products: 'creatives',
+      motion: 'creatives', 'creative-brief': 'creatives', 'creative-copy': 'creatives', review: 'creatives',
       making: 'overview', about: 'overview', look: 'overview', destination: 'overview',
     }
     const t = owner[hash]
     if (t) setTab(t)
+    // #brief was the Offer card before the Creatives tab was regrouped.
+    const target = hash === 'brief' ? 'creative-offer' : hash
+    const section = hash === 'creative-copy' ? 'creative-brief' : target
+    if (t === 'creatives' && COLLAPSIBLE_SECTIONS.has(section)) setOpenSections({ [section]: true })
     // Two frames: one for the tab switch to commit, one for its content to mount.
     requestAnimationFrame(() => requestAnimationFrame(() => {
-      document.getElementById(hash)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      document.getElementById(target)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     }))
   }, [])
 
@@ -440,13 +571,49 @@ export default function PreviewProjectView({
 
   // Products and Motion reports are always shown, even empty: an empty list is
   // the prompt to fill it, and hiding it hides the only place the work happens.
+  const motionCount = topPerformers.length + competitors.length
   const creativesNav = useMemo(() => ([
-    { id: 'brief', label: projectBriefs.length ? `Brief · ${projectBriefs.length} file${projectBriefs.length === 1 ? '' : 's'}` : 'Brief', show: true },
+    { id: 'creative-offer', label: 'Offer', show: true },
+    { id: 'brand', label: 'Brand', show: !!brand?.id },
     { id: 'products', label: products.length ? `Products · ${products.length}` : 'Products', show: true },
-    { id: 'motion', label: competitors.length ? `Motion reports · ${competitors.length}` : 'Motion reports', show: true },
-    { id: 'copy', label: 'Copy deck', show: true },
+    { id: 'motion', label: motionCount ? `Motion reports · ${motionCount}` : 'Motion reports', show: true },
+    { id: 'creative-brief', label: projectBriefs.length ? `Creative brief · ${projectBriefs.length}` : 'Creative brief', show: true },
     { id: 'review', label: 'Review', show: true },
-  ]).filter(n => n.show), [hasAdCopy, products.length, competitors.length, projectBriefs.length])
+  ]).filter(n => n.show), [brand?.id, products.length, motionCount, projectBriefs.length])
+
+  // The callout on each Creatives section: what is inside, readable while it is
+  // closed. 'warn' is a gap that will cost a revision; 'empty' is just nothing yet.
+  const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
+  const brandChips: Chip[] = [
+    brand?.brand_guidelines || brandDocuments.length
+      ? { text: brandDocuments.length ? `Guidelines · ${plural(brandDocuments.length, 'doc')}` : 'Guidelines' }
+      : { text: 'No guidelines', state: 'empty' },
+    showLook && dna ? { text: `DNA · ${plural(LOOK_FIELDS.length, 'field')}` } : { text: 'No DNA', state: 'empty' },
+    brandComments.length ? { text: plural(brandComments.length, 'comment') } : { text: 'No comments', state: 'empty' },
+  ]
+  const productsWithoutLink = products.filter(x => !x.url && !x.assets_url).length
+  const folderCount = assetFolders.filter(f => f.url).length + (p.product_images_link ? 1 : 0) + (p.drive_folder_url ? 1 : 0)
+  const productChips: Chip[] = [
+    products.length ? { text: plural(products.length, 'product') } : { text: 'No products', state: 'warn' },
+    ...(productsWithoutLink ? [{ text: `${productsWithoutLink} without a link`, state: 'warn' as const }] : []),
+    folderCount ? { text: plural(folderCount, 'folder') } : { text: 'No folders', state: 'empty' },
+  ]
+  const motionChips: Chip[] = [
+    ...(p.motion_link ? [{ text: 'Motion board' }] : []),
+    topPerformers.length ? { text: plural(topPerformers.length, 'top performer') } : { text: 'No top performers', state: 'empty' },
+    competitors.length ? { text: plural(competitors.length, 'competitor') } : { text: 'No competitors', state: 'empty' },
+  ]
+  const briefsRead = projectBriefs.filter(b => b.extraction_status === 'done').length
+  const briefsFailed = projectBriefs.filter(b => b.extraction_status === 'failed').length
+  const copyLines = (p.ad_headlines?.length ?? 0) + (p.ad_subcopies?.length ?? 0) + (p.ad_eyebrows?.length ?? 0)
+  const copyApproved = copyApprovals.lines.filter(l => l.status === 'approved').length
+  const briefChips: Chip[] = [
+    projectBriefs.length ? { text: plural(projectBriefs.length, 'brief file') } : { text: 'No brief yet', state: 'empty' },
+    ...(briefsRead ? [{ text: `${briefsRead} read by AI` }] : []),
+    ...(briefsFailed ? [{ text: `${briefsFailed} read failed`, state: 'warn' as const }] : []),
+    hasAdCopy ? { text: plural(copyLines, 'copy line') } : { text: 'No ad copy', state: 'warn' },
+    ...(copyApproved ? [{ text: `${copyApproved} approved` }] : []),
+  ]
 
   // Results sub-nav — same idiom as the other tabs' rails. KPI/chart entries
   // only exist once daily rows do; the ads entry once tracking does.
@@ -793,7 +960,10 @@ export default function PreviewProjectView({
             const on = activeSection === id
             const go = (e: React.MouseEvent) => {
               e.preventDefault()
-              document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+              // A closed section is opened first: scrolling to a closed box
+              // lands on a title with nothing under it.
+              if (tab === 'creatives' && COLLAPSIBLE_SECTIONS.has(id)) setOpenSections(s => (s[id] ? s : { ...s, [id]: true }))
+              requestAnimationFrame(() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
             }
             // Collapsed: one dot per section, the label — count included — in
             // the tooltip. The nav still does both its jobs, report where you
@@ -1589,17 +1759,6 @@ export default function PreviewProjectView({
 
           {tab === 'creatives' && (
             <>
-              {brand?.id && (
-                <BrandThread
-                  brandId={brand.id}
-                  brandName={brand.name}
-                  projectId={p.id}
-                  comments={brandComments}
-                  currentUserId={currentUserId}
-                  compact
-                />
-              )}
-
               {/* First thing on the tab, because it is the first thing an editor
                   does — nothing below works until the folder is synced. It was
                   behind a disclosure in the last card. */}
@@ -1610,15 +1769,6 @@ export default function PreviewProjectView({
                 assetCount={visibleAssets.length}
               />
 
-              {/* The answer to "where do I submit my work". It used to be a
-                  seven-step rail behind a disclosure called "Move a stage" —
-                  a description of the data model, not an instruction. */}
-              <NextStep
-                projectId={p.id} brandId={p.brand_id}
-                track="creatives_stage" stage={p.creatives_stage}
-                label="Creatives" disabled={p.is_complete}
-              />
-
               {/* One card, not three. Creative Brief, Copy Deck and Drive Folder
                   were separate sections for six rows, three arrays and a single
                   link — and the brief half of it reprinted Overview's product,
@@ -1627,8 +1777,11 @@ export default function PreviewProjectView({
                   This tab is where the ad gets made, so the product is shown
                   rather than named: 23% of client revisions are "wrong product
                   shown", and an editor should not have to leave the tab they are
-                  working on to see what they are drawing. */}
-              <Card id="brief" title="Brief" purpose="What you're advertising.">
+                  working on to see what they are drawing.
+
+                  Called Offer, not Brief: this is the offer. The client's brief
+                  FILES have their own section, Creative brief. Always open. */}
+              <Section id="creative-offer" tone="offer" title="Offer" purpose="What you're advertising.">
                 <div style={{ display: 'grid', gridTemplateColumns: images.length ? 'auto minmax(0,1fr)' : '1fr', gap: 16, alignItems: 'start' }}>
                   {images.length > 0 && (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, maxWidth: 200 }}>
@@ -1699,98 +1852,106 @@ export default function PreviewProjectView({
 
                     {images.length === 0 && imageFallback && (
                       <div style={{ marginTop: 10 }}>
-                        <a href={imageFallback.href} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--accent)' }}>{imageFallback.label}</a>
+                        <LinkButton href={imageFallback.href} tone="offer">{imageFallback.label.replace(/ ↗$/, '')}</LinkButton>
                       </div>
                     )}
                   </div>
                 </div>
 
                 {(p.competitor_reference || p.client_ad_inspiration) && (
-                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
-                    <span style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginRight: 8 }}>References</span>
+                  <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, fontSize: 12, color: 'var(--text-secondary)', marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+                    <span style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginRight: 4 }}>References</span>
                     {[p.competitor_reference, p.client_ad_inspiration].filter(Boolean).map((r, i) => (
-                      <span key={i} style={{ marginRight: 12 }}>
-                        {isUrl(r as string)
-                          ? <a href={r as string} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>{hostOf(r as string)} ↗</a>
-                          : (r as string)}
-                      </span>
+                      isUrl(r as string)
+                        ? <LinkButton key={i} href={r as string} tone="offer">{hostOf(r as string)}</LinkButton>
+                        : <span key={i}>{r as string}</span>
                     ))}
                   </div>
                 )}
 
-                {/* The client's brief files, read by AI. Inside this card: the card is
-                    "what you're advertising" and a brief is its source. Project-level —
-                    the brand's own files are under Brand guidelines. Keyed on the project,
-                    never on the list, so a refresh mid-upload does not remount it. */}
-                <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
-                  <ProjectBriefs key={p.id} projectId={p.id} brandId={p.brand_id} briefs={projectBriefs} serverNow={serverNow} />
-                </div>
                 {/* A link, not a section of its own. */}
                 {p.drive_folder_url && (
                   <div style={{ marginTop: 16 }}>
-                    <a href={p.drive_folder_url} target="_blank" rel="noreferrer"
-                      style={{ fontSize: 12, fontWeight: 600, padding: '8px 12px', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', textDecoration: 'none' }}>Final output — Drive ↗</a>
+                    <LinkButton href={p.drive_folder_url} tone="offer">Final output — Drive</LinkButton>
                   </div>
                 )}
-              </Card>
+              </Section>
 
+              {/* Everything about the BRAND, not this project, in one place:
+                  the client's rules, the look, and what the team has learned.
+                  Closed by default: reference an editor opens when they need it. */}
               {brand?.id && (
-                <BrandGuidelines
-                  brandId={brand.id}
-                  brandName={brand.name}
-                  projectId={p.id}
-                  guidelines={brand.brand_guidelines ?? null}
-                  documents={brandDocuments}
-                  collapsed
-                  key={`c:${brand.id}`}
-                />
-              )}
+                <Section
+                  id="brand" tone="brand" title="Brand" purpose={`Rules, look and notes for every ${brand.name} project.`}
+                  chips={brandChips} open={!!openSections.brand} onToggle={() => toggleSection('brand')}
+                >
+                  <SubHead tone="brand" first>Brand guidelines</SubHead>
+                  <BrandGuidelines
+                    brandId={brand.id}
+                    brandName={brand.name}
+                    projectId={p.id}
+                    guidelines={brand.brand_guidelines ?? null}
+                    documents={brandDocuments}
+                    embedded
+                    key={`c:${brand.id}`}
+                  />
 
-              {/* Brand DNA, collapsed. It is reference material an editor consults
-                  rather than reads every visit, and the Overview already renders
-                  it open. Only the fields that are actually populated — the DNA
-                  table's fonts run 4-6 of 13 while composition, mood and
-                  subject_matter are filled on all 13. */}
-              {showLook && dna && (
-                <Disclosure title="Brand DNA" meta={`${LOOK_FIELDS.length} field${LOOK_FIELDS.length === 1 ? '' : 's'}`}>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: 12 }}>
-                    {LOOK_FIELDS.map(([label, v]) => (
-                      <div key={label} style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '12px 12px' }}>
-                        <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: 4 }}>{label}</div>
-                        <div style={{ fontSize: 13, lineHeight: 1.55 }}><Clamp text={String(v)} lines={4} /></div>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
-                    {([['Primary', dna.primary_color], ['Secondary', dna.secondary_color], ['Accent', dna.accent_color], ['Contrast', dna.contrast_color]] as const)
-                      .filter(([, v]) => !!v)
-                      .map(([l, v]) => (
-                        <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px 6px 8px', border: '1px solid var(--border)', borderRadius: 10 }}>
-                          <span style={{ width: 22, height: 22, borderRadius: 6, background: v as string, border: '1px solid var(--border)' }} />
-                          <div>
-                            <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase' }}>{l}</div>
-                            <div style={{ fontSize: 12, fontWeight: 600, fontFamily: 'ui-monospace, monospace' }}>{v}</div>
-                          </div>
+                  {/* Only the DNA fields that are actually populated. */}
+                  <SubHead tone="brand">Brand DNA</SubHead>
+                  {showLook && dna ? (
+                    <>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: 12 }}>
+                      {LOOK_FIELDS.map(([label, v]) => (
+                        <div key={label} style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '12px 12px' }}>
+                          <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: 4 }}>{label}</div>
+                          <div style={{ fontSize: 13, lineHeight: 1.55 }}><Clamp text={String(v)} lines={4} /></div>
                         </div>
                       ))}
-                  </div>
+                    </div>
 
-                  {hooks.length > 0 && (
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
-                      {hooks.slice(0, 5).map(h => (
-                        <span key={h} style={{ fontSize: 11, padding: '4px 10px', borderRadius: 999, background: 'var(--surface-raised)', border: '1px solid var(--border)' }}>{h}</span>
-                      ))}
-                      {hooks.length > 5 && <span style={{ fontSize: 10, color: 'var(--text-muted)', alignSelf: 'center' }}>+{hooks.length - 5} more</span>}
+                      {([['Primary', dna.primary_color], ['Secondary', dna.secondary_color], ['Accent', dna.accent_color], ['Contrast', dna.contrast_color]] as const)
+                        .filter(([, v]) => !!v)
+                        .map(([l, v]) => (
+                          <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px 6px 8px', border: '1px solid var(--border)', borderRadius: 10 }}>
+                            <span style={{ width: 22, height: 22, borderRadius: 6, background: v as string, border: '1px solid var(--border)' }} />
+                            <div>
+                              <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase' }}>{l}</div>
+                              <div style={{ fontSize: 12, fontWeight: 600, fontFamily: 'ui-monospace, monospace' }}>{v}</div>
+                            </div>
+                          </div>
+                        ))}
                     </div>
+
+                    {hooks.length > 0 && (
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+                        {hooks.slice(0, 5).map(h => (
+                          <span key={h} style={{ fontSize: 11, padding: '4px 10px', borderRadius: 999, background: 'var(--surface-raised)', border: '1px solid var(--border)' }}>{h}</span>
+                        ))}
+                        {hooks.length > 5 && <span style={{ fontSize: 10, color: 'var(--text-muted)', alignSelf: 'center' }}>+{hooks.length - 5} more</span>}
+                      </div>
+                    )}
+
+                    {(dna.primary_font || dna.secondary_font) && (
+                      <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 12 }}>
+                        Fonts · {dna.primary_font ?? '—'} / {dna.secondary_font ?? '—'}
+                      </div>
+                    )}
+                    </>
+                  ) : (
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No brand DNA yet.</div>
                   )}
 
-                  {(dna.primary_font || dna.secondary_font) && (
-                    <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 12 }}>
-                      Fonts · {dna.primary_font ?? '—'} / {dna.secondary_font ?? '—'}
-                    </div>
-                  )}
-                </Disclosure>
+                  <SubHead tone="brand">Brand comments</SubHead>
+                  <BrandThread
+                    brandId={brand.id}
+                    brandName={brand.name}
+                    projectId={p.id}
+                    comments={brandComments}
+                    currentUserId={currentUserId}
+                    embedded
+                  />
+                </Section>
               )}
 
               {/* Every product, its page, and where the hi-res photography lives.
@@ -1798,7 +1959,10 @@ export default function PreviewProjectView({
                   23% of client comments are "wrong product shown", and until now
                   an editor working on the third of eight SKUs had nowhere to read
                   its link. */}
-              <Card id="products" title="Products in this project" purpose="Name, link, HQ assets.">
+              <Section
+                id="products" tone="products" title="Products in this project" purpose="Name, link, HQ assets."
+                chips={productChips} open={!!openSections.products} onToggle={() => toggleSection('products')}
+              >
                 {editing === 'products' ? (
                   <ProductGroupEditor
                     projectId={p.id} brandId={p.brand_id}
@@ -1847,14 +2011,17 @@ export default function PreviewProjectView({
                                 )}
                                 <div style={{ minWidth: 0, flex: 1 }}>
                                   <div style={{ fontSize: 13, fontWeight: 600 }}>{isUrl(prod.name) ? hostOf(prod.name) : prod.name}</div>
-                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 3 }}>
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 6 }}>
                                     {prod.url && (
-                                      <a href={prod.url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--accent)' }}>
-                                        {hostOf(prod.url)}<span style={{ color: 'var(--text-muted)' }}>{pathOf(prod.url)}</span> ↗
-                                      </a>
+                                      // The address stays visible: spotting the SKU whose link
+                                      // points at a collection, or at the wrong product, is
+                                      // what this row is for.
+                                      <LinkButton href={prod.url} tone="products">
+                                        {hostOf(prod.url)}<span style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>{pathOf(prod.url)}</span>
+                                      </LinkButton>
                                     )}
                                     {prod.assets_url && (
-                                      <a href={prod.assets_url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--accent)' }}>HQ assets ↗</a>
+                                      <LinkButton href={prod.assets_url} tone="products">HQ assets</LinkButton>
                                     )}
                                     {!prod.url && !prod.assets_url && (
                                       <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
@@ -1911,15 +2078,15 @@ export default function PreviewProjectView({
                         />
                       ) : (
                         <>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: assetFolders.length || p.product_images_link || p.drive_folder_url ? 10 : 0 }}>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: assetFolders.length || p.product_images_link || p.drive_folder_url ? 12 : 0 }}>
                             {assetFolders.map(f => (
                               f.url
-                                ? <a key={f.id} href={f.url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--accent)' }}>{f.label} ↗</a>
+                                ? <LinkButton key={f.id} href={f.url} tone="products">{f.label}</LinkButton>
                                 : <span key={f.id} style={{ fontSize: 12, color: 'var(--text-muted)' }}>{f.label} — no link</span>
                             ))}
                             {/* The two that predate this list, still written elsewhere. */}
-                            {p.product_images_link && <a href={p.product_images_link} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--accent)' }}>Product photos ↗</a>}
-                            {p.drive_folder_url && <a href={p.drive_folder_url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--accent)' }}>Final output — Drive ↗</a>}
+                            {p.product_images_link && <LinkButton href={p.product_images_link} tone="products">Product photos</LinkButton>}
+                            {p.drive_folder_url && <LinkButton href={p.drive_folder_url} tone="products">Final output — Drive</LinkButton>}
                           </div>
                           <button onClick={() => setEditing('folders')} style={editBtn}>
                             {assetFolders.length ? 'Edit folders' : 'Add a folder'}
@@ -1977,12 +2144,15 @@ export default function PreviewProjectView({
                     )}
                   </>
                 )}
-              </Card>
+              </Section>
 
               {/* Two lists, deliberately not one. The client's own winners and a
                   competitor's report answer different questions, and mixing them
                   would file our own client under "Competitors". */}
-              <Card id="motion" title="Motion reports" purpose="Ours, then theirs.">
+              <Section
+                id="motion" tone="motion" title="Motion reports" purpose="Ours, then theirs."
+                chips={motionChips} open={!!openSections.motion} onToggle={() => toggleSection('motion')}
+              >
                 <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: 10 }}>
                   Top performers
                 </div>
@@ -1990,9 +2160,9 @@ export default function PreviewProjectView({
                 {/* The project's own working board, if one is set on the live
                     page's deliverable form. Distinct from a top-performer report. */}
                 {p.motion_link && (
-                  <div style={{ padding: '8px 12px', marginBottom: 10, borderRadius: 8, background: 'var(--surface-2)' }}>
-                    <div style={{ fontSize: 12, fontWeight: 600 }}>This project&rsquo;s Motion board</div>
-                    <a href={p.motion_link} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--accent)' }}>Open board ↗</a>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '10px 12px', marginBottom: 12, borderRadius: 8, background: 'var(--surface-2)' }}>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>This project&rsquo;s Motion board</div>
+                    <LinkButton href={p.motion_link} tone="motion">Open Motion board</LinkButton>
                   </div>
                 )}
 
@@ -2009,12 +2179,12 @@ export default function PreviewProjectView({
                       <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Empty.</div>
                     ) : (
                       topPerformers.map((t, i) => (
-                        <div key={t.id} style={{ display: 'flex', alignItems: 'baseline', gap: 10, padding: '8px 0', borderBottom: i < topPerformers.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                        <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: i < topPerformers.length - 1 ? '1px solid var(--border)' : 'none' }}>
                           <div style={{ minWidth: 0, flex: 1 }}>
                             <div style={{ fontSize: 13, fontWeight: 600 }}>{t.name}</div>
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 3 }}>
-                              {t.motion_url && <a href={t.motion_url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--accent)' }}>Motion report ↗</a>}
-                              {t.link && <a href={t.link} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--accent)' }}>{hostOf(t.link)} ↗</a>}
+                            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 6 }}>
+                              {t.motion_url && <LinkButton href={t.motion_url} tone="motion">Motion report</LinkButton>}
+                              {t.link && <LinkButton href={t.link} tone="motion">{hostOf(t.link)}</LinkButton>}
                               {!t.motion_url && !t.link && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>No link yet</span>}
                             </div>
                           </div>
@@ -2044,13 +2214,13 @@ export default function PreviewProjectView({
                       <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Empty.</div>
                     ) : (
                       competitors.map((c, i) => (
-                        <div key={c.id} style={{ display: 'flex', alignItems: 'baseline', gap: 10, padding: '8px 0', borderBottom: i < competitors.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                        <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: i < competitors.length - 1 ? '1px solid var(--border)' : 'none' }}>
                           <div style={{ minWidth: 0, flex: 1 }}>
                             <div style={{ fontSize: 13, fontWeight: 600 }}>{c.name}</div>
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 3 }}>
-                              {c.site_url && <a href={c.site_url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--accent)' }}>{hostOf(c.site_url)} ↗</a>}
+                            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 6 }}>
+                              {c.site_url && <LinkButton href={c.site_url} tone="motion">{hostOf(c.site_url)}</LinkButton>}
                               {c.motion_url
-                                ? <a href={c.motion_url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--accent)' }}>Motion report ↗</a>
+                                ? <LinkButton href={c.motion_url} tone="motion">Motion report</LinkButton>
                                 : <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                                     No Motion report yet ·{' '}
                                     <button onClick={() => setEditing('competitors')} style={{ fontSize: 12, color: 'var(--accent)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}>Add report</button>
@@ -2077,7 +2247,18 @@ export default function PreviewProjectView({
                     )}
                   </>
                 )}
-              </Card>
+              </Section>
+
+              {/* The client's brief FILES, read by AI, and the copy that comes out
+                  of them. Together because the copy deck is written from the
+                  brief. Closed by default. */}
+              <Section
+                id="creative-brief" tone="brief" title="Creative brief" purpose="The client's brief, read by AI, and the ad copy."
+                chips={briefChips} open={!!openSections['creative-brief']} onToggle={() => toggleSection('creative-brief')}
+              >
+                {/* Keyed on the project, never on the list, so a refresh
+                    mid-upload does not remount it. */}
+                <ProjectBriefs key={p.id} projectId={p.id} brandId={p.brand_id} briefs={projectBriefs} serverNow={serverNow} />
 
               {/* Copy, in the order an editor picks it, and liftable. It used to
                   be a plain list on the one tab where the words actually get
@@ -2089,63 +2270,68 @@ export default function PreviewProjectView({
                   moment there was nowhere to click. 14 of 52 active projects
                   were in that state. Empty, it opens straight into the editor
                   with Generate beside it. */}
-              <Card id="copy" title="Copy deck" purpose={hasAdCopy ? "Tick what's approved." : 'Write it, or generate a first pass.'}>
-                {!hasAdCopy && (
-                  <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 14 }}>
-                    No copy on this project yet. Type the lines below, or hit{' '}
-                    <strong style={{ color: 'var(--text-primary)' }}>✦ Generate Copy</strong> to draft headlines,
-                    subheadlines and eyebrows from the offer — then edit what it gives you.
+                <div id="creative-copy" style={{ scrollMarginTop: 20 }}>
+                  <SubHead tone="brief">Copy deck</SubHead>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: -6, marginBottom: 14 }}>
+                    {hasAdCopy ? "Tick what's approved." : 'Write it, or generate a first pass.'}
                   </div>
-                )}
-                {hasAdCopy && (
-                  <CopyApprovalDeck
-                    // Same reason as BrandBrief: the tick/cross draft is seeded
-                    // once at mount, so it must be rebuilt when the saved
-                    // verdicts or the copy lines themselves change.
-                    key={`${(p.ad_headlines ?? []).length}:${(p.ad_subcopies ?? []).length}:${(p.ad_eyebrows ?? []).length}:${copyApprovals.lines.length}:${copyApprovals.log[0]?.at ?? ''}`}
-                    projectId={p.id}
-                    brandId={p.brand_id}
-                    approvals={copyApprovals}
-                    columns={[
-                      { label: 'Headlines', lines: p.ad_headlines ?? [] },
-                      { label: 'Subheadlines', lines: p.ad_subcopies ?? [] },
-                      { label: 'Eyebrows', lines: p.ad_eyebrows ?? [] },
-                    ]}
-                  />
-                )}
-
-                {/* Once there IS copy, editing goes back behind a disclosure:
-                    the columns above are what an editor uses 95% of the time —
-                    lifting a line, not rewriting the deck. With nothing there,
-                    a collapsed "edit" link is just a second click in front of
-                    the only thing you can do. */}
-                {hasAdCopy ? (
-                  <details style={{ marginTop: 16 }}>
-                    <summary style={{ fontSize: 11, color: 'var(--text-secondary)', cursor: 'pointer' }}>Edit or generate copy</summary>
-                    <div style={{ marginTop: 12 }}>
-                      <CopyDeckPanel
-                        projectId={p.id}
-                        brandId={p.brand_id}
-                        initialHeadlines={p.ad_headlines ?? []}
-                        initialEyebrows={p.ad_eyebrows ?? []}
-                        initialSubcopies={p.ad_subcopies ?? []}
-                        hypercareContact={hypercareRule ? hypercareCopyMessage(hypercareRule) : null}
-                      />
+                  {!hasAdCopy && (
+                    <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 14 }}>
+                      No copy on this project yet. Type the lines below, or hit{' '}
+                      <strong style={{ color: 'var(--text-primary)' }}>✦ Generate Copy</strong> to draft headlines,
+                      subheadlines and eyebrows from the offer — then edit what it gives you.
                     </div>
-                  </details>
-                ) : (
-                  <CopyDeckPanel
-                    projectId={p.id}
-                    brandId={p.brand_id}
-                    initialHeadlines={p.ad_headlines ?? []}
-                    initialEyebrows={p.ad_eyebrows ?? []}
-                    initialSubcopies={p.ad_subcopies ?? []}
-                    hypercareContact={hypercareRule ? hypercareCopyMessage(hypercareRule) : null}
-                  />
-                )}
-              </Card>
+                  )}
+                  {hasAdCopy && (
+                    <CopyApprovalDeck
+                      // Same reason as BrandBrief: the tick/cross draft is seeded
+                      // once at mount, so it must be rebuilt when the saved
+                      // verdicts or the copy lines themselves change.
+                      key={`${(p.ad_headlines ?? []).length}:${(p.ad_subcopies ?? []).length}:${(p.ad_eyebrows ?? []).length}:${copyApprovals.lines.length}:${copyApprovals.log[0]?.at ?? ''}`}
+                      projectId={p.id}
+                      brandId={p.brand_id}
+                      approvals={copyApprovals}
+                      columns={[
+                        { label: 'Headlines', lines: p.ad_headlines ?? [] },
+                        { label: 'Subheadlines', lines: p.ad_subcopies ?? [] },
+                        { label: 'Eyebrows', lines: p.ad_eyebrows ?? [] },
+                      ]}
+                    />
+                  )}
 
-              <Card id="review" title="Review" purpose="Approve, fix, and publish.">
+                  {/* Once there IS copy, editing goes back behind a disclosure:
+                      the columns above are what an editor uses 95% of the time —
+                      lifting a line, not rewriting the deck. With nothing there,
+                      a collapsed "edit" link is just a second click in front of
+                      the only thing you can do. */}
+                  {hasAdCopy ? (
+                    <details style={{ marginTop: 16 }}>
+                      <summary style={{ fontSize: 11, color: 'var(--text-secondary)', cursor: 'pointer' }}>Edit or generate copy</summary>
+                      <div style={{ marginTop: 12 }}>
+                        <CopyDeckPanel
+                          projectId={p.id}
+                          brandId={p.brand_id}
+                          initialHeadlines={p.ad_headlines ?? []}
+                          initialEyebrows={p.ad_eyebrows ?? []}
+                          initialSubcopies={p.ad_subcopies ?? []}
+                          hypercareContact={hypercareRule ? hypercareCopyMessage(hypercareRule) : null}
+                        />
+                      </div>
+                    </details>
+                  ) : (
+                    <CopyDeckPanel
+                      projectId={p.id}
+                      brandId={p.brand_id}
+                      initialHeadlines={p.ad_headlines ?? []}
+                      initialEyebrows={p.ad_eyebrows ?? []}
+                      initialSubcopies={p.ad_subcopies ?? []}
+                      hypercareContact={hypercareRule ? hypercareCopyMessage(hypercareRule) : null}
+                    />
+                  )}
+                </div>
+              </Section>
+
+              <Section id="review" tone="review" title="Review" purpose="Approve, fix, and publish.">
                 {/* The old "Open internal review" banner lived here. Gallery
                     View replaces the reason for it — a big image at full
                     viewport, without leaving the tab. /internal-review is still
@@ -2178,7 +2364,7 @@ export default function PreviewProjectView({
                     <CampaignTrackingPanel projectId={p.id} brandId={p.brand_id} campaigns={campaigns} todayIso={todayIso} canEdit />
                   </div>
                 </details>
-              </Card>
+              </Section>
             </>
           )}
         </div>

@@ -332,6 +332,12 @@ label {
   padding: 24px;
 }
 
+/* Links styled as buttons (LinkButton, project Creatives tab). The ring, not a
+   colour change: each button carries its section's hue. */
+.link-btn { transition: box-shadow 0.12s; }
+.link-btn:hover { box-shadow: 0 0 0 2px var(--hover-ring); }
+.link-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
 .brand-card {
   transition: border-color 0.15s, transform 0.1s;
 }
