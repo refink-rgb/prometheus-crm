@@ -444,12 +444,18 @@ export default function PreviewProjectView({
     { id: 'review', label: 'Review', show: true },
   ]).filter(n => n.show), [hasAdCopy, products.length, competitors.length])
 
-  // Results has no sub-sections — its nav is empty and the rail collapses to
-  // just the toggle. Memoized so the scroll-spy effect's dependency stays
-  // stable across renders.
+  // Results sub-nav — same idiom as the other tabs' rails. KPI/chart entries
+  // only exist once daily rows do; the ads entry once tracking does.
+  const resultsNav = useMemo(() => ([
+    { id: 'results-status', label: 'Status', show: true },
+    { id: 'results-kpis', label: 'KPIs', show: lpDaily.length > 0 },
+    { id: 'results-charts', label: 'Spend & ROAS', show: lpDaily.length > 0 },
+    { id: 'results-ads', label: lpAdMatches.length ? `Matched ads · ${lpAdMatches.length}` : 'Matched ads', show: lpTracking !== null },
+  ]).filter(n => n.show), [lpDaily.length, lpAdMatches.length, lpTracking])
+
   const activeNav = useMemo(
-    () => (tab === 'overview' ? overviewNav : tab === 'lp' ? lpNav : tab === 'creatives' ? creativesNav : []),
-    [tab, overviewNav, lpNav, creativesNav],
+    () => (tab === 'overview' ? overviewNav : tab === 'lp' ? lpNav : tab === 'creatives' ? creativesNav : resultsNav),
+    [tab, overviewNav, lpNav, creativesNav, resultsNav],
   )
 
   // Scroll-spy. This was written once before and silently did nothing — the edit

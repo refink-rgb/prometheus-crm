@@ -91,7 +91,7 @@ export default function ProjectResultsPanel({
     // already used. Usually one entry — the select is confirmation, not work.
     const accountOptions = [...new Set([brandAdAccount, ...knownAdAccounts].filter((a): a is string => !!a))]
     return (
-      <section className="card" style={{ padding: '20px 22px' }}>
+      <section id="results-status" className="card" style={{ padding: '20px 22px' }}>
         <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>
           Track this landing page&apos;s ad performance
         </h3>
@@ -279,7 +279,7 @@ function TrackingView({
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
 
       {/* ── Header: status, freshness, push-to-client ────────────────────── */}
-      <section className="card" style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 'var(--space-4)', flexWrap: 'wrap' }}>
+      <section id="results-status" className="card" style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 'var(--space-4)', flexWrap: 'wrap' }}>
         <div style={{ flex: 1, minWidth: 240 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <span className={live ? 'badge badge-done' : 'badge'}>
@@ -357,6 +357,7 @@ function TrackingView({
         <>
           {/* ── KPI tiles, grouped as the funnel reads: money → did the ads
                  earn attention → did the page convert the click ───────────── */}
+          <div id="results-kpis" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
           <TileGroup label="Overall">
             <Tile
               label="Spend"
@@ -381,6 +382,7 @@ function TrackingView({
             <CompareTile label="Click-to-checkout rate" lp={lpKpis} rest={restKpis} metric="click_to_checkout" goodWhenHigher format={v => formatPercent(v, 1)} />
             <CompareTile label="Checkout conversion rate" lp={lpKpis} rest={restKpis} metric="checkout_cvr" goodWhenHigher format={v => formatPercent(v, 1)} />
           </TileGroup>
+          </div>
 
           {(rest.clamped.length > 0 || warningDays > 0) && (
             <div style={{ fontSize: 11, color: 'var(--warning)', lineHeight: 1.5 }}>
@@ -390,7 +392,7 @@ function TrackingView({
           )}
 
           {/* ── Spend + ROAS by day ────────────────────────────────────────── */}
-          <section className="card" style={{ padding: '18px 20px' }}>
+          <section id="results-charts" className="card" style={{ padding: '18px 20px' }}>
             <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 2 }}>
               Spend vs. ROAS, day by day
             </h3>
@@ -403,7 +405,7 @@ function TrackingView({
       )}
 
       {/* ── Matched ads ──────────────────────────────────────────────────── */}
-      <section className="card" style={{ padding: '18px 20px' }}>
+      <section id="results-ads" className="card" style={{ padding: '18px 20px' }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
           <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
             Matched ads
