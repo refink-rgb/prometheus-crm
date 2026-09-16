@@ -338,6 +338,10 @@ label {
 .link-btn:hover { box-shadow: 0 0 0 2px var(--hover-ring); }
 .link-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
+/* Footnote-style expanders (Disclosure on the project page). */
+.footnote-toggle:hover .footnote-title { color: var(--text-primary) !important; }
+.footnote-toggle:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: 4px; }
+
 .brand-card {
   transition: border-color 0.15s, transform 0.1s;
 }

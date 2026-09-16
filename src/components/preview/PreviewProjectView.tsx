@@ -101,24 +101,27 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   )
 }
 
-// Collapsed by default. Used where the content is reference material an editor
-// consults rather than reads every time.
+// Secondary material an editor opens on demand: the references, the full offer
+// text. A footnote, not a box — small muted text with an arrow — so it never
+// competes with the content above it.
 function Disclosure({ title, meta, open: initial = false, children }: {
   title: string; meta?: string; open?: boolean; children: React.ReactNode
 }) {
   const [open, setOpen] = useState(initial)
   return (
-    <div style={{ border: '1px solid var(--border)', borderRadius: 10, marginBottom: 12 }}>
+    <div style={{ marginBottom: 10 }}>
       <button
+        type="button"
+        className="footnote-toggle"
         onClick={() => setOpen(v => !v)}
         aria-expanded={open}
-        style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '10px 12px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-primary)' }}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '2px 0', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', fontSize: 11.5, color: 'var(--text-muted)' }}
       >
-        <span style={{ fontSize: 11, color: 'var(--text-muted)', width: 10 }}>{open ? '▾' : '▸'}</span>
-        <span style={{ fontSize: 12, fontWeight: 700 }}>{title}</span>
-        {meta && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{meta}</span>}
+        <span aria-hidden style={{ fontSize: 8, width: 8, display: 'inline-block', transition: 'transform 0.12s', transform: open ? 'rotate(90deg)' : 'none' }}>▶</span>
+        <span className="footnote-title" style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>{title}</span>
+        {meta && <span>· {meta}</span>}
       </button>
-      {open && <div style={{ padding: '0 12px 12px 30px' }}>{children}</div>}
+      {open && <div style={{ margin: '6px 0 4px 3px', padding: '6px 0 2px 12px', borderLeft: '2px solid var(--border)' }}>{children}</div>}
     </div>
   )
 }
