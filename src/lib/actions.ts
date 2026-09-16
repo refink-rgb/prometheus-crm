@@ -3034,61 +3034,91 @@ export async function updateBrandDna(
   return { ok: true }
 }
 
-export async function uploadBrandLogo(
-  formData: FormData,
+// ── Brand logo ───────────────────────────────────────────────────────────
+//
+// One logo per brand, on the ACTIVE brand_dna row, so every project of the brand
+// shows the same file and a DNA rebuild carries it forward (buildBrandDna copies
+// prevActive.logo_url). The bytes go browser -> Storage on a signed URL: through
+// a Server Action they hit the 1MB body limit, and a print-quality PNG logo is
+// often bigger than that.
+//
+// project-images is PUBLIC. That is right for a logo (it goes on ads) and the
+// path carries nothing sensitive.
+
+const LOGO_TYPES: Record<string, string> = {
+  'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/svg+xml': 'svg',
+}
+const MAX_LOGO_BYTES = 10 * 1024 * 1024
+
+export async function createBrandLogoUploadUrl(
+  brandId: string,
+  contentType: string,
+  byteSize: number,
+): Promise<{ ok: true; path: string; token: string } | { ok: false; error: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!(await canEdit(user.email))) return { ok: false, error: 'Not authorized.' }
+
+  if (!isUuid(brandId)) return { ok: false, error: 'Unknown brand.' }
+  const ext = LOGO_TYPES[contentType]
+  if (!ext) return { ok: false, error: 'A logo can be PNG, JPG, WebP or SVG.' }
+  if (!Number.isFinite(byteSize) || byteSize <= 0) return { ok: false, error: 'That file is empty.' }
+  if (byteSize > MAX_LOGO_BYTES) {
+    return { ok: false, error: `That file is ${(byteSize / 1048576).toFixed(1)}MB — a logo can be up to ${MAX_LOGO_BYTES / 1048576}MB.` }
+  }
+
+  const path = `brand-logos/${brandId}-${Date.now()}.${ext}`
+  const { data, error } = await supabase.storage.from('project-images').createSignedUploadUrl(path)
+  if (error || !data) return { ok: false, error: `Could not start the upload: ${error?.message ?? 'no URL'}` }
+  return { ok: true, path: data.path, token: data.token }
+}
+
+export async function saveBrandLogo(
+  brandId: string,
+  path: string,
 ): Promise<{ ok: true; logoUrl: string } | { ok: false; error: string }> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
   if (!(await canEdit(user.email))) return { ok: false, error: 'Not authorized.' }
 
-  try {
-    const brandId = formData.get('brand_id') as string | null
-    const file = formData.get('file') as File | null
-    if (!brandId) return { ok: false, error: 'brand_id is required.' }
-    if (!file) return { ok: false, error: 'No file provided.' }
+  if (!isUuid(brandId)) return { ok: false, error: 'Unknown brand.' }
+  // Only a path this brand's upload URL could have produced.
+  const name = path.startsWith('brand-logos/') ? path.slice('brand-logos/'.length) : ''
+  if (!new RegExp(`^${brandId}-\\d+\\.(png|jpg|webp|svg)$`).test(name)) return { ok: false, error: 'Unexpected logo path.' }
+  const { data: found, error: listErr } = await supabase.storage.from('project-images').list('brand-logos', { search: name, limit: 5 })
+  if (listErr) return { ok: false, error: `Could not check the upload: ${listErr.message}` }
+  if (!found?.some(o => o.name === name)) return { ok: false, error: 'The logo did not finish uploading. Try again.' }
 
-    const ext = (file.name.split('.').pop() || 'png').toLowerCase().replace(/[^a-z0-9]/g, '') || 'png'
-    const path = `brand-logos/${brandId}-${Date.now()}.${ext}`
+  const { data: { publicUrl } } = supabase.storage.from('project-images').getPublicUrl(path)
 
-    const buffer = Buffer.from(await file.arrayBuffer())
-    const { error: uploadError } = await supabase.storage
-      .from('project-images')
-      .upload(path, buffer, { contentType: file.type || 'image/png', upsert: false })
-    if (uploadError) return { ok: false, error: `Storage upload failed: ${uploadError.message}` }
+  const { data: active } = await supabase
+    .from('brand_dna')
+    .select('id')
+    .eq('brand_id', brandId)
+    .eq('is_active', true)
+    .maybeSingle()
 
-    const { data: { publicUrl } } = supabase.storage.from('project-images').getPublicUrl(path)
-
-    const { data: active } = await supabase
-      .from('brand_dna')
-      .select('id')
-      .eq('brand_id', brandId)
-      .eq('is_active', true)
-      .maybeSingle()
-
-    if (active) {
-      const { error } = await supabase.from('brand_dna').update({ logo_url: publicUrl }).eq('id', active.id)
-      if (error) return { ok: false, error: `Failed to save logo URL: ${error.message}` }
-    } else {
-      // No DNA row yet — create a stub active row that just holds the logo, so
-      // the panel has somewhere to persist the upload. A later Build pass will
-      // supersede this with version=2.
-      const { error } = await supabase.from('brand_dna').insert({
-        brand_id: brandId,
-        version: 1,
-        is_active: true,
-        logo_url: publicUrl,
-      })
-      if (error) return { ok: false, error: `Failed to save logo URL: ${error.message}` }
-    }
-
-    revalidatePath(`/brands/${brandId}`)
-    return { ok: true, logoUrl: publicUrl }
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
-    console.error('[uploadBrandLogo]', msg, e)
-    return { ok: false, error: msg }
+  if (active) {
+    const { error } = await supabase.from('brand_dna').update({ logo_url: publicUrl }).eq('id', active.id)
+    if (error) return { ok: false, error: `Failed to save the logo: ${error.message}` }
+  } else {
+    // No DNA row yet — create a stub active row that just holds the logo, so
+    // it has somewhere to live. A later Build pass supersedes it (version 2)
+    // and carries the logo forward.
+    const { error } = await supabase.from('brand_dna').insert({
+      brand_id: brandId,
+      version: 1,
+      is_active: true,
+      logo_url: publicUrl,
+    })
+    if (error) return { ok: false, error: `Failed to save the logo: ${error.message}` }
   }
+
+  // 'layout' reaches the brand page and every project page under it.
+  revalidatePath(`/brands/${brandId}`, 'layout')
+  return { ok: true, logoUrl: publicUrl }
 }
 
 

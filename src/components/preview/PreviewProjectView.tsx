@@ -37,6 +37,7 @@ import DriveSyncBar from '@/components/preview/DriveSyncBar'
 import NextStep from '@/components/preview/NextStep'
 import BrandGuidelines from '@/components/preview/BrandGuidelines'
 import BrandThread from '@/components/preview/BrandThread'
+import BrandLogo from '@/components/preview/BrandLogo'
 import { summariseProjectOffer, fetchProductThumbnails } from '@/lib/actions'
 import { projectBriefMarkdown } from '@/lib/markdown-export'
 import { STAGE_COLORS } from '@/lib/stageColors'
@@ -612,6 +613,7 @@ export default function PreviewProjectView({
   // closed. 'warn' is a gap that will cost a revision; 'empty' is just nothing yet.
   const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
   const brandChips: Chip[] = [
+    dna?.logo_url ? { text: 'Logo' } : { text: 'No logo', state: 'empty' },
     brand?.brand_guidelines || brandDocuments.length
       ? { text: brandDocuments.length ? `Guidelines · ${plural(brandDocuments.length, 'doc')}` : 'Guidelines' }
       : { text: 'No guidelines', state: 'empty' },
@@ -1904,7 +1906,10 @@ export default function PreviewProjectView({
                   id="brand" tone="brand" title="Brand" purpose={`Rules, look and notes for every ${brand.name} project.`}
                   chips={brandChips} open={!!openSections.brand} onToggle={() => toggleSection('brand')}
                 >
-                  <SubHead tone="brand" first>Brand guidelines</SubHead>
+                  <SubHead tone="brand" first>Logo</SubHead>
+                  <BrandLogo brandId={brand.id} brandName={brand.name} logoUrl={dna?.logo_url ?? null} />
+
+                  <SubHead tone="brand">Brand guidelines</SubHead>
                   <BrandGuidelines
                     brandId={brand.id}
                     brandName={brand.name}

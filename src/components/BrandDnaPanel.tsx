@@ -2,7 +2,8 @@
 
 import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { buildBrandDna, buildBrandDnaFromGuideline, uploadBrandLogo, updateBrandDna } from '@/lib/actions'
+import { buildBrandDna, buildBrandDnaFromGuideline, updateBrandDna } from '@/lib/actions'
+import { BRAND_LOGO_ACCEPT, uploadBrandLogoFile } from '@/lib/brand-logo-upload'
 import { createClient } from '@/lib/supabase/client'
 import { GUIDELINE_ACCEPT, MAX_GUIDELINE_BYTES } from '@/lib/ai/brand-guideline'
 import type { BrandDna } from '@/lib/types'
@@ -296,15 +297,9 @@ export default function BrandDnaPanel({ brandId, dna }: { brandId: string; dna: 
     setUploading(true)
     setError('')
     try {
-      const fd = new FormData()
-      fd.append('brand_id', brandId)
-      fd.append('file', file)
-      const result = await uploadBrandLogo(fd)
-      if (!result.ok) {
-        setError(result.error)
-      } else {
-        router.refresh()
-      }
+      const failed = await uploadBrandLogoFile(brandId, file)
+      if (failed) setError(failed)
+      else router.refresh()
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Logo upload failed')
     } finally {
@@ -399,7 +394,7 @@ export default function BrandDnaPanel({ brandId, dna }: { brandId: string; dna: 
           <input
             ref={fileRef}
             type="file"
-            accept="image/*"
+            accept={BRAND_LOGO_ACCEPT}
             onChange={handleLogoUpload}
             disabled={uploading}
             style={{ fontSize: 12 }}
