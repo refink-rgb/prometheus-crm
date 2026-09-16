@@ -96,9 +96,15 @@ export default async function ReviewPage({
           .gte('stat_date', tracking.launched_on)
           .order('stat_date', { ascending: true }),
       ])
-      resultsLpDaily = (lpRows ?? []) as unknown as FunnelDailyRow[]
+      // Validation warnings are INTERNAL quality signals — they never render
+      // on this page, and stripping them here keeps them out of the
+      // serialized page payload too (view-source shows the client nothing
+      // the tiles don't).
+      const stripInternal = (r: FunnelDailyRow): FunnelDailyRow => ({ ...r, warnings: [] })
+      resultsLpDaily = ((lpRows ?? []) as unknown as FunnelDailyRow[]).map(stripInternal)
       resultsAccountDaily = ((accountRows ?? []) as unknown as FunnelDailyRow[])
         .filter(r => !tracking.ended_on || r.stat_date <= tracking.ended_on)
+        .map(stripInternal)
     }
   }
 
