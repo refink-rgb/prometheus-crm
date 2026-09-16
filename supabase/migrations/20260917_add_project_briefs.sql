@@ -42,9 +42,9 @@ create table if not exists public.project_briefs (
   -- exists so the storage folder can be named after the brief.
   id           uuid primary key default gen_random_uuid(),
 
-  -- Cascade removes rows only. deleteProject / deleteBrand remove the storage
-  -- folders first (removeBriefObjects); a project deleted straight from the
-  -- dashboard leaves orphaned bytes.
+  -- Cascade removes rows only. deleteProject / deleteBrand collect brief ids,
+  -- delete the rows, then sweep the folders (removeBriefFolder); a project
+  -- deleted straight from the dashboard leaves orphaned bytes.
   project_id   uuid not null references public.projects(id) on delete cascade,
 
   storage_path text not null unique,
