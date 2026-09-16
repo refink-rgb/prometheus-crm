@@ -85,11 +85,13 @@ function ingestSecret(): string {
   return s
 }
 
-// How far back ad discovery looks for candidate ads, relative to the launch
-// date (or tracking creation when the launch isn't known yet). Ads made for a
-// landing page are created around its launch; genuinely older ads that point
-// at it are the manual-add path's job.
+// How far back ad discovery looks for candidate ads. With a KNOWN launch the
+// window hugs it (ads for a page are created around its launch; older ads
+// that point at it are the manual-add path's job). With NO launch date yet
+// the tracking may be a historical backfill, so the window is wide enough to
+// reach pages from over a year ago.
 const DISCOVERY_LOOKBACK_DAYS = 90
+const HISTORICAL_LOOKBACK_DAYS = 540
 
 // ---------------------------------------------------------------------------
 // Meta pulls
@@ -131,19 +133,32 @@ function destinationUrls(ad: AdListing): string[] {
 
 // Every ad in the account whose destination matches the LP URL. Bounded by
 // created_time so a decade-old account doesn't get walked end to end.
+// Per-run cache of account ad listings: twenty projects of one brand share
+// one account, and each run should list that account once, not twenty times.
+const adListingCache = new Map<string, Promise<AdListing[]>>()
+
 async function discoverAds(work: LpWork) {
-  const sinceIso = addDaysIso(work.launched_on ?? work.to_date ?? new Date().toISOString().slice(0, 10), -DISCOVERY_LOOKBACK_DAYS)
+  const today = new Date().toISOString().slice(0, 10)
+  const sinceIso = work.launched_on
+    ? addDaysIso(work.launched_on, -DISCOVERY_LOOKBACK_DAYS)
+    : addDaysIso(work.to_date ?? today, -HISTORICAL_LOOKBACK_DAYS)
   const sinceUnix = Math.floor(Date.parse(`${sinceIso}T00:00:00Z`) / 1000)
 
   // effective_object_story_spec is NOT expandable on the v23 ads listing
   // ("(#100) Tried accessing nonexisting field") — object_story_spec plus
   // asset_feed_spec cover regular, carousel, video, and flexible/multi-ad
   // formats, which is the whole portfolio.
-  const ads = await metaGetAll<AdListing>(`${work.ad_account_id}/ads`, {
-    fields: 'id,name,created_time,adset{id,name},campaign{id,name},creative{object_story_spec,asset_feed_spec}',
-    filtering: [{ field: 'ad.created_time', operator: 'GREATER_THAN', value: sinceUnix }],
-    limit: 100,
-  })
+  const cacheKey = `${work.ad_account_id}|${sinceIso}`
+  let listing = adListingCache.get(cacheKey)
+  if (!listing) {
+    listing = metaGetAll<AdListing>(`${work.ad_account_id}/ads`, {
+      fields: 'id,name,created_time,adset{id,name},campaign{id,name},creative{object_story_spec,asset_feed_spec}',
+      filtering: [{ field: 'ad.created_time', operator: 'GREATER_THAN', value: sinceUnix }],
+      limit: 100,
+    }, 100)
+    adListingCache.set(cacheKey, listing)
+  }
+  const ads = await listing
 
   const wanted = normalizeLpUrl(work.lp_url)
   const known = new Set(work.known_ad_ids)
@@ -234,6 +249,7 @@ export interface EngineSummary {
 }
 
 export async function runResultsPull(filters: { brandId?: string } = {}): Promise<EngineSummary> {
+  adListingCache.clear() // per-run, not per-warm-lambda: listings go stale
   const secret = ingestSecret()
   const qs = filters.brandId ? `?brand_id=${encodeURIComponent(filters.brandId)}` : ''
   const workRes = await fetch(`${baseUrl()}/api/results/ingest${qs}`, {
@@ -306,7 +322,10 @@ export async function runResultsPull(filters: { brandId?: string } = {}): Promis
       let since = p.from_date
       let until = p.to_date
       if (p.needs_launch_date || !since || !until) {
-        since = addDaysIso(work.through, -DISCOVERY_LOOKBACK_DAYS)
+        // Launch unknown = possibly historical: the detection window must be
+        // as wide as discovery's, or an old page's delivery is invisible and
+        // the launch date never resolves.
+        since = addDaysIso(work.through, -HISTORICAL_LOOKBACK_DAYS)
         until = work.through
       }
 
