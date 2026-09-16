@@ -47,27 +47,33 @@ export default function BriefReader({ brief, projectId, narrow, onMakePreviews }
   useEffect(() => {
     if (!pathKey) return
     let live = true
+    // Stamped on SUCCESS only: a failed sign (Wi-Fi still reconnecting after
+    // sleep) is retried on the next minute tick, not 50 minutes later.
     let signedAt = 0
+    let inFlight = false
     const sign = () => {
-      signedAt = Date.now()
+      inFlight = true
       getProjectBriefImageUrls(brief.id, projectId)
         .then(r => {
           if (!live) return
-          if (r.ok) { setUrls(r.urls); setUrlErr(null) } else setUrlErr(r.error)
+          if (r.ok) { signedAt = Date.now(); setUrls(r.urls); setUrlErr(null) } else setUrlErr(r.error)
         })
         .catch(() => { if (live) setUrlErr('Could not load the pictures.') })
+        .finally(() => { inFlight = false })
     }
     const check = () => {
-      if (document.visibilityState !== 'visible') return
+      if (inFlight || document.visibilityState !== 'visible') return
       if (Date.now() - signedAt > (BRIEF_IMAGE_URL_TTL_SECONDS - 600) * 1000) sign()
     }
     sign()
     const t = setInterval(check, 60_000)
     document.addEventListener('visibilitychange', check)
+    window.addEventListener('online', check)
     return () => {
       live = false
       clearInterval(t)
       document.removeEventListener('visibilitychange', check)
+      window.removeEventListener('online', check)
     }
   }, [brief.id, projectId, pathKey])
 
