@@ -240,8 +240,8 @@ export default function ProjectBriefs({ projectId, brandId, briefs, serverNow }:
       <DocDropZone
         queue={queue}
         accept={BRIEF_ACCEPT}
-        title="Add a creative brief"
-        hint={`Drop files or click · PDF, .pptx, .docx, .txt, PNG/JPG · up to ${MAX_BRIEF_BYTES / MB}MB · AI reads it after upload`}
+        title="Upload creative brief"
+        hint={`The client's brief for this project · drop files or click · PDF, .pptx, .docx, .txt, PNG/JPG · up to ${MAX_BRIEF_BYTES / MB}MB · AI reads it after upload`}
         onFiles={upload}
       />
 

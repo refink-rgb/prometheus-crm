@@ -425,7 +425,7 @@ export default function NewProjectForm({
           {/* Product Images */}
           <Section title="Product images" subtitle="Optional — 3+ recommended for stronger creative output.">
             <div id="images-section">
-              <ImageUploader value={images} onChange={setImages} />
+              <ImageUploader value={images} onChange={setImages} label="Upload product images" />
               {images.length > 0 && (
                 <p style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 12 }}>
                   {images.length} image{images.length === 1 ? '' : 's'} attached

@@ -12,9 +12,11 @@ interface UploadedImage {
 interface ImageUploaderProps {
   onChange: (images: UploadedImage[]) => void
   value: UploadedImage[]
+  /** What to upload, e.g. "Upload product images". Every box used to say the same generic line. */
+  label?: string
 }
 
-export default function ImageUploader({ onChange, value }: ImageUploaderProps) {
+export default function ImageUploader({ onChange, value, label = 'Upload images' }: ImageUploaderProps) {
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
@@ -97,10 +99,10 @@ export default function ImageUploader({ onChange, value }: ImageUploaderProps) {
         />
         <div style={{ fontSize: 28, marginBottom: 8 }}>🖼️</div>
         <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 4 }}>
-          {uploading ? 'Uploading…' : 'Drag & drop or click to upload'}
+          {uploading ? 'Uploading…' : label}
         </p>
         <p style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-          PNG, JPG, WEBP · Max 20MB each
+          Drag & drop or click · PNG, JPG, WEBP · Max 20MB each
         </p>
       </div>
 

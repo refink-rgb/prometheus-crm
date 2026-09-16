@@ -209,11 +209,11 @@ export default function MomentReportForm({
       {/* Proof + LP */}
       <div style={col}>
         <SectionTitle hint="Ad-account screenshot, shown under the headline stats as proof the numbers are real.">Proof screenshot</SectionTitle>
-        <ImageUploader value={proofImages} onChange={(imgs) => setProofImages(imgs.slice(-1))} />
+        <ImageUploader value={proofImages} onChange={(imgs) => setProofImages(imgs.slice(-1))} label="Upload ad-account screenshot" />
       </div>
       <div style={col}>
         <SectionTitle hint="Renders in a device frame as the landing page.">Landing page image</SectionTitle>
-        <ImageUploader value={lpImages} onChange={(imgs) => setLpImages(imgs.slice(-1))} />
+        <ImageUploader value={lpImages} onChange={(imgs) => setLpImages(imgs.slice(-1))} label="Upload landing page image" />
       </div>
 
       {/* Narrative */}

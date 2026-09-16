@@ -153,7 +153,7 @@ export default function BrandDocuments({
   return (
     <section style={{ marginTop: 16, borderTop: '1px solid var(--border)', paddingTop: 14 }}>
       <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: 8 }}>
-        Documents{documents.length ? ` · ${documents.length}` : ''}
+        Brand guideline files{documents.length ? ` · ${documents.length}` : ''}
       </div>
 
       {/* Click or drop. Hidden input inside a label, the same idiom the creative
@@ -190,10 +190,10 @@ export default function BrandDocuments({
         <span style={{ fontSize: 15 }}>⬆</span>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 12, fontWeight: 600 }}>
-            {busy ? `Uploading ${busy.name} — ${busy.done + 1} of ${busy.total}…` : 'Add a document'}
+            {busy ? `Uploading ${busy.name} — ${busy.done + 1} of ${busy.total}…` : 'Upload brand guidelines'}
           </div>
           <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
-            Drop files here or click · PDF, .docx, .pptx, .xlsx, .txt · up to {MAX_BRAND_DOC_BYTES / MB}MB each
+            Brand book, style guide, logo or font rules · drop files or click · PDF, .docx, .pptx, .xlsx, .txt · up to {MAX_BRAND_DOC_BYTES / MB}MB each
           </div>
         </div>
       </label>
@@ -207,7 +207,7 @@ export default function BrandDocuments({
 
       {documents.length === 0 ? (
         <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-          No documents yet — the brand book, a type specimen, a signed style guide.
+          No brand guideline files yet: the brand book, a type specimen, a signed style guide.
         </div>
       ) : documents.map(d => {
         const spec = BRAND_DOC_TYPES[d.mime_type]
