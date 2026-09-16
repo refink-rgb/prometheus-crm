@@ -35,7 +35,9 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthorized.' }, { status: 401 })
   }
 
-  const token = process.env.META_ACCESS_TOKEN
+  // Trimmed of whitespace and accidental wrapping quotes — both classic
+  // paste artifacts that turn a valid token into "Cannot parse access token".
+  const token = (process.env.META_ACCESS_TOKEN ?? '').trim().replace(/^["']|["']$/g, '')
   if (!token) {
     return NextResponse.json({
       ok: false,
