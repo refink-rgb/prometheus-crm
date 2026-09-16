@@ -272,6 +272,24 @@ function LinkButton({ href, tone, title, children }: { href: string; tone: Secti
   )
 }
 
+// The project form's free-text reference fields, labelled and closed by
+// default: reference material, not something to read past on the way to the
+// offer or the look.
+function ReferencesDisclosure({ references }: { references: [string, string][] }) {
+  return (
+    <Disclosure title="References" meta={references.map(([label]) => label).join(' · ')}>
+      {references.map(([label, r]) => (
+        <div key={label} style={{ marginBottom: 10 }}>
+          <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: 4 }}>{label}</div>
+          {isUrl(r)
+            ? <LinkButton href={r} tone="offer">{hostOf(r)}</LinkButton>
+            : <div style={{ fontSize: 12.5, lineHeight: 1.6, color: 'var(--text-secondary)', maxWidth: '80ch', whiteSpace: 'pre-wrap' }}>{r}</div>}
+        </div>
+      ))}
+    </Disclosure>
+  )
+}
+
 // A missing fact an editor can act on, not a blank to skim past.
 function Missing({ tone = 'muted', children }: { tone?: 'warn' | 'muted'; children: React.ReactNode }) {
   const warn = tone === 'warn'
@@ -497,6 +515,12 @@ export default function PreviewProjectView({
     : p.drive_folder_url ? { href: p.drive_folder_url, label: 'Open Drive folder ↗' }
     : p.lp_url ? { href: p.lp_url, label: 'See it on the landing page ↗' }
     : null
+
+  // The two free-text reference fields from the project form, labelled.
+  const references = ([
+    ['Competitor reference', p.competitor_reference],
+    ['Client ad inspiration', p.client_ad_inspiration],
+  ] as [string, string | null | undefined][]).filter((x): x is [string, string] => !!x[1]?.trim())
 
   const hasAdCopy = !!(p.ad_eyebrows?.length || p.ad_headlines?.length || p.ad_subcopies?.length)
   const hasLpCopy = !!(p.headline || p.body_copy || p.supporting_message || p.cta)
@@ -1307,15 +1331,9 @@ export default function PreviewProjectView({
                     </div>
                   )}
 
-                  {(p.competitor_reference || p.client_ad_inspiration) && (
-                    <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 16 }}>
-                      {[p.competitor_reference, p.client_ad_inspiration].filter(Boolean).map((r, i) => (
-                        <span key={i} style={{ marginRight: 12 }}>
-                          {isUrl(r as string)
-                            ? <a href={r as string} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>{hostOf(r as string)} ↗</a>
-                            : (r as string)}
-                        </span>
-                      ))}
+                  {references.length > 0 && (
+                    <div style={{ marginTop: 16 }}>
+                      <ReferencesDisclosure references={references} />
                     </div>
                   )}
 
@@ -1858,14 +1876,12 @@ export default function PreviewProjectView({
                   </div>
                 </div>
 
-                {(p.competitor_reference || p.client_ad_inspiration) && (
-                  <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, fontSize: 12, color: 'var(--text-secondary)', marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
-                    <span style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginRight: 4 }}>References</span>
-                    {[p.competitor_reference, p.client_ad_inspiration].filter(Boolean).map((r, i) => (
-                      isUrl(r as string)
-                        ? <LinkButton key={i} href={r as string} tone="offer">{hostOf(r as string)}</LinkButton>
-                        : <span key={i}>{r as string}</span>
-                    ))}
+                {/* Reference text, not the offer: behind a toggle so it does not
+                    sit between an editor and the offer itself. Each labelled, so
+                    it is clear which field of the project form it came from. */}
+                {references.length > 0 && (
+                  <div style={{ marginTop: 16 }}>
+                    <ReferencesDisclosure references={references} />
                   </div>
                 )}
 
@@ -2235,16 +2251,6 @@ export default function PreviewProjectView({
                       <button onClick={() => setEditing('competitors')} style={editBtn}>{competitors.length ? 'Edit competitors' : 'Add competitor'}</button>
                     </div>
 
-                    {p.competitor_reference && (
-                      <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
-                        <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: 6 }}>
-                          From the brief — not yet split into rows
-                        </div>
-                        <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, maxWidth: '80ch' }}>
-                          <Clamp text={p.competitor_reference} lines={3} />
-                        </div>
-                      </div>
-                    )}
                   </>
                 )}
               </Section>
