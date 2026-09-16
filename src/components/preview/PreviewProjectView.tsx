@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import type { Project, Brand, CreativeAsset, ProjectComment, BrandDna, ProjectImage, Journey, Profile, BrandComment, BrandDocument } from '@/lib/types'
+import type { Project, Brand, CreativeAsset, ProjectComment, BrandDna, ProjectImage, Journey, Profile, BrandComment, BrandDocument, ProjectBrief } from '@/lib/types'
 import ProjectEditForm from '@/components/ProjectEditForm'
 import MomentCodeChip from '@/components/MomentCodeChip'
 import StageTracker from '@/components/StageTracker'
@@ -27,6 +27,7 @@ import ReviewWorkspace from '@/components/preview/ReviewWorkspace'
 import Link from 'next/link'
 import CopyMarkdownButton from '@/components/CopyMarkdownButton'
 import DuplicateProjectButton from '@/components/DuplicateProjectButton'
+import ProjectBriefs from '@/components/preview/ProjectBriefs'
 import ListEditor, { type ListRow } from '@/components/preview/ListEditor'
 import { readProducts, readCompetitors, readTopPerformers, readCopyApprovals, readAssetFolders, groupProducts, productsDrifted, offerSource, splitSkus } from '@/lib/products'
 import ProductGroupEditor from '@/components/preview/ProductGroupEditor'
@@ -213,7 +214,7 @@ function CommentList({ comments, empty }: { comments: ProjectComment[]; empty: s
 }
 
 export default function PreviewProjectView({
-  project: p, brand, assets, comments, images, dna, revisionsByAsset, lpEditorName, creativeEditorName, journeyName, journeys, profiles, campaigns, todayIso, authorName, brandLandingPages, brandComments, brandDocuments, currentUserId,
+  project: p, brand, assets, comments, images, dna, revisionsByAsset, lpEditorName, creativeEditorName, journeyName, journeys, profiles, campaigns, todayIso, authorName, brandLandingPages, brandComments, brandDocuments, projectBriefs, currentUserId,
   lpTracking, lpAdMatches, lpDaily, accountDaily, nowMs, brandAdAccount,
 }: {
   project: Project; brand: Brand; assets: CreativeAsset[]; comments: ProjectComment[]
@@ -224,6 +225,7 @@ export default function PreviewProjectView({
   brandLandingPages: BrandLandingPage[]
   brandComments: BrandComment[]
   brandDocuments: BrandDocument[]
+  projectBriefs: ProjectBrief[]
   currentUserId: string | null
   /** Who a note typed here is attributed to. */
   authorName: string
@@ -437,12 +439,12 @@ export default function PreviewProjectView({
   // Products and Motion reports are always shown, even empty: an empty list is
   // the prompt to fill it, and hiding it hides the only place the work happens.
   const creativesNav = useMemo(() => ([
-    { id: 'brief', label: 'Brief', show: true },
+    { id: 'brief', label: projectBriefs.length ? `Brief · ${projectBriefs.length} file${projectBriefs.length === 1 ? '' : 's'}` : 'Brief', show: true },
     { id: 'products', label: products.length ? `Products · ${products.length}` : 'Products', show: true },
     { id: 'motion', label: competitors.length ? `Motion reports · ${competitors.length}` : 'Motion reports', show: true },
     { id: 'copy', label: 'Copy deck', show: true },
     { id: 'review', label: 'Review', show: true },
-  ]).filter(n => n.show), [hasAdCopy, products.length, competitors.length])
+  ]).filter(n => n.show), [hasAdCopy, products.length, competitors.length, projectBriefs.length])
 
   // Results sub-nav — same idiom as the other tabs' rails. KPI/chart entries
   // only exist once daily rows do; the ads entry once tracking does.
@@ -1714,6 +1716,13 @@ export default function PreviewProjectView({
                   </div>
                 )}
 
+                {/* The client's brief files, read by AI. Inside this card: the card is
+                    "what you're advertising" and a brief is its source. Project-level —
+                    the brand's own files are under Brand guidelines. Keyed on the project,
+                    never on the list, so a refresh mid-upload does not remount it. */}
+                <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+                  <ProjectBriefs key={p.id} projectId={p.id} brandId={p.brand_id} briefs={projectBriefs} />
+                </div>
                 {/* A link, not a section of its own. */}
                 {p.drive_folder_url && (
                   <div style={{ marginTop: 16 }}>

@@ -28,7 +28,7 @@ function extension(filename: string): string {
 }
 
 /** Strip XML tags to readable text, keeping paragraph breaks. */
-function xmlToText(xml: string): string {
+export function xmlToText(xml: string): string {
   return xml
     // PPTX rows/paragraphs — insert breaks before dropping the tags.
     .replace(/<\/a:p>/g, '\n')

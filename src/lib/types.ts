@@ -145,6 +145,31 @@ export interface BrandDocument {
   created_at: string
 }
 
+/** A creative brief on a project. Bytes live in the PRIVATE project-briefs
+ *  bucket. `extraction` and `images` are raw JSONB: read them ONLY through
+ *  normalizeBriefExtraction / readBriefImages in lib/project-briefs.ts. */
+export interface ProjectBrief {
+  id: string
+  project_id: string
+  storage_path: string
+  file_name: string
+  mime_type: string
+  byte_size: number
+  uploaded_by: string | null
+  uploaded_by_name: string | null
+  created_at: string
+  extraction_status: 'pending' | 'reading' | 'done' | 'failed'
+  extraction: unknown
+  extraction_error: string | null
+  extraction_model: string | null
+  extraction_started_at: string | null
+  extracted_at: string | null
+  images: unknown
+  images_status: 'none' | 'done' | 'failed'
+  images_note: string | null
+  page_count: number | null
+}
+
 export interface Journey {
   id: string
   brand_id: string

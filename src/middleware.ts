@@ -107,5 +107,7 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp)$).*)'],
+  // pdfjs/ is excluded so the PDF renderer's worker, fonts and wasm are never
+  // redirected to /login mid-render.
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|pdfjs/|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp)$).*)'],
 }

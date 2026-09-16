@@ -28,6 +28,10 @@ import {
   brandDocPath, safeDocName, asciiDocName, isUuid,
 } from '@/lib/brand-docs'
 import {
+  BRIEF_BUCKET, BRIEF_TYPES, MAX_BRIEF_BYTES, MAX_PDF_PREVIEW_PAGES,
+  briefSourcePath, briefImagePath, readBriefImages, safeBriefName, type BriefImage,
+} from '@/lib/project-briefs'
+import {
   ensureDeleteSubfolder,
   extractDriveFolderId,
   hasDriveServiceAccount,
@@ -2306,6 +2310,13 @@ export async function deleteProject(projectId: string, brandId: string) {
   if (!user) redirect('/login')
   if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
+  // Brief files first. The rows cascade away with the project, and once the
+  // rows are gone nothing records that these folders exist.
+  const { data: briefRows } = await supabase.from('project_briefs').select('id').eq('project_id', projectId)
+  if (briefRows?.length) {
+    await removeBriefObjects(supabase, projectId, (briefRows as { id: string }[]).map(b => b.id))
+  }
+
   const { error: imgErr } = await supabase.from('project_images').delete().eq('project_id', projectId)
   if (imgErr) throw new Error(`Failed to delete project images: ${imgErr.message}`)
   const { error: projErr } = await supabase.from('projects').delete().eq('id', projectId)
@@ -2328,6 +2339,10 @@ export async function deleteBrand(brandId: string) {
 
   if (projects && projects.length > 0) {
     const ids = projects.map(p => p.id)
+    const { data: briefRows } = await supabase.from('project_briefs').select('id, project_id').in('project_id', ids)
+    for (const b of (briefRows ?? []) as { id: string; project_id: string }[]) {
+      await removeBriefObjects(supabase, b.project_id, [b.id])
+    }
     const { error: imgErr } = await supabase.from('project_images').delete().in('project_id', ids)
     if (imgErr) throw new Error(`Failed to delete project images: ${imgErr.message}`)
     const { error: projErr } = await supabase.from('projects').delete().eq('brand_id', brandId)
@@ -3710,6 +3725,305 @@ export async function getBrandDocumentUrl(
   return { ok: true, url: data.signedUrl }
 }
 
+// ── Project briefs ────────────────────────────────────────────────────────
+//
+// The client's brief files on a project. Same two-step upload as brand
+// documents, for the same reason: a brief is 1-50MB and a Server Action body
+// is capped at 1MB. The browser uploads to a signed URL; these actions only
+// see a path and a few hundred bytes of metadata.
+//
+// The AI read is NOT here — see app/api/project-briefs/[briefId]/read. Server
+// Actions from one page run one at a time, and a four-minute read inside one
+// would freeze every other button on the project page.
+
+const BRIEF_URL_TTL_SECONDS = 900          // PDF viewers range-request while scrolling; see BRAND_DOC_URL_TTL_SECONDS
+const BRIEF_IMAGE_URL_TTL_SECONDS = 3600
+
+type ServerDb = Awaited<ReturnType<typeof createClient>>
+type SignedUpload = { path: string; token: string }
+
+function revalidateBriefPaths(projectId: string, brandId: string) {
+  revalidatePath(`/preview/project/${projectId}`)
+  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+}
+
+/** Deletes every object in each brief's folder. Logs, never throws: callers have already removed or are removing the rows. */
+async function removeBriefObjects(supabase: ServerDb, projectId: string, briefIds: string[]) {
+  const bucket = supabase.storage.from(BRIEF_BUCKET)
+  for (const briefId of briefIds) {
+    const folder = `${projectId}/${briefId}`
+    const { data: objects, error } = await bucket.list(folder, { limit: 1000 })
+    if (error) { console.error('[removeBriefObjects] list failed', folder, error.message); continue }
+    const paths = (objects ?? []).map(o => `${folder}/${o.name}`)
+    if (!paths.length) continue
+    const { error: rmErr } = await bucket.remove(paths)
+    if (rmErr) console.error('[removeBriefObjects] orphaned objects', folder, rmErr.message)
+  }
+}
+
+export async function createProjectBriefUploadUrl(
+  projectId: string,
+  contentType: string,
+  byteSize: number,
+): Promise<{ ok: true; briefId: string; path: string; token: string } | { ok: false; error: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
+
+  if (!isUuid(projectId)) return { ok: false, error: 'Unknown project.' }
+  const spec = BRIEF_TYPES[contentType]
+  if (!spec) return { ok: false, error: 'A brief can be a PDF, PowerPoint (.pptx), Word (.docx), .txt, or a PNG/JPG/WebP image.' }
+  if (!Number.isFinite(byteSize) || byteSize <= 0) return { ok: false, error: 'That file is empty.' }
+  if (byteSize > MAX_BRIEF_BYTES) {
+    return { ok: false, error: `That file is ${(byteSize / 1048576).toFixed(1)}MB — the limit is ${MAX_BRIEF_BYTES / 1048576}MB.` }
+  }
+
+  const { data: project } = await supabase.from('projects').select('id').eq('id', projectId).maybeSingle()
+  if (!project) return { ok: false, error: 'That project no longer exists.' }
+
+  // Minted here, before the row exists, so the folder can be named after the
+  // brief. attachProjectBrief inserts the row with exactly this id.
+  const briefId = crypto.randomUUID()
+  const path = briefSourcePath(projectId, briefId, spec.ext)
+
+  const { data, error } = await supabase.storage.from(BRIEF_BUCKET).createSignedUploadUrl(path)
+  if (error || !data) {
+    const msg = /not found|bucket/i.test(error?.message ?? '')
+      ? 'The project-briefs bucket does not exist yet — run 20260917_add_project_briefs.sql.'
+      : error?.message ?? 'Could not start the upload.'
+    return { ok: false, error: msg }
+  }
+  return { ok: true, briefId, path: data.path, token: data.token }
+}
+
+// Primitives only. The moment this takes a File or FormData, the 1MB cap is back.
+export async function attachProjectBrief(
+  projectId: string,
+  brandId: string,
+  input: { briefId: string; path: string; fileName: string; contentType: string; byteSize: number },
+): Promise<{ ok: true; briefId: string } | { ok: false; error: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
+
+  if (!isUuid(projectId) || !isUuid(input.briefId)) return { ok: false, error: 'Unknown project.' }
+  const spec = BRIEF_TYPES[input.contentType]
+  if (!spec) return { ok: false, error: 'That file type is not accepted.' }
+  // Exact match, not a prefix: the path can only be the one we minted.
+  if (input.path !== briefSourcePath(projectId, input.briefId, spec.ext)) {
+    return { ok: false, error: 'That upload does not belong to this project.' }
+  }
+  if (!Number.isFinite(input.byteSize) || input.byteSize <= 0 || input.byteSize > MAX_BRIEF_BYTES) {
+    return { ok: false, error: 'That file is outside the size limit.' }
+  }
+
+  // By email, not id: profiles.id is not reliably the auth uid here.
+  const { data: prof } = await supabase
+    .from('profiles').select('full_name').ilike('email', user.email ?? '').maybeSingle()
+  const uploadedByName = (prof as { full_name: string | null } | null)?.full_name || user.email || 'Unknown'
+
+  const { error } = await supabase.from('project_briefs').insert({
+    id: input.briefId,
+    project_id: projectId,
+    storage_path: input.path,
+    file_name: safeBriefName(input.fileName, input.contentType),
+    mime_type: input.contentType,
+    byte_size: Math.round(input.byteSize),
+    uploaded_by: user.id,
+    uploaded_by_name: uploadedByName,
+  })
+  if (error) {
+    if (error.code === '42P01') return { ok: false, error: 'Project briefs are not set up yet — run 20260917_add_project_briefs.sql.' }
+    return { ok: false, error: `Could not save that brief: ${error.message}` }
+  }
+
+  revalidateBriefPaths(projectId, brandId)
+  return { ok: true, briefId: input.briefId }
+}
+
+// Signed upload slots for the PDF page previews the browser draws.
+export async function createProjectBriefImageUploadUrls(
+  briefId: string,
+  pages: number[],
+  ext: 'webp' | 'jpg',
+): Promise<{ ok: true; uploads: { n: number; full: SignedUpload; thumb: SignedUpload }[] } | { ok: false; error: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
+
+  if (!isUuid(briefId)) return { ok: false, error: 'Unknown brief.' }
+  if (ext !== 'webp' && ext !== 'jpg') return { ok: false, error: 'Unsupported preview format.' }
+  const ns = Array.from(new Set(pages)).filter(n => Number.isInteger(n) && n >= 1 && n <= MAX_PDF_PREVIEW_PAGES)
+  if (!ns.length) return { ok: false, error: 'No pages to preview.' }
+
+  const { data: row } = await supabase.from('project_briefs').select('project_id, mime_type').eq('id', briefId).maybeSingle()
+  if (!row) return { ok: false, error: 'That brief is no longer here.' }
+  const brief = row as { project_id: string; mime_type: string }
+  if (brief.mime_type !== 'application/pdf') return { ok: false, error: 'Page previews are made for PDFs only.' }
+
+  const bucket = supabase.storage.from(BRIEF_BUCKET)
+  // upsert: previews are re-made in place after a failure or by a second editor.
+  const sign = async (path: string): Promise<SignedUpload> => {
+    const { data, error } = await bucket.createSignedUploadUrl(path, { upsert: true })
+    if (error || !data) throw new Error(error?.message ?? 'Could not sign an upload.')
+    return { path: data.path, token: data.token }
+  }
+  try {
+    const uploads: { n: number; full: SignedUpload; thumb: SignedUpload }[] = []
+    for (let i = 0; i < ns.length; i += 10) {
+      uploads.push(...await Promise.all(ns.slice(i, i + 10).map(async n => ({
+        n,
+        full: await sign(briefImagePath(brief.project_id, briefId, n, 'full', ext)),
+        thumb: await sign(briefImagePath(brief.project_id, briefId, n, 'thumb', ext)),
+      }))))
+    }
+    return { ok: true, uploads }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Could not prepare the preview upload.' }
+  }
+}
+
+// Records what the browser drew. Paths are rebuilt HERE from page numbers and
+// kept only if both files really exist — the browser's word is not proof.
+export async function saveProjectBriefPreviews(
+  briefId: string,
+  brandId: string,
+  result:
+    | { ok: true; pageCount: number; ext: 'webp' | 'jpg'; pages: { n: number; w: number; h: number }[] }
+    | { ok: false; error: string },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
+
+  if (!isUuid(briefId)) return { ok: false, error: 'Unknown brief.' }
+  const { data: row } = await supabase.from('project_briefs').select('project_id, mime_type').eq('id', briefId).maybeSingle()
+  if (!row) return { ok: false, error: 'That brief is no longer here.' }
+  const brief = row as { project_id: string; mime_type: string }
+  if (brief.mime_type !== 'application/pdf') return { ok: false, error: 'Page previews are made for PDFs only.' }
+
+  if (!result.ok) {
+    await supabase.from('project_briefs')
+      .update({ images_status: 'failed', images_note: String(result.error).slice(0, 300) })
+      .eq('id', briefId)
+    revalidateBriefPaths(brief.project_id, brandId)
+    return { ok: true }
+  }
+  const ext = result.ext === 'jpg' ? 'jpg' : 'webp'
+
+  const folder = `${brief.project_id}/${briefId}`
+  const { data: objects, error: listErr } = await supabase.storage.from(BRIEF_BUCKET).list(folder, { limit: 1000 })
+  if (listErr) return { ok: false, error: `Could not check the previews: ${listErr.message}` }
+  const have = new Set((objects ?? []).map(o => `${folder}/${o.name}`))
+
+  const images: BriefImage[] = result.pages
+    .filter(p => Number.isInteger(p.n) && p.n >= 1 && p.n <= MAX_PDF_PREVIEW_PAGES)
+    .map(p => ({
+      n: p.n, page: p.n, source: 'pdf-page' as const,
+      full: briefImagePath(brief.project_id, briefId, p.n, 'full', ext),
+      thumb: briefImagePath(brief.project_id, briefId, p.n, 'thumb', ext),
+      w: Math.max(0, Math.round(p.w)), h: Math.max(0, Math.round(p.h)),
+    }))
+    .filter(im => have.has(im.full) && have.has(im.thumb))
+    .sort((a, b) => a.n - b.n)
+
+  const pageCount = Number.isInteger(result.pageCount) && result.pageCount > 0 ? result.pageCount : null
+  const { error } = await supabase.from('project_briefs').update({
+    images,
+    images_status: images.length ? 'done' : 'failed',
+    images_note: images.length ? null : 'No page previews were saved. Try Make page previews again.',
+    page_count: pageCount,
+  }).eq('id', briefId)
+  if (error) return { ok: false, error: `Could not save the previews: ${error.message}` }
+
+  revalidateBriefPaths(brief.project_id, brandId)
+  return { ok: true }
+}
+
+// Signed on click, filtered by project too: an id alone must not open another project's brief.
+export async function getProjectBriefUrl(
+  briefId: string,
+  projectId: string,
+  mode: 'view' | 'download',
+): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
+
+  if (!isUuid(briefId) || !isUuid(projectId)) return { ok: false, error: 'Unknown brief.' }
+  const { data: row } = await supabase
+    .from('project_briefs').select('storage_path, file_name')
+    .eq('id', briefId).eq('project_id', projectId).maybeSingle()
+  if (!row) return { ok: false, error: 'That brief is no longer here.' }
+  const doc = row as { storage_path: string; file_name: string }
+
+  const { data, error } = await supabase.storage.from(BRIEF_BUCKET).createSignedUrl(
+    doc.storage_path,
+    BRIEF_URL_TTL_SECONDS,
+    mode === 'download' ? { download: asciiDocName(doc.file_name) } : undefined,
+  )
+  if (error || !data) return { ok: false, error: error?.message ?? 'Could not open that brief.' }
+  return { ok: true, url: data.signedUrl }
+}
+
+// Every preview of one brief, signed in ONE request when its panel opens.
+export async function getProjectBriefImageUrls(
+  briefId: string,
+  projectId: string,
+): Promise<{ ok: true; urls: Record<string, string> } | { ok: false; error: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
+
+  if (!isUuid(briefId) || !isUuid(projectId)) return { ok: false, error: 'Unknown brief.' }
+  const { data: row } = await supabase
+    .from('project_briefs').select('images').eq('id', briefId).eq('project_id', projectId).maybeSingle()
+  if (!row) return { ok: false, error: 'That brief is no longer here.' }
+
+  const prefix = `${projectId}/${briefId}/`
+  const paths = readBriefImages((row as { images: unknown }).images)
+    .flatMap(i => [i.full, i.thumb])
+    .filter(p => p.startsWith(prefix))
+  if (!paths.length) return { ok: true, urls: {} }
+
+  const { data, error } = await supabase.storage.from(BRIEF_BUCKET).createSignedUrls(paths, BRIEF_IMAGE_URL_TTL_SECONDS)
+  if (error) return { ok: false, error: error.message }
+  const urls: Record<string, string> = {}
+  for (const d of data ?? []) if (d.path && d.signedUrl && !d.error) urls[d.path] = d.signedUrl
+  return { ok: true, urls }
+}
+
+// Row first, objects second; a failed object delete does not fail the action
+// (same reasoning as removeBrandDocument).
+export async function removeProjectBrief(
+  briefId: string,
+  projectId: string,
+  brandId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!(await canEdit(user.email))) throw new Error('Not authorized.')
+
+  if (!isUuid(briefId) || !isUuid(projectId)) return { ok: false, error: 'Unknown brief.' }
+  const { data: row } = await supabase
+    .from('project_briefs').select('id').eq('id', briefId).eq('project_id', projectId).maybeSingle()
+  if (!row) return { ok: false, error: 'That brief is already gone.' }
+
+  const { error } = await supabase.from('project_briefs').delete().eq('id', briefId).eq('project_id', projectId)
+  if (error) return { ok: false, error: `Could not remove it: ${error.message}` }
+
+  await removeBriefObjects(supabase, projectId, [briefId])
+  revalidateBriefPaths(projectId, brandId)
+  return { ok: true }
+}
+
 
 // ── Revision upload, in two steps, because the bytes must not go through us ──
 //
@@ -4073,6 +4387,9 @@ export async function duplicateProject(
   }
   if (!newId) return { ok: false, error: `Could not duplicate: ${lastErr}` }
 
+  // Briefs are deliberately NOT copied. A copied row would point at the same
+  // stored file, and removing the brief from either project would delete the
+  // other project's file. A duplicate starts with no brief files.
   // Reference images, pointing at the same stored files.
   const { data: imgs } = await supabase
     .from('project_images').select('storage_path, storage_url').eq('project_id', projectId)

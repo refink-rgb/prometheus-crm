@@ -5,7 +5,7 @@ import { getCachedProfiles } from '@/lib/profiles'
 import { getRevisionsByAsset } from '@/lib/revisions'
 import { easternToday } from '@/lib/eastern'
 import type { TrackedCampaign, LpTracking, FunnelDailyRow, LpAdMatch } from '@/lib/results'
-import type { Project, Brand, CreativeAsset, ProjectComment, BrandDna, ProjectImage, Journey, BrandComment, BrandDocument } from '@/lib/types'
+import type { Project, Brand, CreativeAsset, ProjectComment, BrandDna, ProjectImage, Journey, BrandComment, BrandDocument, ProjectBrief } from '@/lib/types'
 import PreviewProjectView, { type BrandLandingPage } from '@/components/preview/PreviewProjectView'
 
 // PREVIEW ROUTE — deliberately not in the sidebar nav.
@@ -46,6 +46,7 @@ export default async function ProjectPage({ projectId }: { projectId: string }) 
     { data: brandLandingPagesRaw },
     { data: brandCommentsRaw },
     { data: brandDocumentsRaw },
+    { data: projectBriefsRaw },
     profiles,
   ] = await Promise.all([
     supabase.from('brands').select('id, name, brand_notes, ai_sensitivity, brand_guidelines').eq('id', p.brand_id).single(),
@@ -92,6 +93,13 @@ export default async function ProjectPage({ projectId }: { projectId: string }) 
       .from('brand_documents')
       .select('*')
       .eq('brand_id', p.brand_id)
+      .order('created_at', { ascending: false }),
+    // The project's creative brief files. Tolerant of the migration not having
+    // run: { data: null, error } becomes an empty list, never a crashed page.
+    supabase
+      .from('project_briefs')
+      .select('*')
+      .eq('project_id', projectId)
       .order('created_at', { ascending: false }),
     getCachedProfiles(),
   ])
@@ -170,6 +178,7 @@ export default async function ProjectPage({ projectId }: { projectId: string }) 
       brandLandingPages={(brandLandingPagesRaw ?? []) as BrandLandingPage[]}
       brandComments={(brandCommentsRaw ?? []) as BrandComment[]}
       brandDocuments={(brandDocumentsRaw ?? []) as BrandDocument[]}
+      projectBriefs={(projectBriefsRaw ?? []) as ProjectBrief[]}
       currentUserId={user.id}
       profiles={profiles}
       campaigns={(trackedCampaignsRaw ?? []) as unknown as TrackedCampaign[]}
