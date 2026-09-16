@@ -93,6 +93,12 @@ function ingestSecret(): string {
 const DISCOVERY_LOOKBACK_DAYS = 90
 const HISTORICAL_LOOKBACK_DAYS = 540
 
+// Stop starting new pulls past this point in a run and POST what's done.
+// The route's maxDuration is 300s; a run killed by the platform mid-loop
+// would lose EVERYTHING (the POST happens at the end), so the engine budgets
+// itself and lets the next pass continue — every pull is idempotent.
+const TIME_BUDGET_MS = 210_000
+
 // ---------------------------------------------------------------------------
 // Meta pulls
 // ---------------------------------------------------------------------------
@@ -250,6 +256,8 @@ export interface EngineSummary {
 
 export async function runResultsPull(filters: { brandId?: string } = {}): Promise<EngineSummary> {
   adListingCache.clear() // per-run, not per-warm-lambda: listings go stale
+  const startedAt = Date.now()
+  const outOfBudget = () => Date.now() - startedAt > TIME_BUDGET_MS
   const secret = ingestSecret()
   const qs = filters.brandId ? `?brand_id=${encodeURIComponent(filters.brandId)}` : ''
   const workRes = await fetch(`${baseUrl()}/api/results/ingest${qs}`, {
@@ -308,10 +316,49 @@ export async function runResultsPull(filters: { brandId?: string } = {}): Promis
     }
   }
 
+  // ── Whole-account rows (the rest-of-account denominator) ─────────────────
+  let accountsPulled = 0
+  for (const a of work.accounts ?? []) {
+    if (outOfBudget()) {
+      errors.push('time budget reached — remaining accounts deferred to the next run')
+      break
+    }
+    try {
+      const rows = await metaGetAll<InsightsRow>(`${a.ad_account_id}/insights`, {
+        fields: INSIGHTS_FIELDS,
+        action_attribution_windows: ATTRIBUTION,
+        time_range: { since: a.from_date, until: a.to_date },
+        time_increment: 1,
+        limit: 500,
+      })
+      for (const r of rows) {
+        payload.account_rows.push({
+          ad_account_id: a.ad_account_id,
+          stat_date: r.date_start,
+          spend: Number(r.spend ?? 0),
+          revenue: actionNumber(r.action_values, 'omni_purchase', 'purchase') ?? 0,
+          // Zero, not null: Meta omits zero-value actions from delivery days.
+          purchases: actionNumber(r.actions, 'omni_purchase', 'purchase') ?? 0,
+          impressions: Number(r.impressions ?? 0),
+          link_clicks: actionNumber(r.actions, 'link_click') ?? 0,
+          initiate_checkouts: actionNumber(r.actions, 'omni_initiated_checkout', 'initiate_checkout') ?? 0,
+          landing_page_views: actionNumber(r.actions, 'landing_page_view', 'omni_landing_page_view') ?? 0,
+        })
+      }
+      accountsPulled++
+    } catch (err) {
+      errors.push(`account ${a.ad_account_id}: ${err instanceof MetaApiError ? err.message : String(err)}`)
+    }
+  }
+
   // ── LP pages: discovery → launch detection → daily rows ──────────────────
   let lpPulled = 0
   let launchDetected = 0
   for (const p of work.lp_pages ?? []) {
+    if (outOfBudget()) {
+      errors.push(`time budget reached — ${(work.lp_pages?.length ?? 0) - lpPulled} LP page(s) deferred to the next run`)
+      break
+    }
     try {
       const discovered = await discoverAds(p)
       payload.discovered_ads.push(...discovered)
@@ -362,37 +409,6 @@ export async function runResultsPull(filters: { brandId?: string } = {}): Promis
       lpPulled++
     } catch (err) {
       errors.push(`lp ${p.project_name ?? p.lp_tracking_id}: ${err instanceof MetaApiError ? err.message : String(err)}`)
-    }
-  }
-
-  // ── Whole-account rows (the rest-of-account denominator) ─────────────────
-  let accountsPulled = 0
-  for (const a of work.accounts ?? []) {
-    try {
-      const rows = await metaGetAll<InsightsRow>(`${a.ad_account_id}/insights`, {
-        fields: INSIGHTS_FIELDS,
-        action_attribution_windows: ATTRIBUTION,
-        time_range: { since: a.from_date, until: a.to_date },
-        time_increment: 1,
-        limit: 500,
-      })
-      for (const r of rows) {
-        payload.account_rows.push({
-          ad_account_id: a.ad_account_id,
-          stat_date: r.date_start,
-          spend: Number(r.spend ?? 0),
-          revenue: actionNumber(r.action_values, 'omni_purchase', 'purchase') ?? 0,
-          // Zero, not null: Meta omits zero-value actions from delivery days.
-          purchases: actionNumber(r.actions, 'omni_purchase', 'purchase') ?? 0,
-          impressions: Number(r.impressions ?? 0),
-          link_clicks: actionNumber(r.actions, 'link_click') ?? 0,
-          initiate_checkouts: actionNumber(r.actions, 'omni_initiated_checkout', 'initiate_checkout') ?? 0,
-          landing_page_views: actionNumber(r.actions, 'landing_page_view', 'omni_landing_page_view') ?? 0,
-        })
-      }
-      accountsPulled++
-    } catch (err) {
-      errors.push(`account ${a.ad_account_id}: ${err instanceof MetaApiError ? err.message : String(err)}`)
     }
   }
 
