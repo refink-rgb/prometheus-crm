@@ -60,11 +60,23 @@ export async function GET(request: Request) {
     }
     if (!res.ok || body.error) {
       // Meta error messages are safe to relay (they never echo the token).
+      // token_shape describes FORMAT only — length and character classes,
+      // never content — so a paste mistake is diagnosable without anyone
+      // reading the secret. A real system-user token is ~180-250 chars and
+      // starts with "EAA"; a 32-char hex string is an app secret, a 15-16
+      // digit number is an app id.
       return NextResponse.json({
         ok: false,
         token_present: true,
         error: `Meta API error: ${body.error?.message ?? res.statusText}`,
         error_code: body.error?.code ?? res.status,
+        token_shape: {
+          length: token.length,
+          starts_with_EAA: token.startsWith('EAA'),
+          all_digits: /^\d+$/.test(token),
+          hex_32: /^[0-9a-f]{32}$/.test(token),
+          has_whitespace_or_quotes: /[\s"']/.test(process.env.META_ACCESS_TOKEN ?? ''),
+        },
       }, { status: 502 })
     }
     accounts.push(...(body.data ?? []))
