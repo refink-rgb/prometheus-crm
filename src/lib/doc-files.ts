@@ -46,8 +46,9 @@ export function safeDocNameIn(types: Record<string, DocTypeSpec>, raw: string, c
     .replace(/[\\/\u0000-\u001f\u007f]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
-    .slice(0, 180)
-  return cleaned || `document.${types[contentType]?.ext ?? 'bin'}`
+  // By code point, for the same reason as str() in project-briefs.ts.
+  const capped = Array.from(cleaned).slice(0, 180).join('')
+  return capped || `document.${types[contentType]?.ext ?? 'bin'}`
 }
 
 /** Content-Disposition is an ASCII header: the SAVED name is folded, the row keeps the real one. */

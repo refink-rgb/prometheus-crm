@@ -4,7 +4,8 @@ import {
   briefImagePath, briefIsEmpty, markVerbatim, normalizeBriefExtraction,
   type BriefImage,
 } from '@/lib/project-briefs'
-import { BriefReadError, extractBriefSource, type ExtractedImage } from './extract-source'
+import { BriefReadError, extractBriefSource, type BriefSource, type ExtractedImage } from './extract-source'
+import { removeBriefFolder } from './storage'
 import { readBriefWithGemini } from '@/lib/ai/brief-reader'
 
 type Db = Awaited<ReturnType<typeof createClient>>
@@ -27,8 +28,22 @@ export async function runBriefRead(supabase: Db, brief: ClaimedBrief): Promise<v
   const isPdf = brief.mime_type === 'application/pdf'
   const secs = () => `${Math.round((Date.now() - started) / 1000)}s`
   let encrypted = false
-  const write = (patch: Record<string, unknown>) =>
-    supabase.from('project_briefs').update(patch).eq('id', brief.id)
+  // `gone`: the update matched no row, so the brief was removed mid-read (by an
+  // editor, or with its project or brand).
+  const write = async (patch: Record<string, unknown>): Promise<{ error: string | null; gone: boolean }> => {
+    const { data, error } = await supabase.from('project_briefs').update(patch).eq('id', brief.id).select('id')
+    return { error: error?.message ?? null, gone: !error && !data?.length }
+  }
+  const stillThere = async (): Promise<boolean> => {
+    const { data, error } = await supabase.from('project_briefs').select('id').eq('id', brief.id).maybeSingle()
+    return !!data || !!error   // a failed check is not proof of removal
+  }
+  // Whatever this read saved has no row to point at, and nothing else will
+  // ever delete it. Take it back and stop.
+  const abandon = async (at: string) => {
+    await removeBriefFolder(supabase, brief.project_id, brief.id)
+    console.log('[brief read] brief removed mid-read, files cleaned', brief.id, at, secs())
+  }
 
   try {
     const { data: blob, error: dlErr } = await supabase.storage.from(BRIEF_BUCKET).download(brief.storage_path)
@@ -40,21 +55,20 @@ export async function runBriefRead(supabase: Db, brief: ClaimedBrief): Promise<v
 
     const { brandName, projectName } = await names(supabase, brief.project_id)
     const source = await extractBriefSource(buf, brief.mime_type, deadline)
+    // Parsing a big deck takes a while. Checked before any picture is stored
+    // and before Gemini is paid for.
+    if (!(await stillThere())) return abandon('before pictures')
 
     // Pictures are saved before the model runs: a deck's pictures are worth
     // showing even when the read fails.
     if (source.kind !== 'pdf') {
       const images = await storeImages(supabase, brief, source.images)
-      const lost = source.images.length - images.length
-      await write({
+      const saved = await write({
         images,
-        images_status: lost > 0 && images.length === 0 ? 'failed' : 'done',
-        images_note: lost > 0
-          ? `${lost} picture${lost === 1 ? '' : 's'} could not be saved.`
-          : source.imagesOverCap > 0
-            ? `${source.imagesOverCap} more picture${source.imagesOverCap === 1 ? '' : 's'} in the file are not shown (limit ${MAX_BRIEF_IMAGES}). Download the original for the rest.`
-            : null,
+        images_status: source.images.length > images.length && images.length === 0 ? 'failed' : 'done',
+        images_note: imagesNote(source, images.length),
       })
+      if (saved.gone) return abandon('after pictures')
     }
 
     const controller = new AbortController()
@@ -75,20 +89,22 @@ export async function runBriefRead(supabase: Db, brief: ClaimedBrief): Promise<v
     }
     if (source.kind === 'text') markVerbatim(extraction, source.text)
 
-    const { error } = await write({
+    const { error, gone } = await write({
       extraction_status: 'done',
       extraction,
       extraction_error: null,
       extraction_model: BRIEF_MODEL,
       extracted_at: new Date().toISOString(),
     })
-    if (error) throw new Error(`The read finished but could not be saved: ${error.message}`)
+    if (gone) return abandon('after the read')
+    if (error) throw new Error(`The read finished but could not be saved: ${error}`)
     console.log('[brief read] done', brief.id, brief.mime_type, secs())
   } catch (e) {
     const message = friendlyError(e, isPdf, encrypted)
     console.error('[brief read] failed', brief.id, brief.mime_type, secs(), message, e)
-    const { error } = await write({ extraction_status: 'failed', extraction_error: message })
-    if (error) console.error('[brief read] could not record the failure', brief.id, error.message)
+    const { error, gone } = await write({ extraction_status: 'failed', extraction_error: message })
+    if (gone) await abandon('after a failure')
+    else if (error) console.error('[brief read] could not record the failure', brief.id, error)
   }
 }
 
@@ -98,6 +114,20 @@ async function names(supabase: Db, projectId: string): Promise<{ brandName: stri
   if (!p) return { brandName: '', projectName: '' }
   const { data: brand } = await supabase.from('brands').select('name').eq('id', p.brand_id).maybeSingle()
   return { brandName: (brand as { name: string } | null)?.name ?? '', projectName: p.name ?? '' }
+}
+
+function imagesNote(source: BriefSource, savedCount: number): string | null {
+  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
+  const lost = source.images.length - savedCount
+  if (lost > 0) return `${plural(lost, 'picture', 'pictures')} could not be saved.`
+  const parts: string[] = []
+  if (source.imagesOverCap > 0) {
+    parts.push(`${plural(source.imagesOverCap, 'more picture is', 'more pictures are')} in the file but not shown (limit ${MAX_BRIEF_IMAGES}).`)
+  }
+  if (source.imagesOutOfTime > 0) {
+    parts.push(`${plural(source.imagesOutOfTime, 'picture was', 'pictures were')} skipped to leave the AI time to read.`)
+  }
+  return parts.length ? `${parts.join(' ')} Download the original for the rest.` : null
 }
 
 async function storeImages(supabase: Db, brief: ClaimedBrief, images: ExtractedImage[]): Promise<BriefImage[]> {
@@ -128,11 +158,14 @@ function friendlyError(e: unknown, isPdf: boolean, encrypted: boolean): string {
   if ((e instanceof Error && e.name === 'AbortError') || /abort/i.test(msg)) {
     return 'Reading took longer than 4½ minutes and was stopped. Split the brief into parts, or export a lighter PDF, and upload again.'
   }
-  if (encrypted) {
-    return 'This PDF is encrypted or password-protected, so it could not be read. Open it, Print, then Save as PDF to make an unprotected copy, and upload that.'
-  }
   if (/GEMINI_API_KEY/.test(msg)) return 'The AI is not configured on the server (GEMINI_API_KEY is missing).'
   if (/\b429\b|quota|RESOURCE_EXHAUSTED/i.test(msg)) return 'The AI is rate-limited right now. Wait a minute, then Re-read.'
+  if (/\b50[03]\b|overloaded|UNAVAILABLE/i.test(msg)) return 'The AI service is busy right now. Wait a minute, then Re-read.'
+  // Only a rejection OF THE FILE is explained by encryption. Checked after the
+  // rate-limit and outage cases so those are never blamed on the PDF.
+  if (encrypted && /INVALID_ARGUMENT|\b400\b|could not open|password|encrypt/i.test(msg)) {
+    return 'This PDF is encrypted or password-protected, so it could not be read. Open it, Print, then Save as PDF to make an unprotected copy, and upload that.'
+  }
   if (isPdf && /page|too large|exceed|limit|INVALID_ARGUMENT|\b400\b/i.test(msg)) {
     return `Gemini could not read this PDF (${msg.slice(0, 140)}). PDFs over 1,000 pages cannot be read; split it.`
   }

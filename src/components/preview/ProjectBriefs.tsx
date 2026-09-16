@@ -13,7 +13,7 @@ import {
 } from '@/lib/project-briefs'
 import { MB } from '@/lib/doc-files'
 import type { ProjectBrief } from '@/lib/types'
-import { useNarrow, useUploadQueue, uploadTyped, DocDropZone, fmtSize, fmtDate, miniLink, miniBtn } from './doc-kit'
+import { useNarrow, useUploadQueue, useSharedState, uploadTyped, DocDropZone, fmtSize, fmtDate, miniLink, miniBtn } from './doc-kit'
 import { renderPdfPreviews, pdfErrorMessage } from './render-pdf-pages'
 import BriefReader from './BriefReader'
 
@@ -23,32 +23,45 @@ import BriefReader from './BriefReader'
 // are drawn here, in the uploader's own tab, while they are looking at it.
 
 type Slot = { path: string; token: string }
+type Previews = { id: string; label: string } | null
+const NO_PREVIEWS: Previews = null
+const NO_ID: string | null = null
 
-export default function ProjectBriefs({ projectId, brandId, briefs }: {
+export default function ProjectBriefs({ projectId, brandId, briefs, serverNow }: {
   projectId: string
   brandId: string
   briefs: ProjectBrief[]
+  /** Date.now() on the server at render: `extraction_started_at` is server time. */
+  serverNow: number
 }) {
   const router = useRouter()
-  const queue = useUploadQueue()
+  // Shared, not local: the Creatives tab unmounts this panel on a tab switch,
+  // and the upload or preview render it started keeps running. On return, the
+  // panel shows that work and its one-at-a-time guards still hold.
+  const queue = useUploadQueue(`briefs:${projectId}`)
+  const previewsCell = useSharedState(`brief-previews:${projectId}`, NO_PREVIEWS)
+  const previews = previewsCell.value
+  // The brief this tab is still uploading or drawing previews for.
+  const workingCell = useSharedState(`brief-working:${projectId}`, NO_ID)
   const narrow = useNarrow()
   const [openId, setOpenId] = useState<string | null>(null)
   const [rowErr, setRowErr] = useState<{ id: string; message: string } | null>(null)
   const [starting, setStarting] = useState<string | null>(null)
-  const [previews, setPreviews] = useState<{ id: string; label: string } | null>(null)
   // null until mounted: staleness depends on the clock, and computing it
   // during the server render is a hydration mismatch.
   const [now, setNow] = useState<number | null>(null)
   const [, startTransition] = useTransition()
 
   useEffect(() => {
-    // Date.now() cannot run during render without a hydration mismatch, so the
-    // clock is read once after mount; one extra render is the cost.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setNow(Date.now())
-    const t = setInterval(() => setNow(Date.now()), 15_000)
+    // Server time, not this computer's: a clock a few minutes fast would call a
+    // live read stopped and never poll for its result. The skew includes the
+    // round trip, a few seconds against a 5½-minute threshold.
+    const skew = serverNow - Date.now()
+    const tick = () => setNow(Date.now() + skew)
+    tick()
+    const t = setInterval(tick, 15_000)
     return () => clearInterval(t)
-  }, [])
+  }, [serverNow])
 
   // The read finishes on the server after the route answered; nothing pushes
   // the result here. Poll while a read is live, stop when none is.
@@ -63,7 +76,7 @@ export default function ProjectBriefs({ projectId, brandId, briefs }: {
     setStarting(briefId)
     try {
       const res = await fetch(`/api/project-briefs/${briefId}/read`, { method: 'POST' })
-      if (res.status === 409) return null   // already being read: nothing to report
+      if (res.status === 409) return 'Already being read. The result shows here when it finishes.'
       const body = (await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null
       if (!res.ok || !body?.ok) return body?.error ?? `Could not start the read (HTTP ${res.status}).`
       return null
@@ -104,11 +117,11 @@ export default function ProjectBriefs({ projectId, brandId, briefs }: {
         },
         onProgress: (done, total) => onLabel(`Page previews ${done} of ${total} — keep this tab open`),
       })
-      const r = await saveProjectBriefPreviews(briefId, brandId, { ok: true, pageCount, ext, pages: saved })
+      const r = await saveProjectBriefPreviews(briefId, projectId, brandId, { ok: true, pageCount, ext, pages: saved })
       return r.ok ? null : r.error
     } catch (e) {
       const message = pdfErrorMessage(e)
-      await saveProjectBriefPreviews(briefId, brandId, { ok: false, error: message }).catch(() => null)
+      await saveProjectBriefPreviews(briefId, projectId, brandId, { ok: false, error: message }).catch(() => null)
       return message
     } finally {
       router.refresh()
@@ -140,12 +153,17 @@ export default function ProjectBriefs({ projectId, brandId, briefs }: {
       }
       router.refresh()
 
-      step(`Starting the AI read — ${file.name}`)
-      const readErr = await startRead(attached.briefId)
-
+      workingCell.set(attached.briefId)
+      let readErr: string | null
       let previewErr: string | null = null
-      if (type === 'application/pdf') {
-        previewErr = await makePreviews(attached.briefId, { data: await file.arrayBuffer() }, label => step(`${label} — ${file.name}`))
+      try {
+        step(`Starting the AI read — ${file.name}`)
+        readErr = await startRead(attached.briefId)
+        if (type === 'application/pdf') {
+          previewErr = await makePreviews(attached.briefId, { data: await file.arrayBuffer() }, label => step(`${label} — ${file.name}`))
+        }
+      } finally {
+        workingCell.set(null)
       }
 
       const problems = [
@@ -156,24 +174,36 @@ export default function ProjectBriefs({ projectId, brandId, briefs }: {
     }).then(() => router.refresh())
   }
 
+  // try/catch in every async transition: a rejected server action (Wi-Fi
+  // blip) is rethrown from the transition and replaces the whole page with
+  // Next's client-side exception screen.
   function download(b: ProjectBrief) {
     setRowErr(null)
     startTransition(async () => {
-      const r = await getProjectBriefUrl(b.id, projectId, 'download')
-      if (!r.ok) { setRowErr({ id: b.id, message: r.error }); return }
-      // Storage's ?download= sends Content-Disposition: attachment; a
-      // cross-origin <a download> would just open the file.
-      window.location.href = r.url
+      try {
+        const r = await getProjectBriefUrl(b.id, projectId, 'download')
+        if (!r.ok) { setRowErr({ id: b.id, message: r.error }); return }
+        // Storage's ?download= sends Content-Disposition: attachment; a
+        // cross-origin <a download> would just open the file.
+        window.location.href = r.url
+      } catch {
+        setRowErr({ id: b.id, message: 'Could not reach the server. Check the connection, then Download again.' })
+      }
     })
   }
 
   function remove(b: ProjectBrief) {
     if (!window.confirm(`Remove ${b.file_name}? The file, its previews and the AI read are deleted for everyone.`)) return
+    setRowErr(null)
     startTransition(async () => {
-      const r = await removeProjectBrief(b.id, projectId, brandId)
-      if (!r.ok) { setRowErr({ id: b.id, message: r.error }); return }
-      if (openId === b.id) setOpenId(null)
-      router.refresh()
+      try {
+        const r = await removeProjectBrief(b.id, projectId, brandId)
+        if (!r.ok) { setRowErr({ id: b.id, message: r.error }); return }
+        if (openId === b.id) setOpenId(null)
+        router.refresh()
+      } catch {
+        setRowErr({ id: b.id, message: 'Could not reach the server. Check the connection, then remove it again.' })
+      }
     })
   }
 
@@ -184,16 +214,20 @@ export default function ProjectBriefs({ projectId, brandId, briefs }: {
   }
 
   async function remakePreviews(b: ProjectBrief) {
-    if (previews || queue.busy) return
+    // get(), not the render's copy: a remounted panel must see a render that
+    // an earlier mount started.
+    if (previewsCell.get() || queue.busy) return
     setRowErr(null)
-    setPreviews({ id: b.id, label: 'Fetching the PDF…' })
+    previewsCell.set({ id: b.id, label: 'Fetching the PDF…' })
     try {
       const r = await getProjectBriefUrl(b.id, projectId, 'view')
       if (!r.ok) { setRowErr({ id: b.id, message: r.error }); return }
-      const err = await makePreviews(b.id, { url: r.url }, label => setPreviews({ id: b.id, label }))
+      const err = await makePreviews(b.id, { url: r.url }, label => previewsCell.set({ id: b.id, label }))
       if (err) setRowErr({ id: b.id, message: err })
+    } catch {
+      setRowErr({ id: b.id, message: 'Could not reach the server. Check the connection, then Make page previews again.' })
     } finally {
-      setPreviews(null)
+      previewsCell.set(null)
     }
   }
 
@@ -221,6 +255,9 @@ export default function ProjectBriefs({ projectId, brandId, briefs }: {
         const status = statusOf(b, stale, starting === b.id)
         const isOpen = openId === b.id
         const isPdf = b.mime_type === 'application/pdf'
+        // Pages this tab is still uploading would land after the delete. The AI
+        // read is different: the server cleans up after itself.
+        const drawing = workingCell.value === b.id || previews?.id === b.id
         return (
           <div key={b.id} style={{ borderBottom: '1px solid var(--border)', padding: '8px 0' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -249,7 +286,13 @@ export default function ProjectBriefs({ projectId, brandId, briefs }: {
               >
                 {b.extraction_status === 'pending' ? 'Read with AI' : 'Re-read'}
               </button>
-              <button onClick={() => remove(b)} title="Remove" aria-label={`Remove ${b.file_name}`} style={miniBtn}>✕</button>
+              <button
+                onClick={() => remove(b)}
+                disabled={drawing}
+                title={drawing ? 'Wait until this upload and its page previews finish' : 'Remove'}
+                aria-label={`Remove ${b.file_name}`}
+                style={{ ...miniBtn, opacity: drawing ? 0.4 : 1, cursor: drawing ? 'default' : 'pointer' }}
+              >✕</button>
             </div>
 
             {/* Outside the reader on purpose: a collapsed row must still show why it failed. */}

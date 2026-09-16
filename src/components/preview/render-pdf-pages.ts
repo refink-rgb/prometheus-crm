@@ -64,9 +64,11 @@ export async function renderPdfPreviews(opts: {
     wasmUrl: '/pdfjs/wasm/',
     iccUrl: '/pdfjs/iccs/',
   })
-  const doc = await task.promise
 
+  // Inside the try: a password-protected or broken PDF rejects here, and its
+  // worker (holding a copy of the file) must still be destroyed.
   try {
+    const doc = await task.promise
     const total = Math.min(doc.numPages, opts.maxPages)
     const numbers = Array.from({ length: total }, (_, i) => i + 1)
     await opts.prepare(numbers, enc.ext)

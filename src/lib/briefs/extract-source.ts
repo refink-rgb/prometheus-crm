@@ -30,6 +30,12 @@ export interface ExtractedImage {
   thumb: Buffer
   w: number
   h: number
+  /**
+   * Single-image briefs only: what the MODEL reads. Capped by width alone, so a
+   * tall screenshot keeps legible text — `full` fits a 1600×1600 box, which put
+   * a 1440×12000 landing page at 192×1600 with 2px body text.
+   */
+  modelInput?: Buffer
 }
 
 export interface BriefSource {
@@ -38,8 +44,10 @@ export interface BriefSource {
   /** Document text with [IMG n] markers; '' for pdf and image. */
   text: string
   images: ExtractedImage[]
-  /** Pictures in the file that were not kept because of the cap or the time budget. */
+  /** Distinct, showable pictures not kept because of the MAX_BRIEF_IMAGES cap. */
   imagesOverCap: number
+  /** Distinct, showable pictures skipped to leave the model its share of the time budget. */
+  imagesOutOfTime: number
 }
 
 const TEXT_CAP = 200_000
@@ -52,17 +60,26 @@ type Rel = { target: string; type: string; external: boolean }
 
 export async function extractBriefSource(buf: Buffer, mimeType: string, deadline: number): Promise<BriefSource> {
   if (mimeType === 'application/pdf') {
-    return { kind: 'pdf', format: 'pdf', text: '', images: [], imagesOverCap: 0 }
+    return { kind: 'pdf', format: 'pdf', text: '', images: [], imagesOverCap: 0, imagesOutOfTime: 0 }
   }
   if (mimeType === 'text/plain') {
     const text = buf.toString('utf8').replace(/^\uFEFF/, '').trim()
     if (text.length < 20) throw new BriefReadError('This .txt file is empty or nearly empty.')
-    return { kind: 'text', format: 'txt', text: text.slice(0, TEXT_CAP), images: [], imagesOverCap: 0 }
+    return { kind: 'text', format: 'txt', text: text.slice(0, TEXT_CAP), images: [], imagesOverCap: 0, imagesOutOfTime: 0 }
   }
   if (mimeType === 'image/png' || mimeType === 'image/jpeg' || mimeType === 'image/webp') {
     const im = await toWebps(buf, 1)
     if (!im) throw new BriefReadError('This image could not be opened. Re-export it as PNG or JPG and upload again.')
-    return { kind: 'image', format: 'image', text: '', images: [{ n: 1, page: null, source: 'upload', ...im }], imagesOverCap: 0 }
+    // Width-capped only. 16000 tall stays under WebP's 16383px ceiling; a 1600-wide
+    // strip that tall is a few MB, inside Gemini's inline limit.
+    let modelInput: Buffer | undefined
+    try {
+      modelInput = await sharp(buf, { failOn: 'none', limitInputPixels: 120_000_000 }).rotate()
+        .resize({ width: 1600, height: 16000, fit: 'inside', withoutEnlargement: true })
+        .webp({ quality: 85 })
+        .toBuffer()
+    } catch { modelInput = undefined }   // falls back to `full` in brief-reader
+    return { kind: 'image', format: 'image', text: '', images: [{ n: 1, page: null, source: 'upload', ...im, modelInput }], imagesOverCap: 0, imagesOutOfTime: 0 }
   }
   if (mimeType === PPTX) return fromPptx(buf, deadline)
   if (mimeType === DOCX) return fromDocx(buf, deadline)
@@ -126,7 +143,7 @@ async function fromPptx(buf: Buffer, deadline: number): Promise<BriefSource> {
   if (words.length < 20 && !kept.images.length) {
     throw new BriefReadError('This deck has no readable text or pictures. If it is all artwork, export it as a PDF so its pages are read visually.')
   }
-  return { kind: 'text', format: 'pptx', text: text.slice(0, TEXT_CAP), images: kept.images, imagesOverCap: kept.overCap }
+  return { kind: 'text', format: 'pptx', text: text.slice(0, TEXT_CAP), images: kept.images, imagesOverCap: kept.overCap, imagesOutOfTime: kept.outOfTime }
 }
 
 async function fromDocx(buf: Buffer, deadline: number): Promise<BriefSource> {
@@ -159,26 +176,40 @@ async function fromDocx(buf: Buffer, deadline: number): Promise<BriefSource> {
   if (text.replace(/\[IMG \d+\]/g, '').trim().length < 20 && !kept.images.length) {
     throw new BriefReadError('No readable text or pictures in this .docx. Export it as a PDF so its pages are read visually.')
   }
-  return { kind: 'text', format: 'docx', text: text.slice(0, TEXT_CAP), images: kept.images, imagesOverCap: kept.overCap }
+  return { kind: 'text', format: 'docx', text: text.slice(0, TEXT_CAP), images: kept.images, imagesOverCap: kept.overCap, imagesOutOfTime: kept.outOfTime }
 }
 
 async function keepImages(
   cands: Candidate[], source: 'pptx' | 'docx', deadline: number,
-): Promise<{ images: ExtractedImage[]; nByKey: Map<string, number>; overCap: number }> {
+): Promise<{ images: ExtractedImage[]; nByKey: Map<string, number>; overCap: number; outOfTime: number }> {
   const images: ExtractedImage[] = []
   const nByKey = new Map<string, number>()
   const byHash = new Map<string, number>()
+  const notKept = new Set<string>()   // hashes counted as not shown, so a reuse is not counted twice
   let overCap = 0
+  let outOfTime = 0
 
   for (const c of cands) {
     if (nByKey.has(c.key)) continue
-    // Leave 150s of the 265s budget for the model.
-    if (images.length >= MAX_BRIEF_IMAGES || Date.now() > deadline - 150_000) { overCap++; continue }
     let bytes: Buffer
     try { bytes = await c.read() } catch { continue }
+    // De-dup BEFORE the cap: picture #1 reused after the 40th is still [IMG 1].
     const hash = createHash('sha256').update(bytes).digest('hex')
     const dup = byHash.get(hash)
     if (dup) { nByKey.set(c.key, dup); continue }
+    if (notKept.has(hash)) continue
+
+    // Leave 150s of the 265s budget for the model.
+    const late = Date.now() > deadline - 150_000
+    if (late || images.length >= MAX_BRIEF_IMAGES) {
+      // Counted only if it would have been shown: icons and undecodable files never are.
+      if (await showable(bytes, MIN_IMAGE_PX)) {
+        notKept.add(hash)
+        if (late) outOfTime++; else overCap++
+      }
+      continue
+    }
+
     const im = await toWebps(bytes, MIN_IMAGE_PX)
     if (!im) continue
     const n = images.length + 1
@@ -186,7 +217,17 @@ async function keepImages(
     nByKey.set(c.key, n)
     byHash.set(hash, n)
   }
-  return { images, nByKey, overCap }
+  return { images, nByKey, overCap, outOfTime }
+}
+
+/** Header read only: the same test toWebps applies, without encoding anything. */
+async function showable(bytes: Buffer, minPx: number): Promise<boolean> {
+  try {
+    const meta = await sharp(bytes, { failOn: 'none', limitInputPixels: 120_000_000 }).metadata()
+    return !!meta.width && !!meta.height && (meta.width >= minPx || meta.height >= minPx)
+  } catch {
+    return false
+  }
 }
 
 async function toWebps(bytes: Buffer, minPx: number): Promise<{ full: Buffer; thumb: Buffer; w: number; h: number } | null> {

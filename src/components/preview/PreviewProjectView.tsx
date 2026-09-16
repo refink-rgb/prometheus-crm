@@ -214,7 +214,7 @@ function CommentList({ comments, empty }: { comments: ProjectComment[]; empty: s
 }
 
 export default function PreviewProjectView({
-  project: p, brand, assets, comments, images, dna, revisionsByAsset, lpEditorName, creativeEditorName, journeyName, journeys, profiles, campaigns, todayIso, authorName, brandLandingPages, brandComments, brandDocuments, projectBriefs, currentUserId,
+  project: p, brand, assets, comments, images, dna, revisionsByAsset, lpEditorName, creativeEditorName, journeyName, journeys, profiles, campaigns, todayIso, authorName, brandLandingPages, brandComments, brandDocuments, projectBriefs, serverNow, currentUserId,
   lpTracking, lpAdMatches, lpDaily, accountDaily, nowMs, brandAdAccount,
 }: {
   project: Project; brand: Brand; assets: CreativeAsset[]; comments: ProjectComment[]
@@ -226,6 +226,8 @@ export default function PreviewProjectView({
   brandComments: BrandComment[]
   brandDocuments: BrandDocument[]
   projectBriefs: ProjectBrief[]
+  /** Server clock at render, for judging whether a brief's AI read is stale. */
+  serverNow: number
   currentUserId: string | null
   /** Who a note typed here is attributed to. */
   authorName: string
@@ -1721,7 +1723,7 @@ export default function PreviewProjectView({
                     the brand's own files are under Brand guidelines. Keyed on the project,
                     never on the list, so a refresh mid-upload does not remount it. */}
                 <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
-                  <ProjectBriefs key={p.id} projectId={p.id} brandId={p.brand_id} briefs={projectBriefs} />
+                  <ProjectBriefs key={p.id} projectId={p.id} brandId={p.brand_id} briefs={projectBriefs} serverNow={serverNow} />
                 </div>
                 {/* A link, not a section of its own. */}
                 {p.drive_folder_url && (

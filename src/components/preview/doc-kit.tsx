@@ -4,7 +4,7 @@
 // Each fix here was already paid for once in BrandDocuments (commit 7d6a42e).
 // Keep them here so they are never paid for twice.
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { MB } from '@/lib/doc-files'
 
@@ -22,32 +22,66 @@ export function useNarrow(): boolean {
 }
 
 /**
+ * State that outlives the component showing it. A tab switch unmounts a panel,
+ * but an upload or preview render started there keeps running. Keyed state lets
+ * the remount show that work's progress and errors, and keeps its
+ * one-at-a-time guard. Browser only: on the server a module-level map would be
+ * shared by every request.
+ */
+class Cell<T> {
+  private listeners = new Set<() => void>()
+  constructor(private value: T) {}
+  subscribe = (l: () => void) => { this.listeners.add(l); return () => { this.listeners.delete(l) } }
+  get = () => this.value
+  set = (v: T) => { this.value = v; for (const l of this.listeners) l() }
+}
+const cells = new Map<string, Cell<unknown>>()
+
+/**
+ * `initial` must be a module-level constant: it is also the server snapshot.
+ * `get` reads the value at call time, for async work that outlives the render.
+ */
+export function useSharedState<T>(key: string, initial: T): { value: T; set: (v: T) => void; get: () => T } {
+  const [own] = useState(() => new Cell(initial))
+  let cell = own
+  if (typeof window !== 'undefined') {
+    const found = cells.get(key) as Cell<T> | undefined
+    if (found) cell = found
+    else cells.set(key, own as Cell<unknown>)
+  }
+  const value = useSyncExternalStore(cell.subscribe, cell.get, () => initial)
+  return { value, set: cell.set, get: cell.get }
+}
+
+type QueueState = { running: boolean; busy: string | null; failures: string[] }
+const IDLE_QUEUE: QueueState = { running: false, busy: null, failures: [] }
+
+/**
  * Sequential uploads: five 30MB files in parallel is a stalled tab and five
  * half-written objects. `one` returns an error message, or null on success.
+ * `key` names the queue, so a remounted panel finds its batch still running.
  */
-export function useUploadQueue() {
-  const running = useRef(false)
-  const [busy, setBusy] = useState<string | null>(null)
-  const [failures, setFailures] = useState<string[]>([])
+export function useUploadQueue(key: string) {
+  const q = useSharedState(`upload-queue:${key}`, IDLE_QUEUE)
   const [dragging, setDragging] = useState(false)
+  const put = (patch: Partial<QueueState>) => q.set({ ...q.get(), ...patch })
 
   async function run(
     files: File[],
     one: (file: File, step: (label: string) => void) => Promise<string | null>,
   ): Promise<void> {
     if (!files.length) return
-    if (running.current) {
-      setFailures(['One upload at a time — wait for this batch to finish, then add the rest.'])
+    if (q.get().running) {
+      put({ failures: ['One upload at a time — wait for this batch to finish, then add the rest.'] })
       return
     }
-    running.current = true
-    setFailures([])
+    put({ running: true, busy: null, failures: [] })
     const errs: string[] = []
     try {
       for (let i = 0; i < files.length; i++) {
         const file = files[i]
         const prefix = files.length > 1 ? `${i + 1} of ${files.length} · ` : ''
-        const step = (label: string) => setBusy(prefix + label)
+        const step = (label: string) => put({ busy: prefix + label })
         step(`Uploading ${file.name}…`)
         try {
           const err = await one(file, step)
@@ -57,13 +91,12 @@ export function useUploadQueue() {
         }
       }
     } finally {
-      running.current = false
-      setBusy(null)
-      setFailures(errs)
+      put({ running: false, busy: null, failures: errs })
     }
   }
 
-  return { busy, failures, setFailures, dragging, setDragging, run }
+  const setFailures = (failures: string[]) => put({ failures })
+  return { busy: q.value.busy, failures: q.value.failures, setFailures, dragging, setDragging, run }
 }
 export type UploadQueue = ReturnType<typeof useUploadQueue>
 

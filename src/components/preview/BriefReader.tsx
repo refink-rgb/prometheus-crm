@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState, useTransition } from 'react'
 import { getProjectBriefImageUrls, getProjectBriefUrl } from '@/lib/actions'
 import {
-  BRIEF_TYPES, COPY_KINDS, COPY_LABELS, normalizeBriefExtraction, readBriefImages,
+  BRIEF_TYPES, BRIEF_IMAGE_URL_TTL_SECONDS, COPY_KINDS, COPY_LABELS, MAX_PDF_PREVIEW_PAGES,
+  normalizeBriefExtraction, readBriefImages,
   type BriefExtraction, type BriefImage,
 } from '@/lib/project-briefs'
 import type { ProjectBrief } from '@/lib/types'
@@ -38,25 +39,49 @@ export default function BriefReader({ brief, projectId, narrow, onMakePreviews }
 
   // Keyed on the paths, not the array: the page polls router.refresh() while
   // any brief is being read, and a new array every 6s must not re-sign 80 URLs.
+  //
+  // Re-signed 10 minutes before the URLs expire. A CRM tab stays open all day,
+  // and an expired URL is a blank thumbnail with no error. Checked each minute
+  // and when the tab comes back into view, since a sleeping laptop skips timers.
   const pathKey = images.map(i => i.thumb).join('|')
   useEffect(() => {
     if (!pathKey) return
     let live = true
-    getProjectBriefImageUrls(brief.id, projectId)
-      .then(r => {
-        if (!live) return
-        if (r.ok) { setUrls(r.urls); setUrlErr(null) } else setUrlErr(r.error)
-      })
-      .catch(() => { if (live) setUrlErr('Could not load the pictures.') })
-    return () => { live = false }
+    let signedAt = 0
+    const sign = () => {
+      signedAt = Date.now()
+      getProjectBriefImageUrls(brief.id, projectId)
+        .then(r => {
+          if (!live) return
+          if (r.ok) { setUrls(r.urls); setUrlErr(null) } else setUrlErr(r.error)
+        })
+        .catch(() => { if (live) setUrlErr('Could not load the pictures.') })
+    }
+    const check = () => {
+      if (document.visibilityState !== 'visible') return
+      if (Date.now() - signedAt > (BRIEF_IMAGE_URL_TTL_SECONDS - 600) * 1000) sign()
+    }
+    sign()
+    const t = setInterval(check, 60_000)
+    document.addEventListener('visibilitychange', check)
+    return () => {
+      live = false
+      clearInterval(t)
+      document.removeEventListener('visibilitychange', check)
+    }
   }, [brief.id, projectId, pathKey])
 
   function toggleOriginal() {
     if (frame) { setFrame(null); return }
     setFrameErr(null)
     startTransition(async () => {
-      const r = await getProjectBriefUrl(brief.id, projectId, 'view')
-      if (r.ok) setFrame(r.url); else setFrameErr(r.error)
+      // Caught here: a rejected action rethrown from a transition takes down the page.
+      try {
+        const r = await getProjectBriefUrl(brief.id, projectId, 'view')
+        if (r.ok) setFrame(r.url); else setFrameErr(r.error)
+      } catch {
+        setFrameErr('Could not reach the server. Check the connection, then try again.')
+      }
     })
   }
 
@@ -82,6 +107,12 @@ export default function BriefReader({ brief, projectId, narrow, onMakePreviews }
   // is mostly text pages, and the pictures are what this grid is for.
   const withImagery = images.filter(im => im.source !== 'pdf-page' || pageOf(im)?.has_imagery !== false)
   const shown = allPages || withImagery.length === 0 ? images : withImagery
+
+  // A page whose upload failed is missing from the middle, not the end, so
+  // coverage is worked out page by page.
+  const previewable = isPdf && brief.page_count ? Math.min(brief.page_count, MAX_PDF_PREVIEW_PAGES) : 0
+  const havePages = new Set(images.map(im => im.page))
+  const missing = Array.from({ length: previewable }, (_, i) => i + 1).filter(n => !havePages.has(n))
 
   return (
     <div style={{ margin: '10px 0 6px 18px', display: 'grid', gap: 18, minWidth: 0 }}>
@@ -156,9 +187,15 @@ export default function BriefReader({ brief, projectId, narrow, onMakePreviews }
                 })}
               </div>
               {brief.images_note && <div style={{ ...muted, marginTop: 8 }}>{brief.images_note}</div>}
-              {isPdf && !!brief.page_count && brief.page_count > images.length && (
+              {missing.length > 0 && (
                 <div style={{ ...muted, marginTop: 8 }}>
-                  Previews cover the first {images.length} of {brief.page_count} pages. View original for the rest.
+                  No preview for {pageList(missing)}.{' '}
+                  {onMakePreviews && <button onClick={onMakePreviews} style={miniLink}>Make page previews again</button>}
+                </div>
+              )}
+              {isPdf && !!brief.page_count && brief.page_count > MAX_PDF_PREVIEW_PAGES && (
+                <div style={{ ...muted, marginTop: 8 }}>
+                  Previews cover the first {MAX_PDF_PREVIEW_PAGES} of {brief.page_count} pages. View original for the rest.
                 </div>
               )}
             </>
@@ -170,6 +207,12 @@ export default function BriefReader({ brief, projectId, narrow, onMakePreviews }
       {x && <Details x={x} />}
     </div>
   )
+}
+
+function pageList(pages: number[]): string {
+  const head = pages.slice(0, 6).join(', ')
+  const rest = pages.length > 6 ? ` and ${pages.length - 6} more` : ''
+  return `${pages.length === 1 ? 'page' : 'pages'} ${head}${rest}`
 }
 
 function CopyList({ x, copied, onCopy }: { x: BriefExtraction; copied: string | null; onCopy: (key: string, text: string) => void }) {

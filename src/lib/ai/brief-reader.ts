@@ -135,8 +135,9 @@ export async function readBriefWithGemini(input: {
         parts.push({
           inlineData: {
             mimeType: 'image/webp',
-            // A single-image brief gets the 1600px version: small text in a screenshot must be legible.
-            data: (input.source.kind === 'image' ? im.full : im.thumb).toString('base64'),
+            // A single-image brief sends modelInput: width-capped only, so a tall
+            // screenshot keeps legible text. The 1600px box is for the preview.
+            data: (input.source.kind === 'image' ? (im.modelInput ?? im.full) : im.thumb).toString('base64'),
           },
         })
       }

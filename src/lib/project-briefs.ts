@@ -42,6 +42,8 @@ export const IMAGE_FULL_PX = 1600
 export const IMAGE_THUMB_PX = 768         // also what the model sees: one 768px tile = 258 tokens
 export const MIN_IMAGE_PX = 150           // both sides smaller = an icon or bullet, skipped
 export const STALE_READING_MS = 330_000   // route maxDuration 300s + 30s
+/** Signed picture URLs. The reader re-signs 10 minutes before they expire. */
+export const BRIEF_IMAGE_URL_TTL_SECONDS = 3600
 
 export const briefSourcePath = (projectId: string, briefId: string, ext: string): string =>
   `${projectId}/${briefId}/source.${ext}`
@@ -127,8 +129,11 @@ export interface BriefExtraction {
   reading_notes: string
 }
 
+// Array.from splits by code point, not UTF-16 unit: .slice(0, max) could cut an
+// emoji in half, leaving a lone surrogate that Postgres jsonb rejects — and the
+// whole finished read was then saved as failed.
 const str = (v: unknown, max = 2000): string =>
-  typeof v === 'string' ? v.replace(/\u0000/g, '').trim().slice(0, max) : ''
+  typeof v === 'string' ? Array.from(v.replace(/\u0000/g, '').trim()).slice(0, max).join('') : ''
 const strs = (v: unknown, maxItems = 30, maxLen = 600): string[] =>
   Array.isArray(v) ? Array.from(new Set(v.map(x => str(x, maxLen)).filter(Boolean))).slice(0, maxItems) : []
 const rec = (v: unknown): Record<string, unknown> =>

@@ -28,9 +28,10 @@ import {
   brandDocPath, safeDocName, asciiDocName, isUuid,
 } from '@/lib/brand-docs'
 import {
-  BRIEF_BUCKET, BRIEF_TYPES, MAX_BRIEF_BYTES, MAX_PDF_PREVIEW_PAGES,
+  BRIEF_BUCKET, BRIEF_TYPES, MAX_BRIEF_BYTES, MAX_PDF_PREVIEW_PAGES, BRIEF_IMAGE_URL_TTL_SECONDS,
   briefSourcePath, briefImagePath, readBriefImages, safeBriefName, type BriefImage,
 } from '@/lib/project-briefs'
+import { removeBriefFolder } from '@/lib/briefs/storage'
 import {
   ensureDeleteSubfolder,
   extractDriveFolderId,
@@ -2310,17 +2311,18 @@ export async function deleteProject(projectId: string, brandId: string) {
   if (!user) redirect('/login')
   if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
-  // Brief files first. The rows cascade away with the project, and once the
-  // rows are gone nothing records that these folders exist.
+  // Brief ids BEFORE the delete: the rows cascade away with the project, and
+  // then nothing records that their folders exist. Folders AFTER it, so a read
+  // still storing pictures either lands before the sweep or finds its row gone
+  // and cleans up itself.
   const { data: briefRows } = await supabase.from('project_briefs').select('id').eq('project_id', projectId)
-  if (briefRows?.length) {
-    await removeBriefObjects(supabase, projectId, (briefRows as { id: string }[]).map(b => b.id))
-  }
 
   const { error: imgErr } = await supabase.from('project_images').delete().eq('project_id', projectId)
   if (imgErr) throw new Error(`Failed to delete project images: ${imgErr.message}`)
   const { error: projErr } = await supabase.from('projects').delete().eq('id', projectId)
   if (projErr) throw new Error(`Failed to delete project: ${projErr.message}`)
+
+  for (const b of (briefRows ?? []) as { id: string }[]) await removeBriefFolder(supabase, projectId, b.id)
 
   revalidatePath(`/brands/${brandId}`)
   redirect(`/brands/${brandId}`)
@@ -2339,14 +2341,15 @@ export async function deleteBrand(brandId: string) {
 
   if (projects && projects.length > 0) {
     const ids = projects.map(p => p.id)
+    // Same order as deleteProject: ids, rows, then folders.
     const { data: briefRows } = await supabase.from('project_briefs').select('id, project_id').in('project_id', ids)
-    for (const b of (briefRows ?? []) as { id: string; project_id: string }[]) {
-      await removeBriefObjects(supabase, b.project_id, [b.id])
-    }
     const { error: imgErr } = await supabase.from('project_images').delete().in('project_id', ids)
     if (imgErr) throw new Error(`Failed to delete project images: ${imgErr.message}`)
     const { error: projErr } = await supabase.from('projects').delete().eq('brand_id', brandId)
     if (projErr) throw new Error(`Failed to delete projects: ${projErr.message}`)
+    for (const b of (briefRows ?? []) as { id: string; project_id: string }[]) {
+      await removeBriefFolder(supabase, b.project_id, b.id)
+    }
   }
 
   const { error: brandErr } = await supabase.from('brands').delete().eq('id', brandId)
@@ -3737,9 +3740,7 @@ export async function getBrandDocumentUrl(
 // would freeze every other button on the project page.
 
 const BRIEF_URL_TTL_SECONDS = 900          // PDF viewers range-request while scrolling; see BRAND_DOC_URL_TTL_SECONDS
-const BRIEF_IMAGE_URL_TTL_SECONDS = 3600
 
-type ServerDb = Awaited<ReturnType<typeof createClient>>
 type SignedUpload = { path: string; token: string }
 
 function revalidateBriefPaths(projectId: string, brandId: string) {
@@ -3748,18 +3749,6 @@ function revalidateBriefPaths(projectId: string, brandId: string) {
 }
 
 /** Deletes every object in each brief's folder. Logs, never throws: callers have already removed or are removing the rows. */
-async function removeBriefObjects(supabase: ServerDb, projectId: string, briefIds: string[]) {
-  const bucket = supabase.storage.from(BRIEF_BUCKET)
-  for (const briefId of briefIds) {
-    const folder = `${projectId}/${briefId}`
-    const { data: objects, error } = await bucket.list(folder, { limit: 1000 })
-    if (error) { console.error('[removeBriefObjects] list failed', folder, error.message); continue }
-    const paths = (objects ?? []).map(o => `${folder}/${o.name}`)
-    if (!paths.length) continue
-    const { error: rmErr } = await bucket.remove(paths)
-    if (rmErr) console.error('[removeBriefObjects] orphaned objects', folder, rmErr.message)
-  }
-}
 
 export async function createProjectBriefUploadUrl(
   projectId: string,
@@ -3890,6 +3879,7 @@ export async function createProjectBriefImageUploadUrls(
 // kept only if both files really exist — the browser's word is not proof.
 export async function saveProjectBriefPreviews(
   briefId: string,
+  projectId: string,
   brandId: string,
   result:
     | { ok: true; pageCount: number; ext: 'webp' | 'jpg'; pages: { n: number; w: number; h: number }[] }
@@ -3900,10 +3890,18 @@ export async function saveProjectBriefPreviews(
   if (!user) redirect('/login')
   if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
-  if (!isUuid(briefId)) return { ok: false, error: 'Unknown brief.' }
-  const { data: row } = await supabase.from('project_briefs').select('project_id, mime_type').eq('id', briefId).maybeSingle()
-  if (!row) return { ok: false, error: 'That brief is no longer here.' }
+  if (!isUuid(briefId) || !isUuid(projectId)) return { ok: false, error: 'Unknown brief.' }
+  const { data: row, error: rowErr } = await supabase.from('project_briefs').select('project_id, mime_type').eq('id', briefId).maybeSingle()
+  if (rowErr) return { ok: false, error: `Could not check the brief: ${rowErr.message}` }
+  if (!row) {
+    // Removed while this tab was still uploading pages. Those pages have no row
+    // to point at; take them back. No row with this id exists, so nothing live
+    // is in the folder.
+    await removeBriefFolder(supabase, projectId, briefId)
+    return { ok: false, error: 'That brief was removed while its previews were being made.' }
+  }
   const brief = row as { project_id: string; mime_type: string }
+  if (brief.project_id !== projectId) return { ok: false, error: 'Unknown brief.' }
   if (brief.mime_type !== 'application/pdf') return { ok: false, error: 'Page previews are made for PDFs only.' }
 
   if (!result.ok) {
@@ -4019,7 +4017,7 @@ export async function removeProjectBrief(
   const { error } = await supabase.from('project_briefs').delete().eq('id', briefId).eq('project_id', projectId)
   if (error) return { ok: false, error: `Could not remove it: ${error.message}` }
 
-  await removeBriefObjects(supabase, projectId, [briefId])
+  await removeBriefFolder(supabase, projectId, briefId)
   revalidateBriefPaths(projectId, brandId)
   return { ok: true }
 }

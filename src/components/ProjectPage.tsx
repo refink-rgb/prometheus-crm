@@ -23,6 +23,11 @@ import PreviewProjectView, { type BrandLandingPage } from '@/components/preview/
 // slow on a big folder — all of them are Server Actions invoked FROM this page,
 // so the page's own limit is what governs them. Without it they are killed at
 // the platform default and the work is lost after being paid for.
+// A server component renders once per request, so reading the clock here is
+// the point, not an impurity: the client needs server time to judge whether a
+// brief's AI read (stamped with server time) is stale.
+const serverClock = () => Date.now()
+
 export default async function ProjectPage({ projectId }: { projectId: string }) {
   const supabase = await createClient()
   const user = await getCachedUser()
@@ -179,6 +184,7 @@ export default async function ProjectPage({ projectId }: { projectId: string }) 
       brandComments={(brandCommentsRaw ?? []) as BrandComment[]}
       brandDocuments={(brandDocumentsRaw ?? []) as BrandDocument[]}
       projectBriefs={(projectBriefsRaw ?? []) as ProjectBrief[]}
+      serverNow={serverClock()}
       currentUserId={user.id}
       profiles={profiles}
       campaigns={(trackedCampaignsRaw ?? []) as unknown as TrackedCampaign[]}

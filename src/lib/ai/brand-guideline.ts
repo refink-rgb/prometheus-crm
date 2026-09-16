@@ -33,7 +33,11 @@ export function xmlToText(xml: string): string {
     // PPTX rows/paragraphs — insert breaks before dropping the tags.
     .replace(/<\/a:p>/g, '\n')
     .replace(/<\/w:p>/g, '\n')
-    .replace(/<a:br\s*\/>/g, '\n')
+    // A soft line break. PowerPoint writes Shift+Enter as <a:br><a:rPr …/></a:br>,
+    // not <a:br/> — matching only the self-closing form let the tag strip below
+    // glue "the tour tax" + "Save £830" into "taxSave", so real headlines were
+    // flagged "not found word-for-word". The closing </a:br> is dropped below.
+    .replace(/<a:br\b[^>]*\/?>/g, '\n')
     .replace(/<[^>]+>/g, '')
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
