@@ -103,7 +103,6 @@ interface AdListing {
   campaign?: { id: string; name?: string }
   creative?: {
     object_story_spec?: StorySpec
-    effective_object_story_spec?: StorySpec
     asset_feed_spec?: { link_urls?: Array<{ website_url?: string }> }
   }
 }
@@ -115,7 +114,7 @@ interface StorySpec {
 
 function destinationUrls(ad: AdListing): string[] {
   const urls: string[] = []
-  for (const spec of [ad.creative?.object_story_spec, ad.creative?.effective_object_story_spec]) {
+  for (const spec of [ad.creative?.object_story_spec]) {
     if (!spec) continue
     if (spec.link_data?.link) urls.push(spec.link_data.link)
     for (const child of spec.link_data?.child_attachments ?? []) {
@@ -136,8 +135,12 @@ async function discoverAds(work: LpWork) {
   const sinceIso = addDaysIso(work.launched_on ?? work.to_date ?? new Date().toISOString().slice(0, 10), -DISCOVERY_LOOKBACK_DAYS)
   const sinceUnix = Math.floor(Date.parse(`${sinceIso}T00:00:00Z`) / 1000)
 
+  // effective_object_story_spec is NOT expandable on the v23 ads listing
+  // ("(#100) Tried accessing nonexisting field") — object_story_spec plus
+  // asset_feed_spec cover regular, carousel, video, and flexible/multi-ad
+  // formats, which is the whole portfolio.
   const ads = await metaGetAll<AdListing>(`${work.ad_account_id}/ads`, {
-    fields: 'id,name,created_time,adset{id,name},campaign{id,name},creative{object_story_spec,effective_object_story_spec,asset_feed_spec}',
+    fields: 'id,name,created_time,adset{id,name},campaign{id,name},creative{object_story_spec,asset_feed_spec}',
     filtering: [{ field: 'ad.created_time', operator: 'GREATER_THAN', value: sinceUnix }],
     limit: 100,
   })
