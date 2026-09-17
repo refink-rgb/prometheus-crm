@@ -281,13 +281,17 @@ export interface EngineSummary {
   ingest: unknown
 }
 
-export async function runResultsPull(filters: { brandId?: string } = {}): Promise<EngineSummary> {
+export async function runResultsPull(filters: { brandId?: string; brand?: string } = {}): Promise<EngineSummary> {
   adListingCache.clear() // per-run, not per-warm-lambda: listings go stale
   const startedAt = Date.now()
   runDeadline = startedAt + HARD_DEADLINE_MS
   const outOfBudget = () => Date.now() - startedAt > TIME_BUDGET_MS
   const secret = ingestSecret()
-  const qs = filters.brandId ? `?brand_id=${encodeURIComponent(filters.brandId)}` : ''
+  const qs = filters.brandId
+    ? `?brand_id=${encodeURIComponent(filters.brandId)}`
+    : filters.brand
+      ? `?brand=${encodeURIComponent(filters.brand)}`
+      : ''
   const workRes = await fetch(`${baseUrl()}/api/results/ingest${qs}`, {
     headers: { authorization: `Bearer ${secret}` },
   })

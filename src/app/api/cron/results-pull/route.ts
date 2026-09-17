@@ -25,10 +25,12 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthorized.' }, { status: 401 })
   }
 
-  const brandId = new URL(request.url).searchParams.get('brand_id') ?? undefined
+  const params = new URL(request.url).searchParams
+  const brandId = params.get('brand_id') ?? undefined
+  const brand = params.get('brand') ?? undefined
 
   try {
-    const summary = await runResultsPull(brandId ? { brandId } : {})
+    const summary = await runResultsPull({ brandId, brand })
     // Errors inside the summary are per-entity and non-fatal; a run that
     // pulled 19 of 20 brands is a success with one loud line, not a failure.
     for (const e of summary.errors) console.error(`[results-pull] ${e}`)

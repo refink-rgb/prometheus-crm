@@ -820,6 +820,11 @@ check('UTM/protocol/www/trailing-slash variants collapse',
   normalizeLpUrl('http://brand.com/pages/offer'))
 checkTrue('a different path does NOT match',
   normalizeLpUrl('https://brand.com/pages/offer-2') !== normalizeLpUrl('https://brand.com/pages/offer'))
+check('a Shopify discount link matches the page it redirects to',
+  normalizeLpUrl('https://bather.com/discount/XTRA20?redirect=%2Fpages%2Fend-of-season-sale'),
+  normalizeLpUrl('https://bather.com/pages/end-of-season-sale'))
+checkTrue('a discount link to a DIFFERENT page does not match',
+  normalizeLpUrl('https://bather.com/discount/XTRA20?redirect=%2Fpages%2Fother') !== normalizeLpUrl('https://bather.com/pages/end-of-season-sale'))
 checkTrue('a different subdomain does NOT match',
   normalizeLpUrl('https://shop.brand.com/pages/offer') !== normalizeLpUrl('https://brand.com/pages/offer'))
 

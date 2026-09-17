@@ -675,6 +675,17 @@ export function normalizeLpUrl(raw: string): string {
   let s = raw.trim().toLowerCase()
   s = s.replace(/^https?:\/\//, '')
   s = s.replace(/^www\./, '')
+  // Shopify discount links land ON the redirect target: /discount/CODE with a
+  // ?redirect=%2Fpages%2Fslug IS that page, with a coupon attached. CTC runs
+  // ads through these constantly (Bather XTRA20 was the one that surfaced it).
+  const discount = s.match(/^([^/]+)\/discount\/[^?]+\?.*?redirect=([^&#]+)/)
+  if (discount) {
+    try {
+      s = discount[1] + decodeURIComponent(discount[2])
+    } catch {
+      /* malformed encoding: fall through to plain normalization */
+    }
+  }
   const cut = s.search(/[?#]/)
   if (cut !== -1) s = s.slice(0, cut)
   while (s.endsWith('/')) s = s.slice(0, -1)
