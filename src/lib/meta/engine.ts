@@ -392,7 +392,13 @@ export async function runResultsPull(filters: { brandId?: string } = {}): Promis
   for (const page of work.lp_pages ?? []) {
     groups.set(page.ad_account_id, [...(groups.get(page.ad_account_id) ?? []), page])
   }
-  const lpQueue = [...groups.values()].sort(() => Math.random() - 0.5).flat()
+  // Productive work first: groups that already have matched ads yield daily
+  // rows cheaply; discovery-only groups (which may never match anything) go
+  // last so they can't starve real pulls. Random within each tier.
+  const hasWork = (pages: LpWork[]) => pages.some(pg => pg.included_ad_ids.length > 0)
+  const lpQueue = [...groups.values()]
+    .sort((a, b) => (Number(hasWork(b)) - Number(hasWork(a))) || Math.random() - 0.5)
+    .flat()
   for (const p of lpQueue) {
     if (outOfBudget()) {
       errors.push(`time budget reached — ${(work.lp_pages?.length ?? 0) - lpPulled} LP page(s) deferred to the next run`)
