@@ -41,14 +41,22 @@ export default function DriveSyncBar({
   const [msg, setMsg] = useState('')
   const [err, setErr] = useState('')
   const [editing, setEditing] = useState(false)
+  // Set when the sync refused because the folder shares nothing with what is
+  // here. Replacing the whole set is a real thing to want, just never by accident.
+  const [replaceAll, setReplaceAll] = useState<{ url: string; live: number } | null>(null)
 
-  async function sync() {
+  async function sync(force = false) {
     const u = url.trim()
     if (!u) { setErr('Paste a link first.'); return }
     if (!/^https?:\/\//i.test(u)) { setErr('That is not a link — it should start with https://'); return }
-    setBusy(true); setErr(''); setMsg('')
+    setBusy(true); setErr(''); setMsg(''); setReplaceAll(null)
     try {
-      const r = await syncDriveImages(projectId, brandId, u)
+      const r = await syncDriveImages(projectId, brandId, u, force ? { replaceAll: true } : {})
+      if ('refused' in r) {
+        setErr(r.message)
+        if (r.refused === 'no-overlap') setReplaceAll({ url: u, live: r.live })
+        return
+      }
       setMsg(describeSync(r))
       if (r.skipped.length) setErr(`Skipped: ${r.skipped.join(' · ')}`)
       setEditing(false)
@@ -76,7 +84,7 @@ export default function DriveSyncBar({
           <span style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
             {assetCount} synced
           </span>
-          <button onClick={sync} disabled={busy} style={btn}>{busy ? 'Syncing…' : '⟳ Re-sync'}</button>
+          <button onClick={() => void sync()} disabled={busy} style={btn}>{busy ? 'Syncing…' : '⟳ Re-sync'}</button>
           <button onClick={() => setEditing(true)} disabled={busy} style={{ ...btn, border: 'none', color: 'var(--text-muted)' }}>Change folder</button>
         </>
       ) : (
@@ -95,7 +103,7 @@ export default function DriveSyncBar({
               border: '1px solid var(--border-strong)', background: 'var(--surface-2)', color: 'var(--text-primary)',
             }}
           />
-          <button onClick={sync} disabled={busy} style={{ ...btn, borderColor: 'var(--accent)', color: 'var(--accent)', fontWeight: 700 }}>
+          <button onClick={() => void sync()} disabled={busy} style={{ ...btn, borderColor: 'var(--accent)', color: 'var(--accent)', fontWeight: 700 }}>
             {busy ? 'Syncing…' : 'Link & sync'}
           </button>
           {folderUrl && (
@@ -106,6 +114,18 @@ export default function DriveSyncBar({
 
       {msg && <span style={{ fontSize: 11.5, color: 'var(--success)', width: '100%' }}>{msg}</span>}
       {err && <span style={{ fontSize: 11.5, color: 'var(--danger)', width: '100%' }}>{err}</span>}
+      {replaceAll && url.trim() === replaceAll.url && (
+        <span style={{ fontSize: 11.5, width: '100%', color: 'var(--text-secondary)' }}>
+          If this really is the project&rsquo;s new folder:{' '}
+          <button
+            onClick={() => {
+              if (window.confirm(`Sync this folder and hide all ${replaceAll.live} creatives currently on the project? They stay in Bulk actions and can be brought back.`)) void sync(true)
+            }}
+            disabled={busy}
+            style={{ ...btn, borderColor: 'var(--danger)', color: 'var(--danger)', fontWeight: 700 }}
+          >Replace all {replaceAll.live}</button>
+        </span>
+      )}
     </div>
   )
 }

@@ -956,7 +956,24 @@ export interface DriveSyncResult {
   skipped: string[]
 }
 
-export async function syncDriveImages(projectId: string, brandId: string, folderUrl: string): Promise<DriveSyncResult> {
+/**
+ * A sync that stopped on purpose. RETURNED, not thrown: Next strips the message
+ * from a thrown Server Action error in production, and the editor saw only
+ * "An error occurred in the Server Components render" with no idea why.
+ */
+export interface DriveSyncRefusal {
+  refused: 'empty-folder' | 'no-overlap'
+  message: string
+  /** Live creatives that would have been hidden. */
+  live: number
+}
+
+export async function syncDriveImages(
+  projectId: string,
+  brandId: string,
+  folderUrl: string,
+  opts: { replaceAll?: boolean } = {},
+): Promise<DriveSyncResult | DriveSyncRefusal> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
@@ -991,10 +1008,14 @@ export async function syncDriveImages(projectId: string, brandId: string, folder
   // Refuse rather than quietly emptying the project.
   if (imageFiles.length === 0) {
     if (live.length > 0) {
-      throw new Error(
-        `That folder has no images we can see, but this project has ${live.length} creative${live.length === 1 ? '' : 's'}. ` +
-        `Nothing was changed — check the link, and that the folder is shared with us.`,
-      )
+      // Never overridable: an empty folder syncs nothing, so "replace all" here
+      // would only hide work. Archiving lives in Bulk actions.
+      return {
+        refused: 'empty-folder',
+        live: live.length,
+        message: `That folder has no images we can see, but this project has ${live.length} creative${live.length === 1 ? '' : 's'}. `
+          + 'Nothing was changed — check the link, and that the folder is shared with us.',
+      }
     }
     // Nothing there and nothing to lose: record the folder and stop.
     await supabase.from('projects').update({ drive_folder_url: folderUrl }).eq('id', projectId)
@@ -1004,16 +1025,26 @@ export async function syncDriveImages(projectId: string, brandId: string, folder
   }
 
   const driveFileIds = imageFiles.map(f => f.id)
-  const toHide = live.filter(a => !driveFileIds.includes(a.drive_file_id))
+  let toHide = live.filter(a => !driveFileIds.includes(a.drive_file_id))
 
   // Wiping the whole visible set is a legitimate thing to want, but it is never
   // a thing to do by accident — a folder that shares no files at all with what
   // is on the project is a different folder, not an updated one.
-  if (live.length > 0 && toHide.length === live.length) {
-    throw new Error(
-      `That folder shares no files with the ${live.length} creative${live.length === 1 ? '' : 's'} already here, ` +
-      `so syncing would hide all of them. Nothing was changed — check you pasted the right folder.`,
-    )
+  //
+  // Matched BY NAME as well as by file id. Re-uploading every ad (rather than
+  // editing each in place) gives every file a new id under the same name, which
+  // is the same folder with fixes in it, not a different one. Judged on ids
+  // alone, the routine "re-export the whole batch" pass was refused outright.
+  const { normaliseAssetName } = await import('@/lib/asset-match')
+  const driveNames = new Set(imageFiles.map(f => normaliseAssetName(f.name)).filter(Boolean))
+  const strangers = toHide.filter(a => !driveNames.has(normaliseAssetName(a.name ?? '')))
+  if (live.length > 0 && strangers.length === live.length && !opts.replaceAll) {
+    return {
+      refused: 'no-overlap',
+      live: live.length,
+      message: `That folder shares no files or filenames with the ${live.length} creative${live.length === 1 ? '' : 's'} already here, `
+        + 'so syncing would hide all of them. Nothing was changed — check you pasted the right folder.',
+    }
   }
 
   // ── Is a new file a NEW AD, or a FIX to one already here? ─────────────────
@@ -1027,7 +1058,6 @@ export async function syncDriveImages(projectId: string, brandId: string, folder
   //
   // So: a new file whose name matches a live creative is that creative's
   // revision, not a new ad. Same rule the bulk uploader uses, applied here.
-  const { normaliseAssetName } = await import('@/lib/asset-match')
   const knownIds = new Set((existing ?? []).map(a => a.drive_file_id))
   const byName = new Map<string, { id: string; drive_file_id: string }[]>()
   for (const a of live) {
@@ -1062,6 +1092,11 @@ export async function syncDriveImages(projectId: string, brandId: string, folder
     claimed.add(target)
     asRevision.push({ file: f, assetId: target })
   }
+
+  // A creative whose file was re-uploaded under the same name is NOT gone: its
+  // fix is attached below as a revision. Hiding it would retire the ad an
+  // editor had just re-exported.
+  toHide = toHide.filter(a => !claimed.has(a.id))
 
   // Upsert BEFORE hiding. If this fails the project still has everything it had.
   // Revision files are excluded — they must not become rows of their own.

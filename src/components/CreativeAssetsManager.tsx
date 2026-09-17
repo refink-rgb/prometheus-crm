@@ -359,6 +359,11 @@ export default function CreativeAssetsManager({
     setSyncMsg('')
     try {
       const r = await syncDriveImages(projectId, brandId, folderUrl.trim())
+      if ('refused' in r) {
+        // "Replace all" lives in the sync bar at the top of the Creatives tab.
+        setSyncMsg(r.message)
+        return
+      }
       setSyncMsg(`✓ ${describeSync(r)}${r.skipped.length ? ` · skipped ${r.skipped.length}` : ''}`)
       router.refresh()
     } catch (err: unknown) {
