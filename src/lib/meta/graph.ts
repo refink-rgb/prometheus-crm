@@ -55,18 +55,33 @@ export async function metaGet<T = Record<string, unknown>>(
   return body
 }
 
+export class MetaDeadlineError extends Error {
+  constructor() { super('Meta pull hit the run deadline.') ; this.name = 'MetaDeadlineError' }
+}
+
 /** Follows `paging.next` and concatenates `data` pages. `maxPages` bounds a
  *  runaway listing; hitting the bound returns what was collected (the daily
- *  trailing re-pull self-heals any tail that got cut). */
+ *  trailing re-pull self-heals any tail that got cut).
+ *
+ *  `deadlineMs` (epoch ms) stops paging mid-listing: mode 'return' hands back
+ *  the partial result (fine for ADDITIVE reads like ad discovery — later
+ *  runs find the rest), mode 'throw' aborts (REQUIRED for reads that get
+ *  summed — a partial sum stored as a day's truth is a wrong number). */
 export async function metaGetAll<Row>(
   path: string,
   params: Record<string, unknown>,
   maxPages = 20,
+  deadlineMs?: number,
+  onDeadline: 'return' | 'throw' = 'throw',
 ): Promise<Row[]> {
   const rows: Row[] = []
   let body = await metaGet<{ data?: Row[]; paging?: { next?: string } }>(path, params)
   for (let page = 0; page < maxPages; page++) {
     rows.push(...(body.data ?? []))
+    if (deadlineMs && Date.now() > deadlineMs && body.paging?.next) {
+      if (onDeadline === 'throw') throw new MetaDeadlineError()
+      return rows
+    }
     const next = body.paging?.next
     if (!next) break
     const res = await fetch(next) // paging.next already carries every param

@@ -17,7 +17,7 @@
 // landing-page URL, launch-date detection, daily LP rows, whole-account rows).
 
 import {
-  metaGetAll, actionNumber, MetaApiError,
+  metaGetAll, actionNumber, MetaApiError, MetaDeadlineError,
   INSIGHTS_FIELDS, ATTRIBUTION, type InsightsRow,
 } from '@/lib/meta/graph'
 import { normalizeLpUrl, addDaysIso } from '@/lib/results'
@@ -98,6 +98,11 @@ const HISTORICAL_LOOKBACK_DAYS = 540
 // would lose EVERYTHING (the POST happens at the end), so the engine budgets
 // itself and lets the next pass continue — every pull is idempotent.
 const TIME_BUDGET_MS = 210_000
+// Hard stop for in-flight pulls — past this, listings return partial results
+// and summed reads abort, so the run always reaches its POST before the
+// platform's 300s kill (which would lose EVERYTHING pulled so far).
+const HARD_DEADLINE_MS = 250_000
+let runDeadline = 0
 
 // ---------------------------------------------------------------------------
 // Meta pulls
@@ -206,7 +211,8 @@ async function listAdsAdaptive(accountId: string, sinceUnix: number): Promise<Ad
   let lastErr: unknown
   for (const limit of [50, 25, 10]) {
     try {
-      return await metaGetAll<AdListing>(`${accountId}/ads`, params(limit), 200)
+      // Partial on deadline: discovery is additive, later runs find the rest.
+      return await metaGetAll<AdListing>(`${accountId}/ads`, params(limit), 200, runDeadline, 'return')
     } catch (err) {
       lastErr = err
       const msg = err instanceof MetaApiError ? err.message : String(err)
@@ -218,6 +224,8 @@ async function listAdsAdaptive(accountId: string, sinceUnix: number): Promise<Ad
 
 // Daily insights for a set of ads, summed per day.
 async function adDaily(accountId: string, adIds: string[], since: string, until: string) {
+  // Throw on deadline: these rows get SUMMED per day — a partial sum stored
+  // as a day's truth is a wrong number, not a late one.
   const rows = await metaGetAll<InsightsRow>(`${accountId}/insights`, {
     level: 'ad',
     filtering: [{ field: 'ad.id', operator: 'IN', value: adIds }],
@@ -226,7 +234,7 @@ async function adDaily(accountId: string, adIds: string[], since: string, until:
     time_range: { since, until },
     time_increment: 1,
     limit: 500,
-  })
+  }, 20, runDeadline, 'throw')
 
   // Counts start at ZERO, not null: Meta omits zero-value actions from a
   // delivery day's row, so absence on a day we received means 0, not unknown.
@@ -276,6 +284,7 @@ export interface EngineSummary {
 export async function runResultsPull(filters: { brandId?: string } = {}): Promise<EngineSummary> {
   adListingCache.clear() // per-run, not per-warm-lambda: listings go stale
   const startedAt = Date.now()
+  runDeadline = startedAt + HARD_DEADLINE_MS
   const outOfBudget = () => Date.now() - startedAt > TIME_BUDGET_MS
   const secret = ingestSecret()
   const qs = filters.brandId ? `?brand_id=${encodeURIComponent(filters.brandId)}` : ''
@@ -431,7 +440,11 @@ export async function runResultsPull(filters: { brandId?: string } = {}): Promis
       }
       lpPulled++
     } catch (err) {
-      errors.push(`lp ${p.project_name ?? p.lp_tracking_id}: ${err instanceof MetaApiError ? err.message : String(err)}`)
+      if (err instanceof MetaDeadlineError) {
+        errors.push(`lp ${p.project_name ?? p.lp_tracking_id}: deferred at the run deadline`)
+      } else {
+        errors.push(`lp ${p.project_name ?? p.lp_tracking_id}: ${err instanceof MetaApiError ? err.message : String(err)}`)
+      }
     }
   }
 
