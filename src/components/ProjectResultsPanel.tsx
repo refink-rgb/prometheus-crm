@@ -16,7 +16,7 @@
 // Every KPI is DERIVED from summed raw counts in src/lib/results.ts — nothing
 // on this panel is an agent-reported ratio.
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts'
@@ -579,6 +579,9 @@ interface ChartDatum {
 function ChartPair({ data }: { data: ChartDatum[] }) {
   const axisTick = { fill: 'var(--text-muted)', fontSize: 11 }
   const axisLine = { stroke: 'var(--border)' }
+  // Cumulative reads the trajectory (default — outlier-proof); daily shows
+  // each day raw, spikes and all. Both stay in the tooltip either way.
+  const [roasMode, setRoasMode] = useState<'cumulative' | 'daily'>('cumulative')
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
@@ -600,8 +603,29 @@ function ChartPair({ data }: { data: ChartDatum[] }) {
         </ResponsiveContainer>
       </div>
       <div>
-        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>
-          ROAS <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>cumulative since launch · 7-day click · day&apos;s own ROAS in the tooltip</span>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)' }}>
+            ROAS <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>
+              {roasMode === 'cumulative' ? 'cumulative since launch · 7-day click' : 'per day · 7-day click · low-spend days spike'}
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: 2, background: 'var(--surface-raised)', borderRadius: 8, padding: 2 }}>
+            {(['cumulative', 'daily'] as const).map(m => (
+              <button
+                key={m}
+                onClick={() => setRoasMode(m)}
+                style={{
+                  border: 'none', cursor: 'pointer', borderRadius: 6, padding: '3px 10px',
+                  fontSize: 10, fontWeight: 700, textTransform: 'capitalize',
+                  background: roasMode === m ? 'var(--surface)' : 'transparent',
+                  color: roasMode === m ? 'var(--text-primary)' : 'var(--text-muted)',
+                  boxShadow: roasMode === m ? '0 1px 3px rgba(0,0,0,0.25)' : 'none',
+                }}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
         </div>
         <ResponsiveContainer width="100%" height={140}>
           <LineChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
@@ -610,12 +634,12 @@ function ChartPair({ data }: { data: ChartDatum[] }) {
             <YAxis tick={axisTick} axisLine={false} tickLine={false} tickFormatter={(v: number) => `${v}x`} width={52} />
             <Tooltip
               contentStyle={{ background: 'var(--surface-raised)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }}
-              formatter={(v, _name, item) => {
-                const daily = (item?.payload as ChartDatum | undefined)?.roasDaily
-                return [`${formatRoas(v as number)} cumulative · ${formatRoas(daily)} this day`, 'ROAS']
+              formatter={(_v, _name, item) => {
+                const p = item?.payload as ChartDatum | undefined
+                return [`${formatRoas(p?.roas)} cumulative · ${formatRoas(p?.roasDaily)} this day`, 'ROAS']
               }}
             />
-            <Line dataKey="roas" stroke="var(--viz-ontime)" strokeWidth={2} dot={{ r: 2.5 }} connectNulls />
+            <Line dataKey={roasMode === 'cumulative' ? 'roas' : 'roasDaily'} stroke="var(--viz-ontime)" strokeWidth={2} dot={{ r: 2.5 }} connectNulls />
           </LineChart>
         </ResponsiveContainer>
       </div>
