@@ -382,10 +382,17 @@ export async function runResultsPull(filters: { brandId?: string } = {}): Promis
   // ── LP pages: discovery → launch detection → daily rows ──────────────────
   let lpPulled = 0
   let launchDetected = 0
-  // Shuffled per run: a heavy or failing page must not sit at the front of
-  // every pass starving the rest of the backfill — shuffled, every page gets
-  // budget eventually, and completed pages get cheap (small windows).
-  const lpQueue = [...(work.lp_pages ?? [])].sort(() => Math.random() - 0.5)
+  // Queue strategy: GROUP by ad account, then shuffle the group order.
+  // The expensive step is the account's ad listing; grouped, one listing
+  // (cached for the run) serves every page of that brand in the same pass —
+  // twenty PixieLane pages cost one listing plus twenty cheap insight reads.
+  // Shuffling the groups keeps a heavy or rate-limited account from starving
+  // the rest on every pass.
+  const groups = new Map<string, LpWork[]>()
+  for (const page of work.lp_pages ?? []) {
+    groups.set(page.ad_account_id, [...(groups.get(page.ad_account_id) ?? []), page])
+  }
+  const lpQueue = [...groups.values()].sort(() => Math.random() - 0.5).flat()
   for (const p of lpQueue) {
     if (outOfBudget()) {
       errors.push(`time budget reached — ${(work.lp_pages?.length ?? 0) - lpPulled} LP page(s) deferred to the next run`)
