@@ -9,8 +9,10 @@ import { Check, ChevronDown, Copy, X } from 'lucide-react'
  * creative run. Reads the public index in Supabase Storage directly.
  */
 
-const INDEX_URL =
-  'https://mhizyjlvqrhwzjqywiwz.supabase.co/storage/v1/object/public/ad-inspiration/_library/index.json'
+// Was the 9MB library file in Storage, re-downloaded on every visit (no
+// compression, no caching). The CRM's own endpoint filters server-side and
+// sends only the fields this page uses, compressed — about a tenth of that.
+const INDEX_URL = '/api/creative/inspiration?limit=6000'
 
 interface AdRecord {
   id: string
@@ -122,11 +124,12 @@ export default function InspirationLibraryPage() {
     ;(async () => {
       try {
         const res = await fetch(INDEX_URL)
-        const data = (await res.json()) as AdRecord[]
-        // Only records whose image is actually hosted.
-        setAllAds(data.filter((a) => a.public_url))
-      } catch {
-        setLoadError('Could not load the library index. Check your connection and refresh.')
+        const body = (await res.json()) as { ads?: AdRecord[]; error?: string }
+        if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`)
+        // The endpoint already drops records whose image is not hosted.
+        setAllAds(body.ads ?? [])
+      } catch (e) {
+        setLoadError(`Could not load the library: ${e instanceof Error ? e.message : 'unknown error'}. Refresh to try again.`)
       } finally {
         setLoading(false)
       }
