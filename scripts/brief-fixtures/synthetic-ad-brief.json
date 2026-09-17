@@ -1,0 +1,16 @@
+{"title":"Summer Sleep Sale","summary":"","offer":{"name":"Summer Sleep Sale","mechanic":"","price_points":["$49","$69"],"code":"SLEEP20","dates":"Jun 1-15","conditions":["20% off with code SLEEP20","Free shipping over $50"]},
+"products":[{"name":"Deep Sleep Gummies","details":""},{"name":"Chocolate Bar Bundle","details":""}],
+"audience":{"who":"","pains":[],"desires":[]},"angles":["Sleep deeper without grogginess"],"tone":[],
+"copy":[
+{"kind":"headline","text":"Summer Sleep Sale","location":"slide 1","verified":true},
+{"kind":"headline","text":"Sleep Deeper Tonight","location":"slide 2","verified":true},
+{"kind":"headline","text":"Wake Up Rested","location":"slide 2","verified":true},
+{"kind":"headline","text":"Summer Sale","location":"slide 2","verified":true},
+{"kind":"eyebrow","text":"NEW","location":"slide 2","verified":true},
+{"kind":"subheadline","text":"Fall asleep faster and wake up without the fog.","location":"slide 2","verified":true},
+{"kind":"subheadline","text":"Now $49, was $69 — use code SLEEP20","location":"slide 3","verified":false},
+{"kind":"cta","text":"Shop the sale","location":"slide 3","verified":true},
+{"kind":"body","text":"Block out the noise","location":"slide 3","verified":true}
+],
+"deliverables":[],"mandatories":["Show the chocolate bar wrapper","Use the sunscreen-safe blue from the logo","Logo top left","Include 20% off code SLEEP20"],"dos":[],"donts":["Never show a bed with a person in it"],
+"references":[],"pages":[],"images":[],"gaps":["No end time for the sale","No sizes given"],"reading_notes":""}

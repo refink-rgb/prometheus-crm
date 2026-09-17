@@ -4,7 +4,7 @@
 // Each fix here was already paid for once in BrandDocuments (commit 7d6a42e).
 // Keep them here so they are never paid for twice.
 
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { MB } from '@/lib/doc-files'
 
@@ -167,7 +167,54 @@ export function DocDropZone({ queue, accept, title, hint, onFiles }: {
   )
 }
 
-export function DocFrame({ url, title, narrow, height }: { url: string; title: string; narrow: boolean; height: number }) {
+/**
+ * Body scroll lock that composes. Two overlays each saving and restoring
+ * body.style.overflow break when they unmount together: React may run the
+ * outer cleanup first, and the inner one then writes back 'hidden' and the
+ * page stays stuck. A count restores the page only when the last lock goes.
+ */
+let scrollLocks = 0
+let scrollRestore = ''
+export function useBodyScrollLock(active: boolean): void {
+  useEffect(() => {
+    if (!active) return
+    if (scrollLocks++ === 0) {
+      scrollRestore = document.body.style.overflow
+      document.body.style.overflow = 'hidden'
+    }
+    return () => {
+      if (--scrollLocks === 0) document.body.style.overflow = scrollRestore
+    }
+  }, [active])
+}
+
+/**
+ * The guard ReviewWorkspace's Gallery uses for Escape and the arrows. A confirm
+ * dialog owns those keys while it is open, and so does a field being typed in.
+ */
+export function keyOwnedElsewhere(): boolean {
+  if (document.querySelector('[role="alertdialog"]')) return true
+  const el = document.activeElement as HTMLElement | null
+  return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)
+}
+
+export function DocFrame({ url, title, narrow, height, inPage = false, page, onNarrow }: {
+  url: string
+  title: string
+  narrow: boolean
+  /** Pixels, or any CSS height when the frame fills a box (the brief page viewer). */
+  height: number | string
+  /**
+   * Never leaves the CRM: no "Open full screen ↗", and Expand shows the same
+   * frame over the page. Brief panels use it; BrandDocuments keeps the link.
+   */
+  inPage?: boolean
+  /** PDF page to open at. Chrome and Firefox honour #page=N; Safari may open page 1. */
+  page?: number
+  /** inPage on a phone: opens the page pictures instead, when there are any. */
+  onNarrow?: () => void
+}) {
+  if (inPage) return <InPageDocFrame url={url} title={title} narrow={narrow} height={height} page={page} onNarrow={onNarrow} />
   // iOS Safari renders page one of a framed PDF and stops. A phone gets the link.
   if (narrow) {
     return (
@@ -192,6 +239,95 @@ export function DocFrame({ url, title, narrow, height }: { url: string; title: s
         referrerPolicy="no-referrer"
         style={{ width: '100%', height, maxHeight: '75vh', border: '1px solid var(--border)', borderRadius: 8, background: '#ffffff', display: 'block' }}
       />
+    </>
+  )
+}
+
+function InPageDocFrame({ url, title, narrow, height, page, onNarrow }: {
+  url: string
+  title: string
+  narrow: boolean
+  height: number | string
+  page?: number
+  onNarrow?: () => void
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const closeRef = useRef<HTMLButtonElement>(null)
+  const expandRef = useRef<HTMLButtonElement>(null)
+  // Not while narrow: the narrow branch renders no overlay, so a lock taken
+  // before the window shrank would never be released.
+  useBodyScrollLock(expanded && !narrow)
+
+  useEffect(() => {
+    if (!expanded) return
+    const opener = expandRef.current
+    closeRef.current?.focus()
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || keyOwnedElsewhere()) return
+      // Claimed, so a viewer underneath (whose listener may run first or
+      // second) leaves this Escape alone instead of closing too.
+      e.preventDefault()
+      setExpanded(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      opener?.focus({ preventScroll: true })
+    }
+  }, [expanded])
+
+  // A new page is a new document: the key remounts the frame, because
+  // changing only the hash of a framed PDF does not move most viewers.
+  const src = url + (page ? `#page=${page}` : '')
+
+  if (narrow) {
+    return (
+      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+        Phones can&apos;t show the PDF here.{' '}
+        {onNarrow
+          ? <button onClick={onNarrow} style={miniLink}>See the pages</button>
+          : 'Use Download on the row.'}
+      </div>
+    )
+  }
+  return (
+    <>
+      <div style={{ marginBottom: 6 }}>
+        <button ref={expandRef} onClick={() => setExpanded(true)} style={miniLink}>Expand</button>
+      </div>
+      {/* One frame for both states: only the box around it changes, so
+          expanding does not reload the PDF or lose the reader's place. */}
+      <div
+        data-doc-expanded={expanded ? '' : undefined}
+        role={expanded ? 'dialog' : undefined}
+        aria-modal={expanded ? true : undefined}
+        aria-label={expanded ? title : undefined}
+        style={expanded
+          ? { position: 'fixed', inset: 0, zIndex: 800, background: 'rgba(0, 0, 0, 0.88)', padding: '0 16px 16px' }
+          : undefined}
+      >
+        {expanded && (
+          <div style={{ height: 40, display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 600, color: '#f5f5f5', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {title}{page ? ` · p. ${page}` : ''}
+            </span>
+            <button ref={closeRef} onClick={() => setExpanded(false)} aria-label="Close the expanded file" style={{ ...miniBtn, color: 'var(--text-primary)' }}>✕</button>
+          </div>
+        )}
+        <iframe
+          key={src}
+          src={src}
+          title={title}
+          // Same sandbox as DocFrame above, for the same reasons.
+          sandbox="allow-scripts allow-same-origin allow-popups allow-downloads"
+          referrerPolicy="no-referrer"
+          style={{
+            width: '100%', display: 'block', background: '#ffffff', border: '1px solid var(--border)', borderRadius: 8,
+            height: expanded ? 'calc(100vh - 56px)' : height,
+            maxHeight: expanded || typeof height === 'string' ? undefined : '75vh',
+          }}
+        />
+      </div>
     </>
   )
 }

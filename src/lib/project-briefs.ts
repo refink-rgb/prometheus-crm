@@ -101,13 +101,43 @@ export const COPY_LABELS: Record<BriefCopyKind, string> = {
 }
 export const IMAGE_KINDS = ['product', 'lifestyle', 'mockup', 'ad-example', 'inspiration', 'logo', 'chart', 'screenshot', 'other'] as const
 
+/** The stored copy list keeps this many lines. A 24-page landing-page brief ran past the old 150 at p. 16. */
+export const MAX_BRIEF_COPY = 250
+
+export const COPY_FITS = ['ad', 'long', 'note'] as const
+export type BriefCopyFit = (typeof COPY_FITS)[number]
+
 export interface BriefCopy {
   kind: BriefCopyKind
   text: string
   location: string
   /** true/false = checked against the file's text (DOCX/PPTX/TXT). null = could not check (PDF, image). */
   verified: boolean | null
+  /**
+   * The model's judgement: "ad" fits one static image as written, "long" is
+   * page copy, "note" is a note to the team. null on rows read before the
+   * field existed; the cheat sheet's rules decide for those lines.
+   */
+  fit: BriefCopyFit | null
 }
+
+export const BRIEF_SLOTS = ['eyebrow', 'headline', 'subline', 'cta'] as const
+export type BriefSlot = (typeof BRIEF_SLOTS)[number]
+
+/** A line the model chose for one slot of a static ad. Always the BRIEF's words, never the model's. */
+export interface BriefPick {
+  slot: BriefSlot
+  text: string
+  /** Index into `copy`. The UI reads location and verified from there. */
+  copy_index: number
+  /** true when the pick is one whole sentence of a longer copy line. */
+  sentence: boolean
+}
+
+export const BRIEF_TYPE_VALUES = ['ad', 'landing-page', 'campaign', 'other'] as const
+export type BriefType = (typeof BRIEF_TYPE_VALUES)[number]
+
+export interface BriefAdRule { type: 'must' | 'never'; text: string; location: string }
 
 export interface BriefExtraction {
   title: string
@@ -127,6 +157,15 @@ export interface BriefExtraction {
   images: { id: number; caption: string; kind: string }[]
   gaps: string[]
   reading_notes: string
+  /** true when the read asked for ad_picks (even if it found none). false = an older read: rules pick instead. */
+  ai_picks: boolean
+  ad_picks: BriefPick[]
+  /** Rules for what goes ON a static ad image. Empty on older reads. */
+  ad_rules: BriefAdRule[]
+  /** '' on older reads. */
+  brief_type: '' | BriefType
+  /** true when the model returned more copy than MAX_BRIEF_COPY and the rest was dropped. */
+  copy_capped: boolean
 }
 
 // Array.from splits by code point, not UTF-16 unit: .slice(0, max) could cut an
@@ -149,6 +188,24 @@ const httpUrl = (v: unknown): string | null => {
   return /^https?:\/\/\S+$/i.test(u) ? u : null
 }
 
+// Built at runtime: tsconfig targets ES2017, and TS rejects \p{..} literals below ES2018.
+const NON_WORD = new RegExp('[^\\p{L}\\p{N}]+', 'gu')
+/** Case- and punctuation-blind key for "is this the same line". The card, viewer, deck and server action all compare with it. */
+export const matchKey = (t: string): string => t.normalize('NFKC').toLowerCase().replace(NON_WORD, ' ').trim()
+
+/**
+ * matchKey for "is this the SAME line": keeps what makes one offer line differ
+ * from another. matchKey drops symbols, so "Get $15 off" and "Get 15% off" were
+ * one key, and "£5.49" and "£549" too. Thousands commas still don't count.
+ * Used for AI picks and copy-deck duplicates; matchKey stays for word overlap.
+ */
+export const lineKey = (t: string): string => matchKey(
+  t.normalize('NFKC')
+    .replace(/(\d),(?=\d{3}(?!\d))/g, '$1')
+    .replace(/(\d)[.,](\d)/g, '$1p$2')
+    .replace(/%/g, ' pct ').replace(/\$/g, ' usd ').replace(/£/g, ' gbp ').replace(/€/g, ' eur '),
+)
+
 export function normalizeBriefExtraction(raw: unknown): BriefExtraction | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
   const r = raw as Record<string, unknown>
@@ -156,14 +213,22 @@ export function normalizeBriefExtraction(raw: unknown): BriefExtraction | null {
   const audience = rec(r.audience)
 
   const seen = new Set<string>()
-  const copy = recs(r.copy, 250).flatMap((c): BriefCopy[] => {
+  const deduped = recs(r.copy, 300).flatMap((c): BriefCopy[] => {
     const text = str(c.text, 1500)
     const kind = (COPY_KINDS as readonly string[]).includes(c.kind as string) ? (c.kind as BriefCopyKind) : 'other'
     const key = `${kind}\u0000${text}`
     if (!text || seen.has(key)) return []
     seen.add(key)
-    return [{ kind, text, location: str(c.location, 80), verified: typeof c.verified === 'boolean' ? c.verified : null }]
-  }).slice(0, 150)
+    return [{
+      kind, text, location: str(c.location, 80),
+      verified: typeof c.verified === 'boolean' ? c.verified : null,
+      fit: (COPY_FITS as readonly string[]).includes(c.fit as string) ? (c.fit as BriefCopyFit) : null,
+    }]
+  })
+  const copy = deduped.slice(0, MAX_BRIEF_COPY)
+  // A stored row carries the flag forward; a fresh read sets it when lines were dropped here.
+  const copyCapped = r.copy_capped === true || deduped.length > MAX_BRIEF_COPY ||
+    (Array.isArray(r.copy) && r.copy.length > 300)
 
   return {
     title: str(r.title, 200),
@@ -200,16 +265,63 @@ export function normalizeBriefExtraction(raw: unknown): BriefExtraction | null {
       .filter(i => i.id > 0),
     gaps: strs(r.gaps, 6, 200),
     reading_notes: str(r.reading_notes, 300),
+    ai_picks: Array.isArray(r.ad_picks),
+    ad_picks: readPicks(r.ad_picks, copy),
+    ad_rules: recs(r.ad_rules, 40)
+      .flatMap((o): BriefAdRule[] => {
+        const text = str(o.text, 300)
+        return text && (o.type === 'must' || o.type === 'never')
+          ? [{ type: o.type, text, location: str(o.location, 80) }]
+          : []
+      })
+      .slice(0, 10),
+    brief_type: (BRIEF_TYPE_VALUES as readonly string[]).includes(r.brief_type as string) ? (r.brief_type as BriefType) : '',
+    copy_capped: copyCapped,
   }
+}
+
+// The one real limit on picks: Gemini may ignore the prompt's. It runs on every
+// normalize, so picks always point at the current `copy` (a stored row read
+// back re-matches its own picks), and markVerbatim needs no change.
+const PICK_WORDS: Record<BriefSlot, number> = { eyebrow: 6, headline: 12, subline: 20, cta: 8 }
+
+/** Sentences of a line, each with its own end punctuation. No lookbehind: tsconfig targets ES2017. */
+export function sentencesOf(t: string): string[] {
+  const parts = t.split(/([.!?]["')\]]*\s+)/), out: string[] = []
+  for (let i = 0; i < parts.length; i += 2) out.push((parts[i] + (parts[i + 1] ?? '')).trim())
+  return out.filter(Boolean)
+}
+
+function readPicks(raw: unknown, copy: BriefCopy[]): BriefPick[] {
+  const whole = new Map<string, number>(), part = new Map<string, { i: number; text: string }>()
+  copy.forEach((c, i) => {
+    const k = lineKey(c.text)
+    if (k && !whole.has(k)) whole.set(k, i)
+    for (const s of sentencesOf(c.text)) {
+      const sk = lineKey(s)
+      if (sk && !part.has(sk)) part.set(sk, { i, text: s })
+    }
+  })
+  const n: Record<BriefSlot, number> = { eyebrow: 0, headline: 0, subline: 0, cta: 0 }
+  const seen = new Set<string>()
+  return recs(raw, 24).flatMap((o): BriefPick[] => {
+    const slot = o.slot as BriefSlot
+    if (!(BRIEF_SLOTS as readonly string[]).includes(slot) || n[slot] >= 3) return []
+    const k = lineKey(str(o.text, 300))
+    if (!k || seen.has(`${slot}:${k}`)) return []
+    const w = whole.get(k), p = w === undefined ? part.get(k) : undefined
+    if (w === undefined && !p) return []                     // not the brief's words: dropped, never shown
+    const text = w !== undefined ? copy[w].text : p!.text    // displayed text is the BRIEF's, not the model's
+    if (text.includes('\n') || text.trim().split(/\s+/).length > PICK_WORDS[slot]) return []
+    seen.add(`${slot}:${k}`)
+    n[slot]++
+    return [{ slot, text, copy_index: w ?? p!.i, sentence: w === undefined }]
+  })
 }
 
 export const briefIsEmpty = (x: BriefExtraction): boolean =>
   !x.summary && !x.copy.length && !x.offer.mechanic && !x.offer.name && !x.products.length &&
   !x.pages.length && !x.images.length && !x.mandatories.length && !x.angles.length
-
-// Built at runtime: tsconfig targets ES2017, and TS rejects \p{..} literals below ES2018.
-const NON_WORD = new RegExp('[^\\p{L}\\p{N}]+', 'gu')
-const matchKey = (t: string): string => t.normalize('NFKC').toLowerCase().replace(NON_WORD, ' ').trim()
 
 /**
  * The one hallucination check that is actually checkable: for text formats,

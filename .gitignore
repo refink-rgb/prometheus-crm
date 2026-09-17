@@ -43,3 +43,6 @@ next-env.d.ts
 
 # pdf.js browser build, copied from node_modules on install/build
 /public/pdfjs/
+
+# client briefs used by scripts/check-brief-cheatsheet.ts: confidential, never committed
+/scripts/fixtures/

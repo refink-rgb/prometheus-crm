@@ -302,6 +302,9 @@ export default function ReviewWorkspace({
       const el = document.activeElement as HTMLElement | null
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
       if (zoom) return
+      // An overlay owns the arrows (the brief page viewer, an expanded PDF):
+      // turning its pages must not move the selected creative behind it.
+      if (document.querySelector('[aria-modal="true"]')) return
       if (shown.length < 2) return
       e.preventDefault()
       step(e.key === 'ArrowRight' ? 1 : -1)

@@ -2272,7 +2272,13 @@ export default function PreviewProjectView({
               >
                 {/* Keyed on the project, never on the list, so a refresh
                     mid-upload does not remount it. */}
-                <ProjectBriefs key={p.id} projectId={p.id} brandId={p.brand_id} briefs={projectBriefs} serverNow={serverNow} />
+                <ProjectBriefs
+                  key={p.id} projectId={p.id} brandId={p.brand_id} briefs={projectBriefs} serverNow={serverNow}
+                  deck={{ headlines: p.ad_headlines ?? [], subcopies: p.ad_subcopies ?? [], eyebrows: p.ad_eyebrows ?? [] }}
+                  offerText={[p.offer, p.offer_description, p.retail_price, p.discount, p.tiered_offer].filter(Boolean).join('\n')}
+                  hypercareContact={hypercareRule?.contact ?? null}
+                  brandName={brand?.name ?? null}
+                />
 
               {/* Copy, in the order an editor picks it, and liftable. It used to
                   be a plain list on the one tab where the words actually get
@@ -2316,6 +2322,10 @@ export default function PreviewProjectView({
                       <summary style={{ fontSize: 11, color: 'var(--text-secondary)', cursor: 'pointer' }}>Edit or generate copy</summary>
                       <div style={{ marginTop: 12 }}>
                         <CopyDeckPanel
+                          // Seeds its useState once. Lines added from the brief
+                          // panel change these lengths, and without a remount
+                          // saving this open panel would write them away.
+                          key={`${(p.ad_headlines ?? []).length}:${(p.ad_subcopies ?? []).length}:${(p.ad_eyebrows ?? []).length}`}
                           projectId={p.id}
                           brandId={p.brand_id}
                           initialHeadlines={p.ad_headlines ?? []}
@@ -2327,6 +2337,8 @@ export default function PreviewProjectView({
                     </details>
                   ) : (
                     <CopyDeckPanel
+                      // Same reason as the mount above.
+                      key={`${(p.ad_headlines ?? []).length}:${(p.ad_subcopies ?? []).length}:${(p.ad_eyebrows ?? []).length}`}
                       projectId={p.id}
                       brandId={p.brand_id}
                       initialHeadlines={p.ad_headlines ?? []}

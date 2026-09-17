@@ -13,6 +13,7 @@ import {
 } from '@/lib/project-briefs'
 import { MB } from '@/lib/doc-files'
 import type { ProjectBrief } from '@/lib/types'
+import type { BriefDeck } from '@/lib/brief-cheatsheet'
 import { useNarrow, useUploadQueue, useSharedState, uploadTyped, DocDropZone, fmtSize, fmtDate, miniLink, miniBtn } from './doc-kit'
 import { renderPdfPreviews, pdfErrorMessage } from './render-pdf-pages'
 import BriefReader from './BriefReader'
@@ -27,12 +28,19 @@ type Previews = { id: string; label: string } | null
 const NO_PREVIEWS: Previews = null
 const NO_ID: string | null = null
 
-export default function ProjectBriefs({ projectId, brandId, briefs, serverNow }: {
+export default function ProjectBriefs({ projectId, brandId, briefs, serverNow, deck, offerText, hypercareContact, brandName }: {
   projectId: string
   brandId: string
   briefs: ProjectBrief[]
   /** Date.now() on the server at render: `extraction_started_at` is server time. */
   serverNow: number
+  /** The project's copy deck: the brief panel marks lines already in it. */
+  deck: BriefDeck
+  /** The project's Offer section as text, for the brief's price check. */
+  offerText: string
+  /** Hypercare brand: its copy comes from this person, and + Deck is off. */
+  hypercareContact: string | null
+  brandName: string | null
 }) {
   const router = useRouter()
   // Shared, not local: the Creatives tab unmounts this panel on a tab switch,
@@ -310,8 +318,15 @@ export default function ProjectBriefs({ projectId, brandId, briefs, serverNow }:
               <BriefReader
                 brief={b}
                 projectId={projectId}
+                brandId={brandId}
                 narrow={narrow}
                 onMakePreviews={isPdf && !previews && !queue.busy ? () => void remakePreviews(b) : null}
+                deck={deck}
+                offerText={offerText}
+                hypercareContact={hypercareContact}
+                brandName={brandName}
+                // Same guard as the row's Re-read button: not while a read runs.
+                onReread={status.busy ? null : () => void reread(b)}
               />
             )}
           </div>

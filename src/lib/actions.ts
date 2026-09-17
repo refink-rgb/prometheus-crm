@@ -32,6 +32,8 @@ import {
   briefSourcePath, briefImagePath, readBriefImages, safeBriefName, type BriefImage,
 } from '@/lib/project-briefs'
 import { removeBriefFolder } from '@/lib/briefs/storage'
+import type { DeckColumn } from '@/lib/brief-cheatsheet'
+import { checkDeckLines, planDeckAdditions, type DeckSkipReason } from '@/lib/copy-deck'
 import {
   ensureDeleteSubfolder,
   extractDriveFolderId,
@@ -4050,6 +4052,67 @@ export async function removeProjectBrief(
   await removeBriefFolder(supabase, projectId, briefId)
   revalidateBriefPaths(projectId, brandId)
   return { ok: true }
+}
+
+// "+ Deck" and "Add N to Copy deck" on the brief card and page viewer.
+//
+// Lines go in exactly as the brief wrote them and unapproved: nothing is written
+// to copy_approvals, so they arrive "not yet looked at" like any typed line. The
+// deck is read fresh and merged here instead of the browser sending whole
+// arrays, because saveProjectCopy writes all three columns from the browser's
+// copy and a card opened before someone else's edit would wipe it. Server
+// Actions from one page run one at a time, so two quick clicks cannot
+// interleave their read and write.
+export async function addBriefLinesToCopyDeck(
+  projectId: string,
+  brandId: string,
+  lines: { column: DeckColumn; text: string }[],
+): Promise<
+  | { ok: true; added: string[]; skipped: { text: string; reason: DeckSkipReason }[] }
+  | { ok: false; error: string }
+> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!(await canEdit(user.email))) return { ok: false, error: 'Not authorized.' }
+
+  if (!isUuid(projectId)) return { ok: false, error: 'Unknown project.' }
+  if (!isUuid(brandId)) return { ok: false, error: 'Unknown brand.' }
+  const checked = checkDeckLines(lines)
+  if (!checked.ok) return checked
+
+  const [{ data: row, error: rowErr }, { data: brandRow, error: brandErr }] = await Promise.all([
+    supabase.from('projects').select('brand_id, ad_headlines, ad_subcopies, ad_eyebrows').eq('id', projectId).maybeSingle(),
+    supabase.from('brands').select('name').eq('id', brandId).maybeSingle(),
+  ])
+  if (rowErr) return { ok: false, error: `Could not read the project: ${rowErr.message}` }
+  const project = row as ({ brand_id: string } & Record<DeckColumn, unknown>) | null
+  if (!project || project.brand_id !== brandId) return { ok: false, error: 'That project could not be found.' }
+  // Fails closed: without the brand's name there is no telling whether it is in hypercare.
+  if (brandErr || !brandRow) return { ok: false, error: 'That brand could not be found.' }
+
+  // Same gate as generateProjectCopy. The card hides "+ Deck" for these brands;
+  // this is what holds when the action is called some other way.
+  const { hypercareFor, hypercareCopyMessage } = await import('@/lib/hypercare')
+  const rule = hypercareFor((brandRow as { name: string | null }).name)
+  if (rule) return { ok: false, error: hypercareCopyMessage(rule) }
+
+  const plan = planDeckAdditions(project, checked.lines)
+  if (!plan.added.length) return { ok: true, added: [], skipped: plan.skipped }
+
+  // .select() so a write that RLS quietly filtered to zero rows is not reported
+  // on the card as "Added 3 lines".
+  const { data: updated, error } = await supabase
+    .from('projects')
+    .update(plan.columns)
+    .eq('id', projectId)
+    .eq('brand_id', brandId)
+    .select('id')
+  if (error) return { ok: false, error: `Could not add to the copy deck: ${error.message}` }
+  if (!updated?.length) return { ok: false, error: 'Could not add to the copy deck: the project was not updated.' }
+
+  revalidateBriefPaths(projectId, brandId)
+  return { ok: true, added: plan.added, skipped: plan.skipped }
 }
 
 
