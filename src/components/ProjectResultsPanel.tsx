@@ -384,12 +384,6 @@ function TrackingView({
           </TileGroup>
           </div>
 
-          {(rest.clamped.length > 0 || warningDays > 0) && (
-            <div style={{ fontSize: 11, color: 'var(--warning)', lineHeight: 1.5 }}>
-              {warningDays > 0 && <div>⚠ {warningDays} day{warningDays === 1 ? '' : 's'} carry validation warnings — cross-checks disagreed with the reported numbers.</div>}
-              {rest.clamped.length > 0 && <div>⚠ Account totals briefly trail the LP&apos;s on: {rest.clamped.join(', ')} (restatement lag) — those rest-of-account figures are floored at 0.</div>}
-            </div>
-          )}
 
           {/* ── Spend + ROAS by day ────────────────────────────────────────── */}
           <section id="results-charts" className="card" style={{ padding: '18px 20px' }}>
@@ -401,6 +395,13 @@ function TrackingView({
             </p>
             <ChartPair data={chartData} />
           </section>
+
+          {(rest.clamped.length > 0 || warningDays > 0) && (
+            <div style={{ fontSize: 11, color: 'var(--warning)', lineHeight: 1.5 }}>
+              {warningDays > 0 && <div>⚠ {warningDays} day{warningDays === 1 ? '' : 's'} carry validation warnings — cross-checks disagreed with the reported numbers.</div>}
+              {rest.clamped.length > 0 && <div>⚠ Account totals briefly trail the LP&apos;s on: {rest.clamped.join(', ')} (restatement lag) — those rest-of-account figures are floored at 0.</div>}
+            </div>
+          )}
         </>
       )}
 
