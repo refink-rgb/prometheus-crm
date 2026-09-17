@@ -157,11 +157,7 @@ async function discoverAds(work: LpWork) {
   const cacheKey = `${work.ad_account_id}|${sinceIso}`
   let listing = adListingCache.get(cacheKey)
   if (!listing) {
-    listing = metaGetAll<AdListing>(`${work.ad_account_id}/ads`, {
-      fields: 'id,name,created_time,adset{id,name},campaign{id,name},creative{object_story_spec,asset_feed_spec}',
-      filtering: [{ field: 'ad.created_time', operator: 'GREATER_THAN', value: sinceUnix }],
-      limit: 100,
-    }, 100)
+    listing = listAdsAdaptive(work.ad_account_id, sinceUnix)
     adListingCache.set(cacheKey, listing)
   }
   const ads = await listing
@@ -195,6 +191,29 @@ async function discoverAds(work: LpWork) {
     })
   }
   return matches
+}
+
+// Big accounts (Barstool-scale) reject the ad listing outright with Meta's
+// "Please reduce the amount of data" error when the page size is too
+// ambitious for the nested creative fields. Start at 50 and halve down —
+// smaller pages mean more requests, but a slow listing beats no listing.
+async function listAdsAdaptive(accountId: string, sinceUnix: number): Promise<AdListing[]> {
+  const params = (limit: number) => ({
+    fields: 'id,name,created_time,adset{id,name},campaign{id,name},creative{object_story_spec,asset_feed_spec}',
+    filtering: [{ field: 'ad.created_time', operator: 'GREATER_THAN', value: sinceUnix }],
+    limit,
+  })
+  let lastErr: unknown
+  for (const limit of [50, 25, 10]) {
+    try {
+      return await metaGetAll<AdListing>(`${accountId}/ads`, params(limit), 200)
+    } catch (err) {
+      lastErr = err
+      const msg = err instanceof MetaApiError ? err.message : String(err)
+      if (!/reduce the amount of data|unknown error/i.test(msg)) throw err
+    }
+  }
+  throw lastErr
 }
 
 // Daily insights for a set of ads, summed per day.
@@ -354,7 +373,11 @@ export async function runResultsPull(filters: { brandId?: string } = {}): Promis
   // ── LP pages: discovery → launch detection → daily rows ──────────────────
   let lpPulled = 0
   let launchDetected = 0
-  for (const p of work.lp_pages ?? []) {
+  // Shuffled per run: a heavy or failing page must not sit at the front of
+  // every pass starving the rest of the backfill — shuffled, every page gets
+  // budget eventually, and completed pages get cheap (small windows).
+  const lpQueue = [...(work.lp_pages ?? [])].sort(() => Math.random() - 0.5)
+  for (const p of lpQueue) {
     if (outOfBudget()) {
       errors.push(`time budget reached — ${(work.lp_pages?.length ?? 0) - lpPulled} LP page(s) deferred to the next run`)
       break
