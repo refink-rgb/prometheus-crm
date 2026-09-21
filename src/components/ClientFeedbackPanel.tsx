@@ -24,6 +24,7 @@ export default function ClientFeedbackPanel({
   projectId,
   brandId,
   canResolve,
+  reviewToken = null,
 }: {
   lpFeedback: ProjectComment[]
   creativeFeedback: ProjectComment[]
@@ -33,6 +34,9 @@ export default function ClientFeedbackPanel({
   projectId: string
   brandId: string
   canResolve: boolean
+  /** The project's share token, so a pinned comment can link to its spot on
+   *  the client review page. Null when no link has been generated yet. */
+  reviewToken?: string | null
 }) {
   const total = lpFeedback.length + creativeFeedback.length
   const doneCount = [...lpFeedback, ...creativeFeedback].filter(c => c.resolved_at != null).length
@@ -48,6 +52,18 @@ export default function ClientFeedbackPanel({
     byAsset.set(key, list)
   }
   const assetName = (id: string) => assets.find(a => a.id === id)?.name ?? 'Creative'
+
+  // Landing-page pins carry the same number here as on the client's page.
+  // The client link numbers OPEN pinned comments oldest-first (resolved ones
+  // drop off it entirely), so this mirrors that: a resolved pin keeps its
+  // "pinned" line but no number, because the client no longer sees one.
+  const lpPinNumber = new Map<string, number>()
+  lpFeedback
+    .filter(c => c.pin_x != null && c.resolved_at == null)
+    .sort((a, b) => a.created_at.localeCompare(b.created_at))
+    .forEach((c, i) => lpPinNumber.set(c.id, i + 1))
+  const lpPinHref = (c: ProjectComment) =>
+    reviewToken ? `/review/${reviewToken}?pin=${encodeURIComponent(c.id)}` : undefined
   const assetStatus = (id: string) => assets.find(a => a.id === id)?.status ?? 'pending'
 
   return (
@@ -83,7 +99,16 @@ export default function ClientFeedbackPanel({
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {lpFeedback.map(c => (
-                  <FeedbackComment key={c.id} comment={c} projectId={projectId} brandId={brandId} canResolve={canResolve} />
+                  <FeedbackComment
+                    key={c.id}
+                    comment={c}
+                    projectId={projectId}
+                    brandId={brandId}
+                    canResolve={canResolve}
+                    pin={lpPinNumber.get(c.id)}
+                    pinned={c.pin_x != null}
+                    pinHref={c.pin_x != null && c.resolved_at == null ? lpPinHref(c) : undefined}
+                  />
                 ))}
               </div>
             </div>

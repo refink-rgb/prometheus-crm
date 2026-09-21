@@ -1753,6 +1753,7 @@ export default function PreviewProjectView({
                     creativesApproved={p.creatives_approved}
                     projectId={p.id}
                     brandId={p.brand_id}
+                    reviewToken={p.share_token}
                     canResolve
                   />
 

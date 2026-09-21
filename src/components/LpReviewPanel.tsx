@@ -8,6 +8,9 @@ import { useConfirm } from '@/components/ConfirmDialog'
 import { useToast } from '@/components/Toast'
 import { LP_SECTIONS } from '@/lib/types'
 import type { ProjectComment } from '@/lib/types'
+import {
+  Check, ExternalLink, Link2, Lock, MapPin, MessageSquare, Monitor, Smartphone, Trash2, X,
+} from 'lucide-react'
 
 const SECTION_COLORS: Record<string, string> = {
   'Hero': '#818cf8',
@@ -65,6 +68,29 @@ export default function LpReviewPanel({
   const [pendingPin, setPendingPin] = useState<{ x: number; y: number } | null>(null)
   const [activePin, setActivePin] = useState<string | null>(null)
   const commentRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  // The comment id the internal page asked us to open (`?pin=<id>` on the
+  // review link, from "See on page" in Client feedback). Consumed once the
+  // preview is up and the marker can be scrolled to.
+  const requestedPin = useRef<string | null>(null)
+  useEffect(() => {
+    try {
+      requestedPin.current = new URLSearchParams(window.location.search).get('pin')
+    } catch { /* no window */ }
+  }, [])
+
+  // Esc backs out of pin mode, and drops an unsent pin. Clients reached for
+  // it and nothing happened.
+  useEffect(() => {
+    if (!pinMode && !pendingPin) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      if (pinMode) setPinMode(false)
+      else if (pendingPin && !commentText.trim()) setPendingPin(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [pinMode, pendingPin, commentText])
 
   // Oldest-first so a pin's number never changes as newer pins are added.
   const pinnedOrdered = useMemo(
@@ -126,10 +152,30 @@ export default function LpReviewPanel({
 
   // Click a page pin (or its sidebar card) → select it and reveal the matching
   // comment.
-  const handlePinClick = useCallback((id: string) => {
+  const handlePinClick = useCallback((id: string, opts?: { reveal?: boolean }) => {
     setActivePin(prev => (prev === id ? null : id))
     commentRefs.current[id]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
-  }, [])
+    if (opts?.reveal) {
+      const number = pinnedOrdered.findIndex(p => p.id === id) + 1
+      if (number > 0) postToPreview({ type: 'reveal', number })
+    }
+  }, [pinnedOrdered, postToPreview])
+
+  // Deep link: once the preview is up, select the requested pin and scroll
+  // the page to it. Marker positions land with the next `markers` sync, so
+  // give that a beat before asking the page to scroll.
+  useEffect(() => {
+    if (!requestedPin.current || loadState !== 'loaded') return
+    const target = pinnedOrdered.find(p => p.id === requestedPin.current)
+    requestedPin.current = null
+    if (!target) return
+    const t = setTimeout(() => {
+      setActivePin(target.id)
+      commentRefs.current[target.id]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+      postToPreview({ type: 'reveal', number: pinnedOrdered.indexOf(target) + 1 })
+    }, 300)
+    return () => clearTimeout(t)
+  }, [loadState, pinnedOrdered, postToPreview])
 
   // Sync parent-owned pin state into the sandboxed document. Only coordinates,
   // ordering, and selection state cross the boundary.
@@ -184,6 +230,9 @@ export default function LpReviewPanel({
           y: Math.min(100, Math.max(0, data.y)),
         })
         setPinMode(false)
+        // The pin is placed; the next thing is the words. Put the cursor
+        // there so the client does not have to find the box.
+        setTimeout(() => textareaRef.current?.focus(), 0)
       } else if (data.type === 'pin-activated' && typeof data.number === 'number') {
         const comment = pinnedOrdered[data.number - 1]
         if (comment) handlePinClick(comment.id)
@@ -318,7 +367,10 @@ export default function LpReviewPanel({
                     boxShadow: device === d ? '0 1px 3px rgba(0,0,0,0.15)' : 'none',
                   }}
                 >
-                  {d === 'desktop' ? '🖥 Desktop' : '📱 Mobile'}
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                    {d === 'desktop' ? <Monitor size={13} aria-hidden /> : <Smartphone size={13} aria-hidden />}
+                    {d === 'desktop' ? 'Desktop' : 'Mobile'}
+                  </span>
                 </button>
               ))}
             </div>
@@ -328,7 +380,8 @@ export default function LpReviewPanel({
           {loadState === 'loaded' && (
             <button
               onClick={() => { setPinMode(m => !m); setPendingPin(null) }}
-              title="Drop a pin on the page, then write your comment"
+              title={pinMode ? 'Cancel (Esc)' : 'Point at the exact spot you mean, then write your comment'}
+              aria-pressed={pinMode}
               style={{
                 display: 'inline-flex', alignItems: 'center', gap: 5,
                 padding: '5px 10px', borderRadius: 7, fontSize: 12, fontWeight: 600,
@@ -338,7 +391,8 @@ export default function LpReviewPanel({
                 color: pinMode ? 'var(--accent)' : 'var(--text-secondary)',
               }}
             >
-              📍 {pinMode ? 'Click a spot on the page…' : 'Pin a comment'}
+              <MapPin size={13} aria-hidden />
+              {pinMode ? 'Cancel pin' : 'Pin a comment'}
             </button>
           )}
 
@@ -352,7 +406,9 @@ export default function LpReviewPanel({
               className="btn-secondary btn-sm"
               style={{ background: 'var(--surface-raised)' }}
             >
-              Open live page ↗
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                Open live page <ExternalLink size={12} aria-hidden />
+              </span>
             </a>
           )}
         </div>
@@ -376,9 +432,9 @@ export default function LpReviewPanel({
                   width: 64, height: 64, borderRadius: '50%',
                   background: 'var(--surface)', border: '1px solid var(--border)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 28,
+                  color: 'var(--text-muted)',
                 }}>
-                  🔒
+                  <Lock size={26} aria-hidden />
                 </div>
                 <div style={{ maxWidth: 420 }}>
                   <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 8px' }}>
@@ -395,7 +451,9 @@ export default function LpReviewPanel({
                   rel="noopener noreferrer"
                   className="btn-primary"
                 >
-                  Open page in new tab ↗
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    Open page in new tab <ExternalLink size={13} aria-hidden />
+                  </span>
                 </a>
               </div>
             ) : (
@@ -450,6 +508,25 @@ export default function LpReviewPanel({
                   </div>
                 )}
 
+                {/* Pin mode: say what to do, on the thing to do it to. The
+                    only cue used to be the toolbar button's label changing,
+                    which is easy to miss once the eye is on the page. */}
+                {loadState === 'loaded' && pinMode && (
+                  <div style={{
+                    position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)',
+                    zIndex: 12, pointerEvents: 'none',
+                    display: 'inline-flex', alignItems: 'center', gap: 8,
+                    padding: '7px 14px', borderRadius: 999,
+                    background: 'var(--accent)', color: 'white',
+                    fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap',
+                    boxShadow: '0 6px 20px rgba(0,0,0,0.35)',
+                  }}>
+                    <MapPin size={13} aria-hidden />
+                    Click the spot you want to comment on
+                    <span style={{ opacity: 0.75, fontWeight: 500 }}>· Esc to cancel</span>
+                  </div>
+                )}
+
                 {/* Loading overlay — covers the iframe so the broken-content flash is never visible */}
                 {loadState === 'loading' && (
                   <div style={{
@@ -478,7 +555,7 @@ export default function LpReviewPanel({
                   }}>
                     <span>Something not working?</span>
                     <a href={lpUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'none', fontWeight: 600 }}>
-                      Open in new tab ↗
+                      Open in new tab <ExternalLink size={11} aria-hidden style={{ verticalAlign: '-1px' }} />
                     </a>
                   </div>
                 )}
@@ -486,7 +563,7 @@ export default function LpReviewPanel({
             )
           ) : (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', flexDirection: 'column', gap: 8 }}>
-              <div style={{ fontSize: 32 }}>🔗</div>
+              <Link2 size={30} style={{ color: 'var(--text-muted)' }} aria-hidden />
               <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>Landing page URL not set yet</p>
             </div>
           )}
@@ -509,8 +586,8 @@ export default function LpReviewPanel({
           borderBottom: '1px solid var(--border)',
           flexShrink: 0,
         }}>
-          <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
-            Feedback 💬
+          <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <MessageSquare size={15} aria-hidden /> Feedback
           </span>
           {comments.length > 0 && (
             <span style={{
@@ -535,12 +612,14 @@ export default function LpReviewPanel({
                 color: 'var(--success)',
               }}
             >
-              {approving ? '…' : '✓ Approve'}
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                <Check size={13} strokeWidth={2.5} aria-hidden /> {approving ? 'Approving…' : 'Approve'}
+              </span>
             </button>
           )}
           {lpApproved && (
-            <span className="badge badge-done" style={{ marginLeft: 'auto' }}>
-              ✓ Approved
+            <span className="badge badge-done" style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <Check size={12} strokeWidth={2.5} aria-hidden /> Approved
             </span>
           )}
         </div>
@@ -559,10 +638,36 @@ export default function LpReviewPanel({
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 fontSize: 10, fontWeight: 700, color: 'white', flexShrink: 0,
               }}>{pinnedOrdered.length + 1}</span>
-              <span style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 600, flex: 1 }}>Pinned to the page</span>
+              <span style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 600, flex: 1, lineHeight: 1.3 }}>
+                Pin placed — your comment will point there
+              </span>
+              <button type="button" onClick={() => setPinMode(true)} title="Pick a different spot"
+                style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 11, fontWeight: 600, padding: '0 2px' }}>
+                Move
+              </button>
               <button type="button" onClick={() => setPendingPin(null)} aria-label="Remove pin" title="Remove pin"
-                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 15, padding: 0, lineHeight: 1 }}>×</button>
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 0, lineHeight: 1, display: 'inline-flex' }}>
+                <X size={14} aria-hidden />
+              </button>
             </div>
+          )}
+          {!pendingPin && loadState === 'loaded' && (
+            <button
+              type="button"
+              onClick={() => setPinMode(true)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8, width: '100%', marginBottom: 8,
+                padding: '7px 10px', borderRadius: 6, textAlign: 'left', cursor: 'pointer',
+                background: 'var(--surface-raised)', border: '1px dashed var(--border-strong)',
+                color: 'var(--text-secondary)', fontSize: 11.5,
+              }}
+            >
+              <MapPin size={14} style={{ color: 'var(--accent)', flexShrink: 0 }} aria-hidden />
+              <span style={{ lineHeight: 1.35 }}>
+                <strong style={{ color: 'var(--text-primary)', fontWeight: 600 }}>Point at a spot on the page</strong>
+                <br />so we know exactly what you mean
+              </span>
+            </button>
           )}
           <select
             value={sectionTag}
@@ -580,7 +685,8 @@ export default function LpReviewPanel({
             style={{ marginBottom: 6, fontSize: 12 }}
           />
           <textarea
-            placeholder="Leave feedback on the landing page"
+            ref={textareaRef}
+            placeholder={pendingPin ? 'What should change here?' : 'Leave feedback on the landing page'}
             value={commentText}
             onChange={e => setCommentText(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -602,8 +708,11 @@ export default function LpReviewPanel({
         {/* Comment list — scrollable, below form */}
         <div style={{ flex: 1, overflowY: 'auto' }}>
           {comments.length === 0 && (
-            <div style={{ padding: '24px 16px', textAlign: 'center' }}>
-              <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>No comments yet</p>
+            <div style={{ padding: '28px 16px', textAlign: 'center', color: 'var(--text-muted)' }}>
+              <MessageSquare size={22} style={{ opacity: 0.5, marginBottom: 8 }} aria-hidden />
+              <p style={{ fontSize: 12, margin: 0, lineHeight: 1.6 }}>
+                No comments yet.<br />Pinned comments show up as numbered markers on the page.
+              </p>
             </div>
           )}
           {comments.map(c => {
@@ -616,7 +725,8 @@ export default function LpReviewPanel({
               <div
                 key={c.id}
                 ref={el => { commentRefs.current[c.id] = el }}
-                onClick={isPinned ? () => handlePinClick(c.id) : undefined}
+                onClick={isPinned ? () => handlePinClick(c.id, { reveal: true }) : undefined}
+                title={isPinned ? 'Show this pin on the page' : undefined}
                 style={{
                   padding: '12px 16px',
                   borderBottom: '1px solid var(--border)',
@@ -637,8 +747,8 @@ export default function LpReviewPanel({
                       width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
                       background: 'var(--surface-raised)',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: 12,
-                    }}>💬</span>
+                      color: 'var(--text-muted)',
+                    }}><MessageSquare size={12} aria-hidden /></span>
                   )}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
@@ -655,10 +765,10 @@ export default function LpReviewPanel({
                           style={{
                             marginLeft: 'auto', background: 'none', border: 'none',
                             color: 'var(--text-muted)', cursor: 'pointer',
-                            fontSize: 14, padding: '0 4px', lineHeight: 1,
+                            padding: '0 4px', lineHeight: 1, display: 'inline-flex',
                           }}
                         >
-                          ×
+                          <Trash2 size={13} aria-hidden />
                         </button>
                       )}
                     </div>

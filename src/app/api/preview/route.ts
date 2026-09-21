@@ -502,6 +502,18 @@ const PREVIEW_BRIDGE_SCRIPT = String.raw`
       renderMarkers()
     } else if (data.type === 'pin-mode') {
       setPinMode(data.enabled)
+    } else if (data.type === 'reveal') {
+      // Bring a marker into view: the sidebar card was clickable, but the
+      // pin it pointed at could be a screenful away, so the click looked like
+      // it did nothing. Counts as reviewer interaction, so the hold-top guard
+      // stops fighting the scroll.
+      const marker = markers.find(m => m.number === data.number)
+      if (marker) {
+        noteInteraction()
+        const documentSize = size()
+        const top = (marker.y / 100) * documentSize.height - window.innerHeight / 2
+        window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
+      }
     } else if (data.type === 'ping') {
       send('status', { status: 'ok' })
       renderMarkers()
