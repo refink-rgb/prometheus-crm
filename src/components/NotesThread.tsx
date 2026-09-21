@@ -206,6 +206,13 @@ export default function NotesThread({
               && prev.audience === note.audience
               && new Date(note.created_at).getTime() - new Date(prev.created_at).getTime() < 5 * 60 * 1000
             const isInternalOnly = mode === 'internal' && note.audience === 'internal'
+            // The internal thread mixes both audiences: staff notes (tagged
+            // 'internal', never served to the client) and messages the client
+            // typed on their review link (tagged 'client', visible there). The
+            // client ones were unbadged, so a teammate reading this thread had
+            // no way to tell which notes the client could see and assumed a
+            // leak when they later spotted one on the review link.
+            const isClientPosted = mode === 'internal' && note.audience !== 'internal'
 
             return (
               <div
@@ -245,6 +252,14 @@ export default function NotesThread({
                           border: '1px solid var(--border)', borderRadius: 4, padding: '1px 5px',
                         }}>
                           🔒 Internal
+                        </span>
+                      )}
+                      {isClientPosted && (
+                        <span title="Posted from the client review link — the client sees this" style={{
+                          fontSize: 10, fontWeight: 600, color: '#60a5fa',
+                          border: '1px solid var(--border)', borderRadius: 4, padding: '1px 5px',
+                        }}>
+                          Client · on review link
                         </span>
                       )}
                     </div>

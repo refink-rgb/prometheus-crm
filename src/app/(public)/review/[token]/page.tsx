@@ -44,7 +44,12 @@ export default async function ReviewPage({
   ] = await Promise.all([
     supabase.from('brands').select('id, name').eq('id', p.brand_id).single(),
     // Client review must NEVER show internal-only comments — exclude audience='internal'.
-    supabase.from('project_comments').select('*').eq('project_id', p.id).neq('audience', 'internal').order('created_at'),
+    // Belt and braces: author_id is set only by the authed staff write paths
+    // (addInternalNote, addInternalAssetComment); the anonymous review link
+    // never sets it. So a staff-authored row is never client-facing, whatever
+    // its audience tag says — this holds even if a future insert path forgets
+    // to tag audience (the bug fixed in eb679f0).
+    supabase.from('project_comments').select('*').eq('project_id', p.id).neq('audience', 'internal').is('author_id', null).order('created_at'),
     supabase.from('creative_assets').select('*').eq('project_id', p.id).eq('is_hidden', false).eq('client_visible', true).order('sort_order'),
   ])
 

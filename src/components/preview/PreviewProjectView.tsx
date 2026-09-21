@@ -1765,7 +1765,7 @@ export default function PreviewProjectView({
                   anyone — and it was gated on there already being notes, so on a
                   fresh project the section did not exist at all and there was
                   nowhere to start one. Always rendered now. */}
-              <Card id="notes" title="Internal notes" purpose="Never seen by the client.">
+              <Card id="notes" title="Notes" purpose="Your notes stay internal. Messages the client posts on their review link show here too, badged — they are the only ones the client sees.">
                 <NotesThread
                   notes={noteComments}
                   mode="internal"
