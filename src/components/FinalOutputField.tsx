@@ -63,12 +63,41 @@ export default function FinalOutputField({
   const [value, setValue] = useState(currentValue ?? '')
   const [error, setError] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
+  // What the read view prints between a save and the refreshed props landing.
+  const [lastSaved, setLastSaved] = useState<string | null>(currentValue)
+  const shown = currentValue ?? lastSaved
+
+  function startEditing() { setValue(shown ?? ''); setError(null); setEditing(true) }
+  function cancel() { setValue(shown ?? ''); setError(null); setEditing(false) }
 
   if (!editing) {
+    // The URL field is printed by its caller (as a link) — this only adds the
+    // control. The guide is different: it is a paragraph, so it owns its own
+    // read view, and clicking Edit swaps that box for the editor in place.
+    // It used to open the textarea UNDER the saved text, so the guide was on
+    // screen twice while you edited it, and the textarea came out half-width.
+    if (cfg.inputType === 'textarea') {
+      return (
+        <div style={{ width: '100%', maxWidth: '80ch' }}>
+          <div style={{
+            fontSize: 13, lineHeight: 1.6, color: 'var(--text-primary)', whiteSpace: 'pre-wrap',
+            padding: '10px 14px', borderRadius: 8,
+            background: 'var(--surface-2)', border: '1px solid var(--border)',
+          }}>
+            {shown}
+          </div>
+          <div style={{ marginTop: 6 }}>
+            <button type="button" onClick={startEditing} className="btn-secondary btn-sm">
+              Edit guide
+            </button>
+          </div>
+        </div>
+      )
+    }
     return (
       <button
         type="button"
-        onClick={() => { setValue(currentValue ?? ''); setError(null); setEditing(true) }}
+        onClick={startEditing}
         style={{ background: 'none', border: 'none', padding: 0, fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', cursor: 'pointer', textDecoration: 'underline' }}
       >
         Change
@@ -86,7 +115,8 @@ export default function FinalOutputField({
     startTransition(async () => {
       try {
         await updateProjectDetails(projectId, brandId, { [field]: next || null })
-        if (currentValue) setEditing(false)
+        setLastSaved(next || null)
+        if (next) setEditing(false)
         router.refresh()
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Could not save.')
@@ -94,40 +124,69 @@ export default function FinalOutputField({
     })
   }
 
+  const dirty = cfg.normalize(value) !== (shown ?? '')
+
+  if (cfg.inputType === 'textarea') {
+    return (
+      <form
+        onSubmit={e => { e.preventDefault(); save() }}
+        style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%', maxWidth: '80ch' }}
+      >
+        <textarea
+          value={value}
+          autoFocus={!!shown}
+          onChange={e => setValue(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Escape' && shown) { e.preventDefault(); cancel() }
+            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); save() }
+          }}
+          placeholder={cfg.placeholder}
+          aria-label={cfg.label}
+          disabled={pending}
+          // Grows with the text so the whole guide is readable while editing
+          // instead of scrolling inside a four-line box; capped so a long one
+          // still leaves the Save button on screen.
+          rows={Math.min(18, Math.max(4, value.split('\n').length + 1))}
+          style={{ fontSize: 13, lineHeight: 1.6, padding: '10px 14px', resize: 'vertical', background: 'var(--surface-2)' }}
+        />
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button type="submit" className="btn-primary btn-sm" disabled={pending || (shown ? !dirty : !value.trim())}>
+            {pending ? 'Saving…' : shown ? 'Save changes' : cfg.submitLabel}
+          </button>
+          {shown && (
+            <button type="button" className="btn-secondary btn-sm" disabled={pending} onClick={cancel}>
+              Cancel
+            </button>
+          )}
+          <span style={{ fontSize: 11, color: error ? 'var(--urgent-soon)' : 'var(--text-muted)' }}>
+            {error ?? (shown ? '⌘↵ save · esc cancel' : cfg.hint)}
+          </span>
+        </div>
+      </form>
+    )
+  }
+
   return (
     <form
       onSubmit={e => { e.preventDefault(); save() }}
       style={{ display: 'flex', flexDirection: 'column', gap: 6 }}
     >
-      <div style={{ display: 'flex', gap: 8, alignItems: cfg.inputType === 'textarea' ? 'flex-end' : 'center', flexWrap: 'wrap' }}>
-        {cfg.inputType === 'textarea' ? (
-          <textarea
-            value={value}
-            onChange={e => setValue(e.target.value)}
-            onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); save() } }}
-            placeholder={cfg.placeholder}
-            aria-label={cfg.label}
-            disabled={pending}
-            rows={4}
-            style={{ flex: '1 1 100%', minWidth: 0, fontSize: 13, lineHeight: 1.55, resize: 'vertical' }}
-          />
-        ) : (
-          <input
-            type={cfg.inputType}
-            inputMode={cfg.inputType === 'url' ? 'url' : 'text'}
-            value={value}
-            onChange={e => setValue(e.target.value)}
-            placeholder={cfg.placeholder}
-            aria-label={cfg.label}
-            disabled={pending}
-            style={{ flex: '1 1 320px', minWidth: 0, fontSize: 13 }}
-          />
-        )}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <input
+          type={cfg.inputType}
+          inputMode={cfg.inputType === 'url' ? 'url' : 'text'}
+          value={value}
+          onChange={e => setValue(e.target.value)}
+          placeholder={cfg.placeholder}
+          aria-label={cfg.label}
+          disabled={pending}
+          style={{ flex: '1 1 320px', minWidth: 0, fontSize: 13 }}
+        />
         <button type="submit" className="btn-primary btn-sm" disabled={pending || (!value.trim() && !currentValue)}>
           {pending ? 'Saving…' : currentValue ? 'Save' : cfg.submitLabel}
         </button>
         {currentValue && (
-          <button type="button" className="btn-secondary btn-sm" disabled={pending} onClick={() => setEditing(false)}>
+          <button type="button" className="btn-secondary btn-sm" disabled={pending} onClick={cancel}>
             Cancel
           </button>
         )}

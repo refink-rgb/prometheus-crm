@@ -1486,8 +1486,8 @@ export default function PreviewProjectView({
                     when it held a bare code). Also moved here from Edit details. */}
                 <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
                   <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Discount setup guide</div>
-                  {p.shopify_coupon_code ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
+                  {p.is_complete ? (
+                    p.shopify_coupon_code ? (
                       <div style={{
                         fontSize: 13, lineHeight: 1.6, color: 'var(--text-primary)', whiteSpace: 'pre-wrap',
                         padding: '10px 14px', borderRadius: 8, width: '100%',
@@ -1496,12 +1496,14 @@ export default function PreviewProjectView({
                       }}>
                         {p.shopify_coupon_code}
                       </div>
-                      {!p.is_complete && <FinalOutputField field="shopify_coupon_code" projectId={p.id} brandId={p.brand_id} currentValue={p.shopify_coupon_code} />}
-                    </div>
-                  ) : p.is_complete ? (
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No discount setup guide.</div>
+                    ) : (
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No discount setup guide.</div>
+                    )
                   ) : (
-                    <FinalOutputField field="shopify_coupon_code" projectId={p.id} brandId={p.brand_id} currentValue={null} />
+                    /* Read view (box + Edit guide) and the in-place editor both
+                       live in FinalOutputField now, so the text is never on
+                       screen twice while you edit it. */
+                    <FinalOutputField field="shopify_coupon_code" projectId={p.id} brandId={p.brand_id} currentValue={p.shopify_coupon_code} />
                   )}
                 </div>
 
