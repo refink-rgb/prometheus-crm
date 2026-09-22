@@ -60,6 +60,28 @@ function Dot({ color, size = 8 }: { color: string; size?: number }) {
   return <span style={{ width: size, height: size, borderRadius: '50%', background: color, flexShrink: 0, display: 'inline-block' }} />
 }
 
+/**
+ * "Has this ad been re-uploaded, and which version is it on?"
+ *
+ * Shown in BOTH modes. Client review has no verdict buttons — the client's
+ * verdict is the client's — so nothing on that screen said an ad had been
+ * fixed, and editors were reaching for the internal "Revised" button just to
+ * mark it (Jaspen, 22 Sep). This says it instead.
+ */
+function VersionChip({ has, n }: { has: boolean; n: number }) {
+  if (!has) return null
+  return (
+    <span
+      title={n ? `Re-uploaded ${n} time${n === 1 ? '' : 's'} — v${n + 1} is the latest` : 'A revised file was uploaded for this ad'}
+      style={{
+        fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 999, whiteSpace: 'nowrap',
+        color: REVISED_BLUE, background: `color-mix(in srgb, ${REVISED_BLUE} 16%, transparent)`,
+        border: `1px solid color-mix(in srgb, ${REVISED_BLUE} 45%, transparent)`,
+      }}
+    >{n ? `v${n + 1}` : 'Revised'}</span>
+  )
+}
+
 function StatusChip({ status, size = 'sm' }: { status: string; size?: 'sm' | 'md' }) {
   const m = STATUS_META[status] ?? STATUS_META.pending
   return (
@@ -962,9 +984,10 @@ export default function ReviewWorkspace({
                   </span>
                 )}
                 <div style={{ padding: '8px 8px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                     <StatusChip status={statusOf(a)} />
-                    {n > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)' }}>💬 {n}</span>}
+                    <VersionChip has={hasRevision(a)} n={revisionsByAsset[a.id]?.length ?? 0} />
+                    {n > 0 && <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)' }}>💬 {n}</span>}
                   </div>
                   <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {(a.name ?? 'untitled').replace(/\.(png|jpg|jpeg)$/i, '')}
@@ -1001,6 +1024,7 @@ export default function ReviewWorkspace({
               <div style={{ minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
                   <StatusChip status={statusOf(active)} size="md" />
+                  <VersionChip has={hasRevision(active)} n={revisionsByAsset[active.id]?.length ?? 0} />
                   <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)' }}>
                     {mode === 'internal' ? 'internal' : 'client'} status
                   </span>
@@ -1241,6 +1265,15 @@ export default function ReviewWorkspace({
                     <img src={thumb(a)} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                     {n > 0 && (
                       <span style={{ position: 'absolute', top: 3, right: 3, fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 999, background: 'rgba(0,0,0,0.6)', color: '#fff' }}>{n}</span>
+                    )}
+                    {hasRevision(a) && (
+                      <span
+                        title="Re-uploaded — see Versions"
+                        style={{
+                          position: 'absolute', bottom: 3, left: 3, fontSize: 9, fontWeight: 700, padding: '1px 5px',
+                          borderRadius: 999, background: 'rgba(0,0,0,0.6)', color: REVISED_BLUE,
+                        }}
+                      >v{(revisionsByAsset[a.id]?.length ?? 0) + 1}</span>
                     )}
                   </button>
                 )
