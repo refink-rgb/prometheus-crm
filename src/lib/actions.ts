@@ -871,13 +871,68 @@ export async function toggleCommentResolved(
     throw new Error('Comment does not belong to this project.')
   }
 
-  const { error } = await supabase
+  const { data: updated, error } = await supabase
     .from('project_comments')
     .update({ resolved_at: resolved ? new Date().toISOString() : null })
     .eq('id', commentId)
+    .select('asset_id, audience')
+    .maybeSingle()
   if (error) throw new Error(error.message)
 
+  await followComments(supabase, projectId, (updated as { asset_id: string | null } | null)?.asset_id ?? null)
+
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+  revalidatePath(`/brands/${brandId}/projects/${projectId}/internal-review`)
+}
+
+/**
+ * The creative's own verdict follows its client comments.
+ *
+ * Ticking off the last open client comment means "we have done what they
+ * asked", which is exactly what internal_status 'revised' says — but it was a
+ * second, separate click on another screen, so it kept not happening and
+ * Client review showed nothing to say an ad had been dealt with (Jaspen,
+ * 22 Sep). Re-opening a comment puts it back to 'needs_revision'.
+ *
+ * Only ever moves between pending/needs_revision and revised: an approved or
+ * rejected ad has had a real decision made about it, and this must not undo it.
+ * The CLIENT's own `status` column is never touched — their verdict is theirs.
+ */
+async function followComments(
+  supabase: ReturnType<typeof createServiceClient>,
+  projectId: string,
+  assetId: string | null,
+): Promise<void> {
+  if (!assetId) return                                   // a landing-page comment, not a creative
+  const { data: asset } = await supabase
+    .from('creative_assets')
+    .select('internal_status')
+    .eq('id', assetId)
+    .eq('project_id', projectId)
+    .maybeSingle()
+  const now = (asset as { internal_status: string | null } | null)?.internal_status ?? 'pending'
+
+  // Client comments only — an internal note of our own is not the client
+  // waiting on us. (audience is NOT NULL, so there is no third case.)
+  const clientComments = () => supabase
+    .from('project_comments')
+    .select('id', { count: 'exact', head: true })
+    .eq('asset_id', assetId)
+    .neq('audience', 'internal')
+  const { count: total, error } = await clientComments()
+  // No client comment ever = nothing was addressed. Without this, an ad with
+  // none would read as "all of them are ticked off" and go straight to Revised.
+  if (error || !total) return
+  const { count: openCount, error: openErr } = await clientComments().is('resolved_at', null)
+  if (openErr) return
+  const open = openCount ?? 0
+
+  const next = open === 0
+    ? (now === 'pending' || now === 'needs_revision' ? 'revised' : null)
+    : (now === 'revised' ? 'needs_revision' : null)
+  if (!next) return
+
+  await supabase.from('creative_assets').update({ internal_status: next }).eq('id', assetId)
 }
 
 // Edit a note you wrote.

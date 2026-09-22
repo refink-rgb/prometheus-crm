@@ -68,11 +68,15 @@ function Dot({ color, size = 8 }: { color: string; size?: number }) {
  * fixed, and editors were reaching for the internal "Revised" button just to
  * mark it (Jaspen, 22 Sep). This says it instead.
  */
-function VersionChip({ has, n }: { has: boolean; n: number }) {
-  if (!has) return null
+function VersionChip({ has, n, revised = false }: { has: boolean; n: number; revised?: boolean }) {
+  if (!has && !revised) return null
   return (
     <span
-      title={n ? `Re-uploaded ${n} time${n === 1 ? '' : 's'} — v${n + 1} is the latest` : 'A revised file was uploaded for this ad'}
+      title={n
+        ? `Re-uploaded ${n} time${n === 1 ? '' : 's'} — v${n + 1} is the latest`
+        : has
+          ? 'A revised file was uploaded for this ad'
+          : 'Revised — every client comment on this ad is ticked off'}
       style={{
         fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 999, whiteSpace: 'nowrap',
         color: REVISED_BLUE, background: `color-mix(in srgb, ${REVISED_BLUE} 16%, transparent)`,
@@ -986,7 +990,9 @@ export default function ReviewWorkspace({
                 <div style={{ padding: '8px 8px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                     <StatusChip status={statusOf(a)} />
-                    <VersionChip has={hasRevision(a)} n={revisionsByAsset[a.id]?.length ?? 0} />
+                    {/* In Client review the status shown is the CLIENT's verdict, so
+                        this is the only thing that says we have dealt with the ad. */}
+                    <VersionChip has={hasRevision(a)} n={revisionsByAsset[a.id]?.length ?? 0} revised={mode === 'client' && a.internal_status === 'revised'} />
                     {n > 0 && <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)' }}>💬 {n}</span>}
                   </div>
                   <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -1024,7 +1030,7 @@ export default function ReviewWorkspace({
               <div style={{ minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
                   <StatusChip status={statusOf(active)} size="md" />
-                  <VersionChip has={hasRevision(active)} n={revisionsByAsset[active.id]?.length ?? 0} />
+                  <VersionChip has={hasRevision(active)} n={revisionsByAsset[active.id]?.length ?? 0} revised={mode === 'client' && active.internal_status === 'revised'} />
                   <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)' }}>
                     {mode === 'internal' ? 'internal' : 'client'} status
                   </span>
@@ -1266,14 +1272,14 @@ export default function ReviewWorkspace({
                     {n > 0 && (
                       <span style={{ position: 'absolute', top: 3, right: 3, fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 999, background: 'rgba(0,0,0,0.6)', color: '#fff' }}>{n}</span>
                     )}
-                    {hasRevision(a) && (
+                    {(hasRevision(a) || (mode === 'client' && a.internal_status === 'revised')) && (
                       <span
                         title="Re-uploaded — see Versions"
                         style={{
                           position: 'absolute', bottom: 3, left: 3, fontSize: 9, fontWeight: 700, padding: '1px 5px',
                           borderRadius: 999, background: 'rgba(0,0,0,0.6)', color: REVISED_BLUE,
                         }}
-                      >v{(revisionsByAsset[a.id]?.length ?? 0) + 1}</span>
+                      >{(revisionsByAsset[a.id]?.length ?? 0) ? `v${(revisionsByAsset[a.id]?.length ?? 0) + 1}` : 'rev'}</span>
                     )}
                   </button>
                 )
