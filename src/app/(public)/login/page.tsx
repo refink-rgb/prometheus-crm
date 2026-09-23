@@ -18,7 +18,10 @@ const tabStyle: React.CSSProperties = {
 }
 
 export default function LoginPage() {
-  const [mode, setMode] = useState<Mode>('magic')
+  // Password default: magic links each burn one email from Supabase's built-in
+  // mailer (a handful per HOUR project-wide) — the team logging in by magic
+  // link is what makes "email rate limit exceeded" a lunchtime tradition.
+  const [mode, setMode] = useState<Mode>('password')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [sent, setSent] = useState(false)
