@@ -5,7 +5,7 @@
 // here.
 
 import type { createClient } from '@/lib/supabase/server'
-import type { DailyResult } from '@/lib/results'
+import type { DailyResult, FunnelDailyRow } from '@/lib/results'
 
 type SupabaseClient = Awaited<ReturnType<typeof createClient>>
 
@@ -57,4 +57,57 @@ export async function fetchDailyResults(
   }
 
   return { rows: all, error: null }
+}
+
+// LP funnel reads for the /results overview: same paging discipline as
+// fetchDailyResults (a silently truncated read understates revenue), but over
+// the LP tables, keyed by their own parent columns.
+const FUNNEL_COLUMNS =
+  'stat_date, spend_cents, revenue_cents, purchases, impressions, link_clicks, ' +
+  'initiate_checkouts, landing_page_views, source, warnings, reported_at'
+
+export type LpDailyWithParent = FunnelDailyRow & { lp_tracking_id: string }
+export type AccountDailyWithParent = FunnelDailyRow & { meta_ad_account_id: string }
+
+async function fetchFunnelPaged<T>(
+  supabase: SupabaseClient,
+  table: string,
+  parentColumn: string,
+  parentIds: string[],
+  sinceIso?: string,
+): Promise<T[]> {
+  if (parentIds.length === 0) return []
+  const all: T[] = []
+  for (let page = 0; ; page++) {
+    const from = page * PAGE_SIZE
+    let query = supabase
+      .from(table)
+      .select(`${parentColumn}, ${FUNNEL_COLUMNS}`)
+      .in(parentColumn, parentIds)
+      .order('stat_date', { ascending: true })
+      .range(from, from + PAGE_SIZE - 1)
+    if (sinceIso) query = query.gte('stat_date', sinceIso)
+    const { data, error } = await query
+    if (error) return all
+    const batch = (data ?? []) as unknown as T[]
+    all.push(...batch)
+    if (batch.length < PAGE_SIZE) break
+    if (all.length >= 50_000) break
+  }
+  return all
+}
+
+export function fetchLpDailyAll(
+  supabase: SupabaseClient,
+  trackingIds: string[],
+): Promise<LpDailyWithParent[]> {
+  return fetchFunnelPaged<LpDailyWithParent>(supabase, 'lp_daily_results', 'lp_tracking_id', trackingIds)
+}
+
+export function fetchAccountDailyAll(
+  supabase: SupabaseClient,
+  accountIds: string[],
+  sinceIso: string,
+): Promise<AccountDailyWithParent[]> {
+  return fetchFunnelPaged<AccountDailyWithParent>(supabase, 'account_daily_results', 'meta_ad_account_id', accountIds, sinceIso)
 }

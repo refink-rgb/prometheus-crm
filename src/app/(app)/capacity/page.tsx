@@ -11,6 +11,7 @@ import {
 } from '@/lib/types'
 import CapacityReportForm, { type MomentOption, type ExistingEntry } from '@/components/capacity/CapacityReportForm'
 import TeamRollup, { type TeamSubmission } from '@/components/capacity/TeamRollup'
+import AssignmentsPivot, { type PivotTrack, type PivotEditor } from '@/components/capacity/AssignmentsPivot'
 
 const UNDEFINED_TABLE = '42P01'
 
@@ -128,6 +129,43 @@ export default async function CapacityPage() {
         .sort((a, b) => Number(b.submitted) - Number(a.submitted) || a.name.localeCompare(b.name))
     : []
 
+  // Assignments-by-editor pivot (reviewers only): every project launching from
+  // two months back onward, counted into launch (due-date) months per editor.
+  // Attribution is ASSIGNMENT, per Lucas's spec ("base the numbers in the
+  // assigns"): lp_editor_id on the LP track, creative_editor_id with the
+  // legacy assigned_designer string as fallback on the creative track, and an
+  // explicit Unassigned bucket — deleting a user nulls these FKs, so hiding
+  // unattributed work would hide real pages.
+  let pivot: { tracks: PivotTrack[]; months: string[]; monthLabels: string[] } | null = null
+  if (isReviewer) {
+    const now = new Date(easternToday() + 'T00:00:00Z')
+    const windowStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 2, 1))
+      .toISOString().slice(0, 10)
+    const { data: assignRaw } = await supabase
+      .from('projects')
+      .select('due_date, lp_editor_id, creative_editor_id, assigned_designer, brands(name)')
+      .gte('due_date', windowStart)
+    type AssignRow = {
+      due_date: string
+      lp_editor_id: string | null
+      creative_editor_id: string | null
+      assigned_designer: string | null
+      brands: { name: string } | null
+    }
+    const assignRows = ((assignRaw ?? []) as unknown as AssignRow[]).filter(r => !!r.due_date)
+    const nameOf = (id: string | null) => {
+      if (!id) return null
+      const p = profiles.find(x => x.id === id)
+      return p ? (p.full_name ?? p.email) : null
+    }
+    pivot = buildAssignmentsPivot(assignRows.map(r => ({
+      month: r.due_date.slice(0, 7),
+      client: r.brands?.name ?? 'Unknown brand',
+      lpEditor: nameOf(r.lp_editor_id) ?? 'Unassigned',
+      creativeEditor: nameOf(r.creative_editor_id) ?? r.assigned_designer ?? 'Unassigned',
+    })))
+  }
+
   const rotating = rotatingQuestionFor(weekStart)
   const isFriday = new Date(`${easternToday()}T00:00:00Z`).getUTCDay() === 5
 
@@ -176,6 +214,76 @@ export default async function CapacityPage() {
           <TeamRollup submissions={submissions} weekLabel={capacityWeekLabel(weekStart)} rotating={rotating} />
         </section>
       )}
+
+      {isReviewer && pivot && pivot.months.length > 0 && (
+        <section style={{ marginTop: 'var(--space-10)' }}>
+          <h2 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
+            Assignments by editor
+          </h2>
+          <p style={{ fontSize: 'var(--text-base)', color: 'var(--text-muted)', marginBottom: 'var(--space-4)', lineHeight: 1.6 }}>
+            Projects per launch month, by current assignment. Click an editor to open their
+            client breakdown. Creatives fall back to the legacy designer field when no
+            editor is linked.
+          </p>
+          <AssignmentsPivot tracks={pivot.tracks} months={pivot.months} monthLabels={pivot.monthLabels} />
+        </section>
+      )}
     </div>
   )
+}
+
+// Groups flat (track-implicit) assignment rows into the pivot's shape:
+// track -> editor -> month counts + per-client month counts. Editors sort by
+// total descending with Unassigned pinned last; clients alphabetically.
+function buildAssignmentsPivot(
+  rows: { month: string; client: string; lpEditor: string; creativeEditor: string }[],
+): { tracks: PivotTrack[]; months: string[]; monthLabels: string[] } {
+  const months = [...new Set(rows.map(r => r.month))].sort()
+  const spansYears = new Set(months.map(m => m.slice(0, 4))).size > 1
+  const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  const monthLabels = months.map(m => {
+    const [y, mm] = m.split('-')
+    return MONTH_NAMES[Number(mm) - 1] + (spansYears ? ` ${y.slice(2)}` : '')
+  })
+
+  const buildTrack = (track: string, editorOf: (r: typeof rows[number]) => string): PivotTrack => {
+    const editors = new Map<string, PivotEditor>()
+    const trackMonths: Record<string, number> = {}
+    let trackTotal = 0
+    for (const r of rows) {
+      const name = editorOf(r)
+      let e = editors.get(name)
+      if (!e) {
+        e = { name, months: {}, total: 0, clients: [] }
+        editors.set(name, e)
+      }
+      e.months[r.month] = (e.months[r.month] ?? 0) + 1
+      e.total += 1
+      let c = e.clients.find(x => x.name === r.client)
+      if (!c) {
+        c = { name: r.client, months: {}, total: 0 }
+        e.clients.push(c)
+      }
+      c.months[r.month] = (c.months[r.month] ?? 0) + 1
+      c.total += 1
+      trackMonths[r.month] = (trackMonths[r.month] ?? 0) + 1
+      trackTotal += 1
+    }
+    const sorted = [...editors.values()].sort((a, b) => {
+      if (a.name === 'Unassigned') return 1
+      if (b.name === 'Unassigned') return -1
+      return b.total - a.total || a.name.localeCompare(b.name)
+    })
+    for (const e of sorted) e.clients.sort((a, b) => a.name.localeCompare(b.name))
+    return { track, editors: sorted, months: trackMonths, total: trackTotal }
+  }
+
+  return {
+    tracks: [
+      buildTrack('Landing Pages', r => r.lpEditor),
+      buildTrack('Creatives', r => r.creativeEditor),
+    ],
+    months,
+    monthLabels,
+  }
 }
