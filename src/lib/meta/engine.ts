@@ -269,19 +269,30 @@ async function listAdsAdaptive(accountId: string, sinceUnix: number): Promise<Ad
   throw lastErr
 }
 
+// A page that ran a lot of creative iterations can match hundreds of ads
+// (Cookt's weight-loss page: 441). One `ad.id IN [...]` filter that size gets
+// rejected by Meta as "Invalid parameter" — the filter is part of the query
+// string and there's a hard cap on it — so the id list is CHUNKED and the
+// per-day sums merged. 100 ids ≈ 2KB of filter, comfortably under the limit.
+const AD_FILTER_CHUNK = 100
+
 // Daily insights for a set of ads, summed per day.
 async function adDaily(accountId: string, adIds: string[], since: string, until: string) {
   // Throw on deadline: these rows get SUMMED per day — a partial sum stored
-  // as a day's truth is a wrong number, not a late one.
-  const rows = await metaGetAll<InsightsRow>(`${accountId}/insights`, {
-    level: 'ad',
-    filtering: [{ field: 'ad.id', operator: 'IN', value: adIds }],
-    fields: INSIGHTS_FIELDS,
-    action_attribution_windows: ATTRIBUTION,
-    time_range: { since, until },
-    time_increment: 1,
-    limit: 500,
-  }, 20, runDeadline, 'throw')
+  // as a day's truth is a wrong number, not a late one. A deadline mid-chunk
+  // throws before anything is returned, so a half-summed page can't happen.
+  const rows: InsightsRow[] = []
+  for (let i = 0; i < adIds.length; i += AD_FILTER_CHUNK) {
+    rows.push(...await metaGetAll<InsightsRow>(`${accountId}/insights`, {
+      level: 'ad',
+      filtering: [{ field: 'ad.id', operator: 'IN', value: adIds.slice(i, i + AD_FILTER_CHUNK) }],
+      fields: INSIGHTS_FIELDS,
+      action_attribution_windows: ATTRIBUTION,
+      time_range: { since, until },
+      time_increment: 1,
+      limit: 500,
+    }, 20, runDeadline, 'throw'))
+  }
 
   // Counts start at ZERO, not null: Meta omits zero-value actions from a
   // delivery day's row, so absence on a day we received means 0, not unknown.
