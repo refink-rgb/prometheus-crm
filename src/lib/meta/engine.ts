@@ -17,7 +17,7 @@
 // landing-page URL, launch-date detection, daily LP rows, whole-account rows).
 
 import {
-  metaGetAll, actionNumber, MetaApiError, MetaDeadlineError,
+  metaGet, metaGetAll, actionNumber, MetaApiError, MetaDeadlineError,
   INSIGHTS_FIELDS, ATTRIBUTION, type InsightsRow,
 } from '@/lib/meta/graph'
 import { normalizeLpUrl, addDaysIso } from '@/lib/results'
@@ -115,6 +115,7 @@ interface AdListing {
   adset?: { id: string; name?: string }
   campaign?: { id: string; name?: string }
   creative?: {
+    id?: string
     object_story_spec?: StorySpec
     asset_feed_spec?: { link_urls?: Array<{ website_url?: string }> }
   }
@@ -125,19 +126,13 @@ interface StorySpec {
   video_data?: { call_to_action?: { value?: { link?: string } } }
 }
 
-function destinationUrls(ad: AdListing): string[] {
-  const urls: string[] = []
-  for (const spec of [ad.creative?.object_story_spec]) {
-    if (!spec) continue
-    if (spec.link_data?.link) urls.push(spec.link_data.link)
-    for (const child of spec.link_data?.child_attachments ?? []) {
-      if (child.link) urls.push(child.link)
-    }
-    const ctaLink = spec.video_data?.call_to_action?.value?.link
-    if (ctaLink) urls.push(ctaLink)
-  }
+function destinationUrls(ad: AdListing, effectiveSpecs?: Map<string, StorySpec>): string[] {
+  const urls: string[] = [...specUrls(ad.creative?.object_story_spec)]
   for (const lu of ad.creative?.asset_feed_spec?.link_urls ?? []) {
     if (lu.website_url) urls.push(lu.website_url)
+  }
+  if (urls.length === 0 && ad.creative?.id && effectiveSpecs) {
+    urls.push(...specUrls(effectiveSpecs.get(ad.creative.id)))
   }
   return urls
 }
@@ -147,6 +142,7 @@ function destinationUrls(ad: AdListing): string[] {
 // Per-run cache of account ad listings: twenty projects of one brand share
 // one account, and each run should list that account once, not twenty times.
 const adListingCache = new Map<string, Promise<AdListing[]>>()
+const effectiveSpecCache = new Map<string, Promise<Map<string, StorySpec>>>()
 
 async function discoverAds(work: LpWork) {
   const today = new Date().toISOString().slice(0, 10)
@@ -155,10 +151,6 @@ async function discoverAds(work: LpWork) {
     : addDaysIso(work.to_date ?? today, -HISTORICAL_LOOKBACK_DAYS)
   const sinceUnix = Math.floor(Date.parse(`${sinceIso}T00:00:00Z`) / 1000)
 
-  // effective_object_story_spec is NOT expandable on the v23 ads listing
-  // ("(#100) Tried accessing nonexisting field") — object_story_spec plus
-  // asset_feed_spec cover regular, carousel, video, and flexible/multi-ad
-  // formats, which is the whole portfolio.
   const cacheKey = `${work.ad_account_id}|${sinceIso}`
   let listing = adListingCache.get(cacheKey)
   if (!listing) {
@@ -166,6 +158,21 @@ async function discoverAds(work: LpWork) {
     adListingCache.set(cacheKey, listing)
   }
   const ads = await listing
+
+  // Second hop for post-based ads: creatives with no inline spec get their
+  // effective spec fetched by id (cached per run alongside the listing).
+  const urllessCreativeIds = [...new Set(
+    ads
+      .filter(ad => destinationUrls(ad).length === 0 && ad.creative?.id)
+      .map(ad => ad.creative!.id!),
+  )]
+  const specCacheKey = `${cacheKey}|specs`
+  let specsPromise = effectiveSpecCache.get(specCacheKey)
+  if (!specsPromise) {
+    specsPromise = fetchEffectiveSpecs(urllessCreativeIds)
+    effectiveSpecCache.set(specCacheKey, specsPromise)
+  }
+  const effectiveSpecs = await specsPromise
 
   const wanted = normalizeLpUrl(work.lp_url)
   const known = new Set(work.known_ad_ids)
@@ -182,7 +189,7 @@ async function discoverAds(work: LpWork) {
 
   for (const ad of ads) {
     if (known.has(ad.id)) continue
-    const hit = destinationUrls(ad).find(u => normalizeLpUrl(u) === wanted)
+    const hit = destinationUrls(ad, effectiveSpecs).find(u => normalizeLpUrl(u) === wanted)
     if (!hit) continue
     matches.push({
       lp_tracking_id: work.lp_tracking_id,
@@ -198,13 +205,53 @@ async function discoverAds(work: LpWork) {
   return matches
 }
 
+// Ads built FROM AN EXISTING POST ("Post ID" creatives) carry no
+// object_story_spec — their destination lives in effective_object_story_spec,
+// which the v23 /ads listing refuses to expand ("nonexisting field") but the
+// creative NODE serves directly. Without this second hop, every post-based ad
+// is invisible to URL matching — which is how a $47k page showed zero matched
+// ads while Motion saw them plainly (the Sep 23 diagnosis).
+async function fetchEffectiveSpecs(creativeIds: string[]): Promise<Map<string, StorySpec>> {
+  const out = new Map<string, StorySpec>()
+  for (let i = 0; i < creativeIds.length; i += 50) {
+    const chunk = creativeIds.slice(i, i + 50)
+    try {
+      const body = await metaGet<Record<string, { effective_object_story_spec?: StorySpec }>>('', {
+        ids: chunk.join(','),
+        fields: 'effective_object_story_spec',
+      })
+      for (const [id, c] of Object.entries(body)) {
+        if (c && typeof c === 'object' && c.effective_object_story_spec) {
+          out.set(id, c.effective_object_story_spec)
+        }
+      }
+    } catch {
+      // Best-effort: a failed chunk just leaves those ads URL-less this run.
+    }
+    if (Date.now() > runDeadline) break
+  }
+  return out
+}
+
+function specUrls(spec: StorySpec | undefined): string[] {
+  if (!spec) return []
+  const urls: string[] = []
+  if (spec.link_data?.link) urls.push(spec.link_data.link)
+  for (const child of spec.link_data?.child_attachments ?? []) {
+    if (child.link) urls.push(child.link)
+  }
+  const ctaLink = spec.video_data?.call_to_action?.value?.link
+  if (ctaLink) urls.push(ctaLink)
+  return urls
+}
+
 // Big accounts (Barstool-scale) reject the ad listing outright with Meta's
 // "Please reduce the amount of data" error when the page size is too
 // ambitious for the nested creative fields. Start at 50 and halve down —
 // smaller pages mean more requests, but a slow listing beats no listing.
 async function listAdsAdaptive(accountId: string, sinceUnix: number): Promise<AdListing[]> {
   const params = (limit: number) => ({
-    fields: 'id,name,created_time,adset{id,name},campaign{id,name},creative{object_story_spec,asset_feed_spec}',
+    fields: 'id,name,created_time,adset{id,name},campaign{id,name},creative{id,object_story_spec,asset_feed_spec}',
     filtering: [{ field: 'ad.created_time', operator: 'GREATER_THAN', value: sinceUnix }],
     limit,
   })
@@ -283,6 +330,7 @@ export interface EngineSummary {
 
 export async function runResultsPull(filters: { brandId?: string; brand?: string } = {}): Promise<EngineSummary> {
   adListingCache.clear() // per-run, not per-warm-lambda: listings go stale
+  effectiveSpecCache.clear()
   const startedAt = Date.now()
   runDeadline = startedAt + HARD_DEADLINE_MS
   const outOfBudget = () => Date.now() - startedAt > TIME_BUDGET_MS
