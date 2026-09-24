@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createClient, getCachedUser } from '@/lib/supabase/server'
 import { canEdit } from '@/lib/permissions'
+import { easternToday } from '@/lib/eastern'
 import ResultsTable, { type ResultsTableRow } from '@/components/ResultsTable'
 import { fetchLpDailyAll, fetchAccountDailyAll, fetchIncludedAdMatches, type IncludedAdMatch } from '@/lib/results-queries'
 import {
@@ -75,6 +76,7 @@ export default async function ResultsPage() {
     else accountByAcct.set(row.meta_ad_account_id, [row])
   }
 
+  const todayIso = easternToday()
   const matchesByTracking = new Map<string, IncludedAdMatch[]>()
   for (const m of adMatches) {
     const list = matchesByTracking.get(m.lp_tracking_id)
@@ -127,7 +129,7 @@ export default async function ResultsPage() {
       rest,
       freshness,
       totals: lpTotals,
-      ...adsManagerLink(t.meta_ad_account_id, matchesByTracking.get(t.id) ?? []),
+      ...adsManagerLink(t.meta_ad_account_id, matchesByTracking.get(t.id) ?? [], t.launched_on, todayIso),
     }
   })
 
@@ -175,6 +177,13 @@ export default async function ResultsPage() {
   )
 }
 
+// The team's standard Ads Manager column preset (Lucas, Sep 23 2026) —
+// pasted verbatim from a working Ads Manager URL, already percent-encoded.
+// The two custom_derived_metrics ids are business-scoped; on an account that
+// doesn't have them, Ads Manager just drops the column.
+const ADS_MANAGER_COLUMNS =
+  'name%2Ccampaign_name%2Cadgroup_name%2Cdelivery%2Crecommendations_guidance%2Cbid%2Clink_url%2Cbudget%2Cspend%2Cattribution_setting%2Cactions%3Aomni_purchase%2Caction_values%3Aomni_purchase%2Cpurchase_roas%3Aomni_purchase%2Ccost_per_action_type%3Aomni_purchase%2Ccustom_derived_metrics%3A2822688161221644%2Cimpressions%2Ccpm%2Cactions%3Alink_click%2Cunique_link_clicks_ctr%2Ccost_per_action_type%3Alink_click%2Cactions%3Aomni_add_to_cart%2Cactions%3Aomni_initiated_checkout%2Cvideo_thruplay_watched_actions%3Avideo_view%2Cvideo_avg_time_watched_actions%3Avideo_view%2Cvideo_p25_watched_actions%3Avideo_view%2Cvideo_p50_watched_actions%3Avideo_view%2Cvideo_p75_watched_actions%3Avideo_view%2Cvideo_p95_watched_actions%3Avideo_view%2Cunique_outbound_clicks_ctr%3Aoutbound_click%2Cquality_score_organic%2Cquality_score_ectr%2Cquality_score_ecvr%2Cactions%3Aoffline_conversion.purchase%2Caction_values%3Aoffline_conversion.purchase%2Ccreated_time%2Cactions%3Aomni_custom%2Ccustom_derived_metrics%3A2868217890002004'
+
 // Ads Manager deep link for a page's matched ads. selected_ad_ids pre-selects
 // them in the account's Ads tab — but it rides the query string, so a page
 // with hundreds of matched ads (Cookt: 441) would produce an absurd URL.
@@ -184,12 +193,24 @@ export default async function ResultsPage() {
 function adsManagerLink(
   accountId: string,
   matches: IncludedAdMatch[],
+  launchedOn: string | null,
+  todayIso: string,
 ): { adsHref: string | null; adCount: number } {
   const act = accountId.replace(/^act_/, '')
   const adCount = matches.length
   if (adCount === 0 || !/^\d+$/.test(act)) return { adsHref: null, adCount }
 
-  const base = `https://adsmanager.facebook.com/adsmanager/manage/ads?act=${act}`
+  // The page's own run as the reporting window, plus the standard columns and
+  // the 7d-click attribution view — so the link opens looking like the
+  // team's normal reporting screen, scoped to this page.
+  let base = `https://adsmanager.facebook.com/adsmanager/manage/ads?act=${act}` +
+    `&columns=${ADS_MANAGER_COLUMNS}` +
+    '&attribution_windows=default%2C7d_click_all_conversions' +
+    '&breakdown_regrouping=true'
+  if (launchedOn) {
+    base += `&date=${launchedOn}_${todayIso}&insights_date=${launchedOn}_${todayIso}`
+  }
+
   if (adCount <= 50) {
     return { adsHref: `${base}&selected_ad_ids=${matches.map(m => m.meta_ad_id).join(',')}`, adCount }
   }
