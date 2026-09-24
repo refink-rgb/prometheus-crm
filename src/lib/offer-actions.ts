@@ -46,11 +46,10 @@ async function getEditor(): Promise<
 // Manual creation — used for testing and for the July→August transition cards.
 // The cron (Phase 3) inserts through the same shape.
 //
-// Uniqueness rule: any number of CANDIDATE cards may share a brand + month +
-// slot while the moment is still open; once one of them reaches
-// 'offer_approved' the moment is filled and creation is blocked. The DB
-// enforces the approved half via the partial unique index
-// uq_offer_cards_approved_brand_month_slot (migration 20260908).
+// Uniqueness rule: any number of cards, approved or not, may share a brand +
+// month + slot. There is no cap on how many offers can be approved for the
+// same moment in the same month (migration 20260924 dropped the DB backstop
+// that used to enforce one-approved-per-slot).
 //
 // Failures are RETURNED as { error }, not thrown: Next.js masks thrown
 // server-action errors in production, which turned every friendly message
@@ -80,11 +79,8 @@ export async function createOfferCard(
     .eq('target_month', targetMonth)
     .eq('moment_slot', momentSlot)
   if (sibErr) return { error: `Failed to check existing offers: ${sibErr.message}` }
-  if ((siblings ?? []).some(s => s.stage === 'offer_approved')) {
-    return { error: `${brand.name} already has an approved M${momentSlot} offer for ${offerMonthLabel(targetMonth)}.` }
-  }
 
-  // Candidates for the same moment share a name by convention; number the
+  // Offers for the same moment share a name by convention; number the
   // extras so the board can tell them apart.
   const baseName = offerCardName(brand.name, targetMonth, momentSlot)
   const siblingCount = (siblings ?? []).length
@@ -129,31 +125,11 @@ export async function updateOfferStage(cardId: string, stage: OfferStage): Promi
   if (prevErr || !prev) return { error: 'Offer card not found.' }
   if (prev.stage === stage) return {}
 
-  // One approved offer per moment: candidates are unlimited, approval is not.
-  if (stage === 'offer_approved') {
-    const { data: approved, error: apprErr } = await supabase
-      .from('offer_cards')
-      .select('id')
-      .eq('brand_id', prev.brand_id)
-      .eq('target_month', prev.target_month)
-      .eq('moment_slot', prev.moment_slot)
-      .eq('stage', 'offer_approved')
-      .neq('id', cardId)
-      .limit(1)
-    if (apprErr) return { error: `Failed to check for an approved offer: ${apprErr.message}` }
-    if ((approved ?? []).length > 0) {
-      return { error: `An M${prev.moment_slot} offer for ${offerMonthLabel(prev.target_month)} is already approved — move it out of Approved first.` }
-    }
-  }
-
   const { error } = await supabase
     .from('offer_cards')
     .update({ stage })
     .eq('id', cardId)
   if (error) {
-    if (error.code === '23505') {
-      return { error: `An M${prev.moment_slot} offer for ${offerMonthLabel(prev.target_month)} is already approved — move it out of Approved first.` }
-    }
     return { error: `Failed to move offer card: ${error.message}` }
   }
 

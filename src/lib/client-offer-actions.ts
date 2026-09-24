@@ -73,26 +73,6 @@ export async function approveOfferAsClient(token: string, cardId: string, name: 
   const { supabase, brandId } = await resolveBrand(token)
   const offer = await requireOfferAwaitingClient(supabase, brandId, cardId)
 
-  // One approved offer per moment. Strategists can put competing candidates in
-  // front of a client, but only one can be signed off — mirrors the guard in
-  // updateOfferStage and the partial unique index behind it.
-  const { data: alreadyApproved, error: siblingErr } = await supabase
-    .from('offer_cards')
-    .select('id')
-    .eq('brand_id', brandId)
-    .eq('target_month', offer.target_month)
-    .eq('moment_slot', offer.moment_slot)
-    .eq('stage', OFFER_APPROVED)
-    .neq('id', cardId)
-    .limit(1)
-  if (siblingErr) throw new Error('Could not check this offer. Please try again.')
-  if ((alreadyApproved ?? []).length > 0) {
-    throw new Error(
-      'Another offer for this same moment has already been approved. ' +
-      'Refresh the page — if you meant to pick this one instead, tell your strategist.',
-    )
-  }
-
   const now = new Date().toISOString()
   const { error } = await supabase
     .from('offer_cards')
@@ -106,18 +86,7 @@ export async function approveOfferAsClient(token: string, cardId: string, name: 
       client_changes_requested_note: null,
     })
     .eq('id', cardId)
-  if (error) {
-    // Lost the race between the check above and this write — the partial
-    // unique index caught it. Say the same thing in the client's language
-    // rather than leaking a Postgres constraint name.
-    if (error.code === '23505') {
-      throw new Error(
-        'Another offer for this same moment has just been approved. ' +
-        'Refresh the page to see where things stand.',
-      )
-    }
-    throw new Error(`Could not record your approval: ${error.message}`)
-  }
+  if (error) throw new Error(`Could not record your approval: ${error.message}`)
 
   const base = {
     card_kind: 'offer' as const,
