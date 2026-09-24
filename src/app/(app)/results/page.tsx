@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createClient, getCachedUser } from '@/lib/supabase/server'
 import { canEdit } from '@/lib/permissions'
-import FreshnessStamp from '@/components/FreshnessStamp'
+import ResultsTable, { type ResultsTableRow } from '@/components/ResultsTable'
 import { fetchLpDailyAll, fetchAccountDailyAll } from '@/lib/results-queries'
 import {
   sumFunnel,
@@ -10,10 +10,6 @@ import {
   restOfAccount,
   shareOfAccountPct,
   formatCents,
-  formatCentsCompact,
-  formatRoas,
-  formatPercent,
-  shortDateLabel,
   type LpTracking,
   type FunnelDailyRow,
   type FunnelKpis,
@@ -22,7 +18,8 @@ import {
 // The simplified Results view (Lucas, Sep 23 2026): one table row per tracked
 // landing page, each KPI shown against the REST of that page's ad account —
 // the same comparison the per-project Results tab makes, rolled up. The old
-// campaign-card overview lives on at /results/campaigns.
+// campaign-card overview lives on at /results/campaigns. All fetching and
+// math happens here; ResultsTable (client) only filters and renders.
 //
 // Reads every tracked page's full daily history plus the account series.
 // ~70 trackings × ~90 days is small, but give it the same headroom as the
@@ -32,18 +29,6 @@ export const maxDuration = 60
 interface TrackingRow extends LpTracking {
   projects: { id: string; name: string } | null
   brands: { id: string; name: string } | null
-}
-
-interface PageRow {
-  tracking: TrackingRow
-  hasData: boolean
-  days: number
-  spendCents: number
-  revenueCents: number
-  sharePct: number | null
-  lp: FunnelKpis
-  rest: FunnelKpis | null
-  lpRows: FunnelDailyRow[]
 }
 
 export default async function ResultsPage() {
@@ -89,7 +74,7 @@ export default async function ResultsPage() {
     else accountByAcct.set(row.meta_ad_account_id, [row])
   }
 
-  const rows: PageRow[] = trackings.map(t => {
+  const rows: ResultsTableRow[] = trackings.map(t => {
     const lpRows = lpByTracking.get(t.id) ?? []
     const lpTotals = sumFunnel(lpRows)
 
@@ -107,8 +92,24 @@ export default async function ResultsPage() {
       }
     }
 
+    // Collapse the daily rows into the two maxes the freshness stamp reads,
+    // so the client isn't shipped thousands of rows to compute a badge.
+    let freshness: { stat_date: string; reported_at: string } | null = null
+    for (const r of lpRows) {
+      if (!freshness) freshness = { stat_date: r.stat_date, reported_at: r.reported_at }
+      else {
+        if (r.stat_date > freshness.stat_date) freshness.stat_date = r.stat_date
+        if (r.reported_at > freshness.reported_at) freshness.reported_at = r.reported_at
+      }
+    }
+
     return {
-      tracking: t,
+      id: t.id,
+      brand: t.brands?.name ?? 'Unknown brand',
+      title: t.projects?.name ?? t.lp_url.replace(/^https?:\/\/(www\.)?/, ''),
+      href: t.projects ? `/preview/project/${t.projects.id}` : null,
+      launchedOn: t.launched_on,
+      endedOn: t.ended_on,
       hasData: lpRows.length > 0,
       days: lpTotals.days,
       spendCents: lpTotals.spend_cents,
@@ -116,7 +117,7 @@ export default async function ResultsPage() {
       sharePct,
       lp: deriveFunnelKpis(lpTotals),
       rest,
-      lpRows,
+      freshness,
     }
   })
 
@@ -125,7 +126,7 @@ export default async function ResultsPage() {
   rows.sort((a, b) => {
     if (a.hasData !== b.hasData) return a.hasData ? -1 : 1
     if (a.hasData) return b.spendCents - a.spendCents
-    return clientOf(a).localeCompare(clientOf(b))
+    return a.brand.localeCompare(b.brand)
   })
 
   const withData = rows.filter(r => r.hasData)
@@ -158,119 +159,11 @@ export default async function ResultsPage() {
       {trackings.length === 0 ? (
         <EmptyState />
       ) : (
-        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 980 }}>
-              <thead>
-                <tr style={{ background: 'var(--surface-raised)' }}>
-                  <th style={{ ...TH, textAlign: 'left', minWidth: 220 }}>Landing page</th>
-                  <th style={{ ...TH, textAlign: 'left' }}>Launched</th>
-                  <th style={TH}>Spend</th>
-                  <th style={TH}>Revenue</th>
-                  <th style={TH}>ROAS</th>
-                  <th style={TH}>CPM</th>
-                  <th style={TH}>CTR</th>
-                  <th style={TH}>CVR</th>
-                  <th style={{ ...TH, textAlign: 'left' }}>Updated</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map(r => <Row key={r.tracking.id} r={r} nowMs={nowMs} />)}
-              </tbody>
-            </table>
-          </div>
-          <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border)', fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-            Under each KPI: the <strong>rest of that ad account</strong> over the same days.
-            Green = the page beats the rest of the account on that metric (for CPM, cheaper).
-            Pages marked “detecting ads” are enrolled but the engine hasn&apos;t matched any ads yet.
-          </div>
-        </div>
+        <ResultsTable rows={rows} nowMs={nowMs} />
       )}
     </div>
   )
 }
-
-function clientOf(r: PageRow): string {
-  return r.tracking.brands?.name ?? 'Unknown brand'
-}
-
-function Row({ r, nowMs }: { r: PageRow; nowMs: number }) {
-  const t = r.tracking
-  const live = t.ended_on === null
-  const href = t.projects ? `/preview/project/${t.projects.id}` : null
-  const title = t.projects?.name ?? t.lp_url.replace(/^https?:\/\/(www\.)?/, '')
-
-  return (
-    <tr style={{ borderTop: '1px solid var(--border)', opacity: r.hasData ? 1 : 0.65 }}>
-      <td style={{ ...TD, maxWidth: 320 }}>
-        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>{clientOf(r)}</div>
-        {href ? (
-          <Link href={href} style={{ fontWeight: 600, color: 'var(--text-primary)', textDecoration: 'none' }}>
-            {title}
-          </Link>
-        ) : (
-          <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{title}</span>
-        )}
-        {r.sharePct !== null && (
-          <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>
-            {formatPercent(r.sharePct, 1)} of account spend
-          </div>
-        )}
-      </td>
-      <td style={{ ...TD, whiteSpace: 'nowrap' }}>
-        {t.launched_on ? (
-          <>
-            <div>{shortDateLabel(t.launched_on)}</div>
-            <div style={{ fontSize: 10, color: live ? 'var(--success)' : 'var(--text-muted)', marginTop: 2 }}>
-              {live ? `live · day ${r.days || '–'}` : `ended ${shortDateLabel(t.ended_on!)}`}
-            </div>
-          </>
-        ) : (
-          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>detecting ads…</span>
-        )}
-      </td>
-      <td style={TD_NUM}>{r.hasData ? formatCentsCompact(r.spendCents) : '—'}</td>
-      <td style={TD_NUM}>{r.hasData ? formatCentsCompact(r.revenueCents) : '—'}</td>
-      <KpiCell value={fmtRoas(r.lp.roas)} rest={fmtRoas(r.rest?.roas ?? null)} verdict={verdict(r.lp.roas, r.rest?.roas ?? null, 'higher')} />
-      <KpiCell value={fmtCents(r.lp.cpm_cents)} rest={fmtCents(r.rest?.cpm_cents ?? null)} verdict={verdict(r.lp.cpm_cents, r.rest?.cpm_cents ?? null, 'lower')} />
-      <KpiCell value={fmtPct(r.lp.ctr)} rest={fmtPct(r.rest?.ctr ?? null)} verdict={verdict(r.lp.ctr, r.rest?.ctr ?? null, 'higher')} />
-      <KpiCell value={fmtPct(r.lp.cvr)} rest={fmtPct(r.rest?.cvr ?? null)} verdict={verdict(r.lp.cvr, r.rest?.cvr ?? null, 'higher')} />
-      <td style={{ ...TD, whiteSpace: 'nowrap' }}>
-        {r.hasData ? <FreshnessStamp rows={r.lpRows} nowMs={nowMs} /> : <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>—</span>}
-      </td>
-    </tr>
-  )
-}
-
-// A KPI cell: the page's own figure, with the rest-of-account figure beneath
-// it, colored by whether the page is winning that metric.
-function KpiCell({ value, rest, verdict }: { value: string; rest: string; verdict: 'good' | 'bad' | null }) {
-  return (
-    <td style={TD_NUM}>
-      <div style={{
-        fontWeight: 600,
-        color: verdict === 'good' ? 'var(--success)' : verdict === 'bad' ? 'var(--danger)' : 'var(--text-primary)',
-      }}>
-        {value}
-      </div>
-      <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>
-        {rest === '—' ? ' ' : `rest ${rest}`}
-      </div>
-    </td>
-  )
-}
-
-type Verdict = 'good' | 'bad' | null
-function verdict(lp: number | null, rest: number | null, better: 'higher' | 'lower'): Verdict {
-  if (lp === null || rest === null) return null
-  if (lp === rest) return null
-  const lpWins = better === 'higher' ? lp > rest : lp < rest
-  return lpWins ? 'good' : 'bad'
-}
-
-const fmtRoas = (v: number | null) => (v === null ? '—' : formatRoas(v))
-const fmtCents = (v: number | null) => (v === null ? '—' : formatCents(v))
-const fmtPct = (v: number | null) => (v === null ? '—' : formatPercent(v))
 
 function EmptyState() {
   return (
@@ -319,14 +212,4 @@ function SetupNotice() {
       </div>
     </div>
   )
-}
-
-const TH: React.CSSProperties = {
-  padding: '10px 14px', fontSize: 10, fontWeight: 700, letterSpacing: '0.06em',
-  textTransform: 'uppercase', color: 'var(--text-muted)', textAlign: 'right', whiteSpace: 'nowrap',
-}
-const TD: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', verticalAlign: 'top' }
-const TD_NUM: React.CSSProperties = {
-  padding: '10px 14px', textAlign: 'right', verticalAlign: 'top',
-  fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap',
 }
