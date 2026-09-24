@@ -118,6 +118,7 @@ export default async function ResultsPage() {
       lp: deriveFunnelKpis(lpTotals),
       rest,
       freshness,
+      totals: lpTotals,
     }
   })
 

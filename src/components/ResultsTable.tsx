@@ -9,12 +9,15 @@ import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import FreshnessStamp from '@/components/FreshnessStamp'
 import {
+  deriveFunnelKpis,
+  EMPTY_FUNNEL_TOTALS,
   formatCents,
   formatCentsCompact,
   formatRoas,
   formatPercent,
   shortDateLabel,
   type FunnelKpis,
+  type FunnelTotals,
 } from '@/lib/results'
 
 export interface ResultsTableRow {
@@ -35,6 +38,9 @@ export interface ResultsTableRow {
   // server-side so 70 pages don't ship thousands of rows to the client just
   // to compute a stamp.
   freshness: { stat_date: string; reported_at: string } | null
+  // The page's summed raw counts, so the total row can derive its KPIs from
+  // summed counts (repo rule: never average per-page ratios).
+  totals: FunnelTotals
 }
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -61,6 +67,21 @@ export default function ResultsTable({ rows, nowMs }: { rows: ResultsTableRow[];
   const spend = visible.reduce((s, r) => s + r.spendCents, 0)
   const revenue = visible.reduce((s, r) => s + r.revenueCents, 0)
   const filtered = !!brand || !!month
+
+  // Total across the VISIBLE pages, KPIs derived from the summed raw counts
+  // with the same null semantics as sumFunnel (null = no page reported it).
+  const grand = visible.reduce<FunnelTotals>((acc, r) => ({
+    days: acc.days + r.totals.days,
+    spend_cents: acc.spend_cents + r.totals.spend_cents,
+    revenue_cents: acc.revenue_cents + r.totals.revenue_cents,
+    purchases: acc.purchases + r.totals.purchases,
+    impressions: r.totals.impressions !== null ? (acc.impressions ?? 0) + r.totals.impressions : acc.impressions,
+    link_clicks: r.totals.link_clicks !== null ? (acc.link_clicks ?? 0) + r.totals.link_clicks : acc.link_clicks,
+    initiate_checkouts: r.totals.initiate_checkouts !== null ? (acc.initiate_checkouts ?? 0) + r.totals.initiate_checkouts : acc.initiate_checkouts,
+    landing_page_views: r.totals.landing_page_views !== null ? (acc.landing_page_views ?? 0) + r.totals.landing_page_views : acc.landing_page_views,
+  }), { ...EMPTY_FUNNEL_TOTALS })
+  const grandKpis = deriveFunnelKpis(grand)
+  const reporting = visible.filter(r => r.hasData).length
 
   return (
     <>
@@ -120,6 +141,26 @@ export default function ResultsTable({ rows, nowMs }: { rows: ResultsTableRow[];
                 visible.map(r => <Row key={r.id} r={r} nowMs={nowMs} />)
               )}
             </tbody>
+            {reporting > 0 && (
+              <tfoot>
+                <tr>
+                  <td style={{ ...TF, textAlign: 'left' }}>
+                    Total
+                    <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 400, color: 'var(--text-muted)' }}>
+                      {reporting} page{reporting === 1 ? '' : 's'} reporting
+                    </span>
+                  </td>
+                  <td style={{ ...TF, textAlign: 'left' }} />
+                  <td style={TF_NUM}>{formatCentsCompact(grand.spend_cents)}</td>
+                  <td style={TF_NUM}>{formatCentsCompact(grand.revenue_cents)}</td>
+                  <td style={TF_NUM}>{fmtRoas(grandKpis.roas)}</td>
+                  <td style={TF_NUM}>{fmtCents(grandKpis.cpm_cents)}</td>
+                  <td style={TF_NUM}>{fmtPct(grandKpis.ctr)}</td>
+                  <td style={TF_NUM}>{fmtPct(grandKpis.cvr)}</td>
+                  <td style={{ ...TF, textAlign: 'left' }} />
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
         <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border)', fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
@@ -231,4 +272,15 @@ const TD: React.CSSProperties = {
 }
 const TD_NUM: React.CSSProperties = {
   ...TD, textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap',
+}
+// Total row: pinned to the bottom of the scroll area, mirroring the sticky
+// header (opaque background for the same show-through reason).
+const TF: React.CSSProperties = {
+  position: 'sticky', bottom: 0, zIndex: 2, background: 'var(--surface-raised)',
+  borderTop: '1px solid var(--border)',
+  padding: '10px 14px', fontWeight: 700, fontSize: 13, color: 'var(--text-primary)',
+  whiteSpace: 'nowrap',
+}
+const TF_NUM: React.CSSProperties = {
+  ...TF, textAlign: 'right', fontVariantNumeric: 'tabular-nums',
 }
