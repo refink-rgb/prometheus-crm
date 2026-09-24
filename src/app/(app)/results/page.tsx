@@ -211,12 +211,26 @@ function adsManagerLink(
     base += `&date=${launchedOn}_${todayIso}&insights_date=${launchedOn}_${todayIso}`
   }
 
+  // selected_*_ids only CHECKS the rows — the table still lists every ad in
+  // the account. filter_set is what actually filters the table: Ads Manager's
+  // own (undocumented) serialization, `FIELD-TYPE \x1E OPERATOR \x1E JSON`,
+  // with \x1E percent-encoded. "ADGROUP" is Meta-internal for ad.
+  const idFilter = (field: string, ids: string[]) =>
+    `&filter_set=${field}-STRING_SET%1EANY%1E${encodeURIComponent(JSON.stringify(ids))}`
+
   if (adCount <= 50) {
-    return { adsHref: `${base}&selected_ad_ids=${matches.map(m => m.meta_ad_id).join(',')}`, adCount }
+    const ids = matches.map(m => m.meta_ad_id)
+    return {
+      adsHref: `${base}&selected_ad_ids=${ids.join(',')}${idFilter('SEARCH_BY_ADGROUP_IDS', ids)}`,
+      adCount,
+    }
   }
   const campaigns = [...new Set(matches.map(m => m.meta_campaign_id).filter((c): c is string => !!c))]
   if (campaigns.length > 0 && campaigns.length <= 10) {
-    return { adsHref: `${base}&selected_campaign_ids=${campaigns.join(',')}`, adCount }
+    return {
+      adsHref: `${base}&selected_campaign_ids=${campaigns.join(',')}${idFilter('SEARCH_BY_CAMPAIGN_GROUP_IDS', campaigns)}`,
+      adCount,
+    }
   }
   return { adsHref: null, adCount }
 }
