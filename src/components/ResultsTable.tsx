@@ -165,7 +165,8 @@ export default function ResultsTable({ rows, nowMs }: { rows: ResultsTableRow[];
         </div>
         <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border)', fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
           Under each KPI: the <strong>rest of that ad account</strong> over the same days.
-          Green = the page beats the rest of the account on that metric (for CPM, cheaper).
+          Green = the page beats the rest of the account on that metric (for CPM, cheaper);
+          yellow = behind by less than 10%; red = behind by more.
           Pages marked &ldquo;detecting ads&rdquo; are enrolled but the engine hasn&apos;t matched any ads yet.
         </div>
       </div>
@@ -220,12 +221,15 @@ function Row({ r, nowMs }: { r: ResultsTableRow; nowMs: number }) {
 
 // A KPI cell: the page's own figure, with the rest-of-account figure beneath
 // it, colored by whether the page is winning that metric.
-function KpiCell({ value, rest, verdict }: { value: string; rest: string; verdict: 'good' | 'bad' | null }) {
+function KpiCell({ value, rest, verdict }: { value: string; rest: string; verdict: Verdict }) {
   return (
     <td style={TD_NUM}>
       <div style={{
         fontWeight: 600,
-        color: verdict === 'good' ? 'var(--success)' : verdict === 'bad' ? 'var(--danger)' : 'var(--text-primary)',
+        color: verdict === 'good' ? 'var(--success)'
+          : verdict === 'close' ? 'var(--warning)'
+          : verdict === 'bad' ? 'var(--danger)'
+          : 'var(--text-primary)',
       }}>
         {value}
       </div>
@@ -236,12 +240,17 @@ function KpiCell({ value, rest, verdict }: { value: string; rest: string; verdic
   )
 }
 
-type Verdict = 'good' | 'bad' | null
+// 'close' = losing to the rest of the account, but by under 10% — a near-tie
+// worth a yellow rather than a red (Lucas, Sep 23 2026).
+type Verdict = 'good' | 'close' | 'bad' | null
 function verdict(lp: number | null, rest: number | null, better: 'higher' | 'lower'): Verdict {
   if (lp === null || rest === null) return null
   if (lp === rest) return null
   const lpWins = better === 'higher' ? lp > rest : lp < rest
-  return lpWins ? 'good' : 'bad'
+  if (lpWins) return 'good'
+  // How far behind, relative to the benchmark it's losing to.
+  const behind = rest !== 0 ? Math.abs(lp - rest) / Math.abs(rest) : 1
+  return behind < 0.10 ? 'close' : 'bad'
 }
 
 const fmtRoas = (v: number | null) => (v === null ? '—' : formatRoas(v))
