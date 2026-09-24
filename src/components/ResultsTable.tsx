@@ -41,6 +41,10 @@ export interface ResultsTableRow {
   // The page's summed raw counts, so the total row can derive its KPIs from
   // summed counts (repo rule: never average per-page ratios).
   totals: FunnelTotals
+  // Ads Manager deep link to the matched ads (or their campaigns, when the
+  // ad list is too long for a URL). Null when there's nothing useful to open.
+  adsHref: string | null
+  adCount: number
 }
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -188,9 +192,21 @@ function Row({ r, nowMs }: { r: ResultsTableRow; nowMs: number }) {
         ) : (
           <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{r.title}</span>
         )}
-        {r.sharePct !== null && (
+        {(r.sharePct !== null || r.adsHref) && (
           <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>
-            {formatPercent(r.sharePct, 1)} of account spend
+            {r.sharePct !== null && <>{formatPercent(r.sharePct, 1)} of account spend</>}
+            {r.sharePct !== null && r.adsHref && ' · '}
+            {r.adsHref && (
+              <a
+                href={r.adsHref}
+                target="_blank"
+                rel="noreferrer"
+                style={{ color: 'var(--accent)', textDecoration: 'none' }}
+                title={`Open the ${r.adCount} matched ad${r.adCount === 1 ? '' : 's'} in Ads Manager`}
+              >
+                {r.adCount} ad{r.adCount === 1 ? '' : 's'} in Ads Manager ↗
+              </a>
+            )}
           </div>
         )}
       </td>

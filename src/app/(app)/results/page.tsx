@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { createClient, getCachedUser } from '@/lib/supabase/server'
 import { canEdit } from '@/lib/permissions'
 import ResultsTable, { type ResultsTableRow } from '@/components/ResultsTable'
-import { fetchLpDailyAll, fetchAccountDailyAll } from '@/lib/results-queries'
+import { fetchLpDailyAll, fetchAccountDailyAll, fetchIncludedAdMatches, type IncludedAdMatch } from '@/lib/results-queries'
 import {
   sumFunnel,
   deriveFunnelKpis,
@@ -54,11 +54,12 @@ export default async function ResultsPage() {
     '9999-12-31',
   )
 
-  const [lpDaily, accountDaily] = await Promise.all([
+  const [lpDaily, accountDaily, adMatches] = await Promise.all([
     fetchLpDailyAll(supabase, trackings.map(t => t.id)),
     accountIds.length > 0 && minSince !== '9999-12-31'
       ? fetchAccountDailyAll(supabase, accountIds, minSince)
       : Promise.resolve([]),
+    fetchIncludedAdMatches(supabase, trackings.map(t => t.id)),
   ])
 
   const lpByTracking = new Map<string, FunnelDailyRow[]>()
@@ -72,6 +73,13 @@ export default async function ResultsPage() {
     const list = accountByAcct.get(row.meta_ad_account_id)
     if (list) list.push(row)
     else accountByAcct.set(row.meta_ad_account_id, [row])
+  }
+
+  const matchesByTracking = new Map<string, IncludedAdMatch[]>()
+  for (const m of adMatches) {
+    const list = matchesByTracking.get(m.lp_tracking_id)
+    if (list) list.push(m)
+    else matchesByTracking.set(m.lp_tracking_id, [m])
   }
 
   const rows: ResultsTableRow[] = trackings.map(t => {
@@ -119,6 +127,7 @@ export default async function ResultsPage() {
       rest,
       freshness,
       totals: lpTotals,
+      ...adsManagerLink(t.meta_ad_account_id, matchesByTracking.get(t.id) ?? []),
     }
   })
 
@@ -164,6 +173,31 @@ export default async function ResultsPage() {
       )}
     </div>
   )
+}
+
+// Ads Manager deep link for a page's matched ads. selected_ad_ids pre-selects
+// them in the account's Ads tab — but it rides the query string, so a page
+// with hundreds of matched ads (Cookt: 441) would produce an absurd URL.
+// Fallback ladder: ≤50 ads = link the ads themselves; more = link their
+// campaigns if there are ≤10; beyond that, no link (the exception case —
+// opening the whole account filtered to nothing useful helps nobody).
+function adsManagerLink(
+  accountId: string,
+  matches: IncludedAdMatch[],
+): { adsHref: string | null; adCount: number } {
+  const act = accountId.replace(/^act_/, '')
+  const adCount = matches.length
+  if (adCount === 0 || !/^\d+$/.test(act)) return { adsHref: null, adCount }
+
+  const base = `https://adsmanager.facebook.com/adsmanager/manage/ads?act=${act}`
+  if (adCount <= 50) {
+    return { adsHref: `${base}&selected_ad_ids=${matches.map(m => m.meta_ad_id).join(',')}`, adCount }
+  }
+  const campaigns = [...new Set(matches.map(m => m.meta_campaign_id).filter((c): c is string => !!c))]
+  if (campaigns.length > 0 && campaigns.length <= 10) {
+    return { adsHref: `${base}&selected_campaign_ids=${campaigns.join(',')}`, adCount }
+  }
+  return { adsHref: null, adCount }
 }
 
 function EmptyState() {

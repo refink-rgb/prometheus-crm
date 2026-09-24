@@ -104,6 +104,37 @@ export function fetchLpDailyAll(
   return fetchFunnelPaged<LpDailyWithParent>(supabase, 'lp_daily_results', 'lp_tracking_id', trackingIds)
 }
 
+// The included ad matches for a set of trackings — enough to build an Ads
+// Manager deep link per page. Paged like everything else here.
+export interface IncludedAdMatch {
+  lp_tracking_id: string
+  meta_ad_id: string
+  meta_campaign_id: string | null
+}
+
+export async function fetchIncludedAdMatches(
+  supabase: SupabaseClient,
+  trackingIds: string[],
+): Promise<IncludedAdMatch[]> {
+  if (trackingIds.length === 0) return []
+  const all: IncludedAdMatch[] = []
+  for (let page = 0; ; page++) {
+    const from = page * PAGE_SIZE
+    const { data, error } = await supabase
+      .from('lp_ad_matches')
+      .select('lp_tracking_id, meta_ad_id, meta_campaign_id')
+      .in('lp_tracking_id', trackingIds)
+      .eq('status', 'included')
+      .range(from, from + PAGE_SIZE - 1)
+    if (error) return all
+    const batch = (data ?? []) as unknown as IncludedAdMatch[]
+    all.push(...batch)
+    if (batch.length < PAGE_SIZE) break
+    if (all.length >= 50_000) break
+  }
+  return all
+}
+
 export function fetchAccountDailyAll(
   supabase: SupabaseClient,
   accountIds: string[],
