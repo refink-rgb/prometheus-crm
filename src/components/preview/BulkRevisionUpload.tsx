@@ -40,9 +40,21 @@ export default function BulkRevisionUpload({
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
   const [failures, setFailures] = useState<string[]>([])
   const [done, setDone] = useState<number | null>(null)
+  const [dragging, setDragging] = useState(false)
 
-  function buildPlan(files: File[]) {
+  function buildPlan(dropped: File[]) {
     setFailures([]); setDone(null)
+    // A drop can carry anything on the desktop — a PDF, a folder's .DS_Store.
+    // Only images are creatives, and silently ignoring the rest beats a plan
+    // full of rows that could never match.
+    const files = dropped.filter(f => f.type.startsWith('image/'))
+    const skipped = dropped.length - files.length
+    if (!files.length) {
+      setPlan(null)
+      setFailures([skipped ? 'Those are not images. Drop the re-exported PNG or JPG files.' : 'Nothing to upload.'])
+      return
+    }
+    if (skipped > 0) setFailures([`${skipped} file${skipped === 1 ? '' : 's'} ignored — only images can be a revision.`])
     const r = matchRevisionsToAssets(files, assets)
     setPlan({
       matched: r.matched,
@@ -92,20 +104,37 @@ export default function BulkRevisionUpload({
           fold on every visit. The explanation moves to the point of use — it is
           only useful once you are looking at a plan. */}
       {!plan && (
-        <label style={{ textTransform: 'none', letterSpacing: 0, display: 'flex', alignItems: 'center', gap: 8, cursor: busy ? 'wait' : 'pointer',
-        }}>
+        <label
+          // Drop straight onto the row, as well as the file picker: an editor
+          // coming out of Photoshop has the files under the cursor already.
+          onDragOver={e => { e.preventDefault(); if (!busy) setDragging(true) }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={e => {
+            e.preventDefault(); setDragging(false)
+            if (busy) return
+            const f = Array.from(e.dataTransfer.files ?? [])
+            if (f.length) buildPlan(f)
+          }}
+          style={{
+            textTransform: 'none', letterSpacing: 0, display: 'flex', alignItems: 'center', gap: 8,
+            cursor: busy ? 'wait' : 'pointer', padding: dragging ? '8px 10px' : 0,
+            margin: dragging ? -9 : 0, borderRadius: 8,
+            border: `1px dashed ${dragging ? 'var(--accent)' : 'transparent'}`,
+            background: dragging ? 'var(--accent-muted)' : 'none',
+          }}
+        >
           <input
             type="file" accept="image/*" multiple disabled={busy} style={{ display: 'none' }}
             onChange={e => { const f = Array.from(e.target.files ?? []); e.target.value = ''; if (f.length) buildPlan(f) }}
           />
           <span style={{ fontSize: 12, fontWeight: 600 }}>Upload a batch of revisions</span>
           <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-            Re-export under the original filenames — each is matched to the creative it replaces.
+            Drop them here or choose files · re-export under the original filenames, each is matched to the creative it replaces.
           </span>
           <span style={{
             marginLeft: 'auto', flexShrink: 0, fontSize: 11, fontWeight: 600, padding: '4px 12px',
             borderRadius: 6, border: '1px solid var(--border-strong)', color: 'var(--text-secondary)',
-          }}>Choose files</span>
+          }}>{dragging ? 'Drop to match' : 'Choose files'}</span>
         </label>
       )}
 
