@@ -567,7 +567,8 @@ export interface OfferCard {
   product_description: string | null
   retail_price: string | null
   page_type: string | null
-  // Creative-only fields — stay on the offer, never auto-populate.
+  // Reference fields — copied to the Production card on approval, like the
+  // strategic fields above (they used to stay on the offer; see offer-to-production.ts).
   competitor_reference: string | null
   client_ad_inspiration: string | null
   product_images_link: string | null

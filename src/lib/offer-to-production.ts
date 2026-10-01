@@ -6,7 +6,13 @@
 //
 // Mapping rules (signed off in PHASE0_DISCOVERY.md):
 //   * strategic fields copy 1:1 (identical column names on both tables)
-//   * creative-only fields DO NOT flow (creative team works fresh from context)
+//   * reference fields (competitor reference, client ad inspiration, product
+//     images link) copy 1:1 too — since 2026-09-30. They used to stay on the
+//     offer so the creative team "worked fresh from context", which in practice
+//     meant the inspo pages a strategist had collected vanished from the brief
+//     the LP team actually reads (Lucas, FlavCity/Bookish Oct 2026).
+//   * rationale fields (problem statement, success criterion, guardrails) have
+//     no column on projects and are read from the offer via source_offer_card_id
 //   * copy fields never existed on the offer
 //   * journey: find-or-create '<Month> <Year>' on the brand
 //   * bidirectional link: projects.source_offer_card_id ↔
@@ -23,7 +29,8 @@ export function autoCreateEnabled(): boolean {
   return process.env.PROMETHEUS_AUTOCREATE_DISABLED !== '1'
 }
 
-// The 7 strategic fields — the ONLY fields that flow to the Production Brief.
+// The fields that flow to the Production Brief: the 7 strategic fields plus
+// the 3 reference fields. Identical column names on both tables.
 const STRATEGIC_FIELDS = [
   'offer_dynamics_type',
   'offer',
@@ -32,6 +39,9 @@ const STRATEGIC_FIELDS = [
   'product_description',
   'retail_price',
   'page_type',
+  'competitor_reference',
+  'client_ad_inspiration',
+  'product_images_link',
 ] as const
 
 // Default LIVE target for auto-created cards: M1 mid-month (15th), M2 month-end.
@@ -136,7 +146,7 @@ export async function createProductionCardFromOffer(
       source_offer_card_id: offerId,
       created_by: createdBy,
       ...strategic,
-      // Everything else (copy fields, creative-only fields, stage due dates,
+      // Everything else (copy fields, rationale fields, stage due dates,
       // editors) stays blank/default — lp_stage and creatives_stage default
       // to 'brief' at the DB level.
     })
