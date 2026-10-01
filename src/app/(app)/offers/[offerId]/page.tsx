@@ -3,26 +3,13 @@ import Link from 'next/link'
 import { createClient, getCachedUser } from '@/lib/supabase/server'
 import { canEdit, canViewCapacity } from '@/lib/permissions'
 import { getCachedProfiles } from '@/lib/profiles'
-import { offerMonthLabel, type Brand, type OfferCard } from '@/lib/types'
-import type { OfferBriefDna, OfferBriefProduction } from '@/lib/markdown-export'
+import { offerMonthLabel, type Brand, type BrandDna, type OfferCard } from '@/lib/types'
 import { buildOfferHistory, type OfferHistoryCard, type OfferHistoryProject } from '@/lib/offer-history'
 import OfferCardDetail from '@/components/OfferCardDetail'
 
 type OfferBrand = Pick<Brand,
-  'id' | 'name' | 'website' | 'brand_notes' | 'brand_guidelines' | 'growth_strategist' | 'profit_engineer' | 'start_date' | 'client_token'
+  'id' | 'name' | 'website' | 'brand_notes' | 'growth_strategist' | 'profit_engineer' | 'start_date' | 'client_token'
 >
-
-// Every Brand DNA column the LP brief export reads (see OfferBriefDna).
-const DNA_COLUMNS = [
-  'tagline', 'positioning', 'voice_adjectives', 'competitive_differentiation', 'core_value_prop',
-  'top_pain_points', 'proof_points', 'common_offers', 'price_anchor', 'top_objections', 'winning_hooks',
-  'offer_presentation', 'logo_url', 'primary_font', 'secondary_font', 'headline_weight', 'body_weight',
-  'primary_color', 'secondary_color', 'accent_color', 'background_colors', 'contrast_color', 'cta_style',
-  'lighting', 'color_grading', 'composition', 'subject_matter', 'props_and_surfaces', 'mood',
-  'packaging_description', 'text_overlay_style', 'ugc_usage',
-].join(', ')
-
-const PRODUCTION_COLUMNS = 'id, name, due_date, stage_brief_due_date, stage_in_progress_due_date, stage_internal_review_due_date, stage_client_review_due_date, moment_code, lp_url, drive_folder_url, product_images_link, shopify_coupon_code'
 type OfferWithBrand = OfferCard & { brands: OfferBrand }
 
 // The approval-message generation runs as a server action on this route and
@@ -43,7 +30,7 @@ export default async function OfferPage({
   const [{ data: cardRaw }, profiles] = await Promise.all([
     supabase
       .from('offer_cards')
-      .select('*, brands(id, name, website, brand_notes, brand_guidelines, growth_strategist, profit_engineer, start_date, client_token)')
+      .select('*, brands(id, name, website, brand_notes, growth_strategist, profit_engineer, start_date, client_token)')
       .eq('id', offerId)
       .single(),
     getCachedProfiles(),
@@ -53,22 +40,14 @@ export default async function OfferPage({
   const card = cardRaw as unknown as OfferWithBrand
   const assignees = profiles.filter(p => canViewCapacity(p.email))
 
-  // The production card this offer spawned. derived_production_card_id is the
-  // forward pointer; the reverse pointer covers cards whose link was healed
-  // from the project side (see createProductionCardFromOffer).
-  const productionQuery = card.derived_production_card_id
-    ? supabase.from('projects').select(PRODUCTION_COLUMNS).eq('id', card.derived_production_card_id).maybeSingle()
-    : supabase.from('projects').select(PRODUCTION_COLUMNS).eq('source_offer_card_id', card.id).order('created_at').limit(1).maybeSingle()
-
   const [
     { data: dnaRaw },
     { data: brandOffersRaw },
     { data: brandProjectsRaw },
-    { data: productionRaw },
   ] = await Promise.all([
     supabase
       .from('brand_dna')
-      .select(DNA_COLUMNS)
+      .select('tagline, positioning, competitive_differentiation, core_value_prop, top_pain_points, proof_points, common_offers, price_anchor, top_objections, winning_hooks, offer_presentation')
       .eq('brand_id', card.brand_id)
       .eq('is_active', true)
       .maybeSingle(),
@@ -82,15 +61,17 @@ export default async function OfferPage({
       .select('id, brand_id, name, due_date, created_at, marketing_moment, source_offer_card_id, offer_dynamics_type, offer, offer_description, product_featured, retail_price, page_type, discount, tiered_offer, shopify_coupon_code, is_complete, lp_stage, creatives_stage, brands(id, name)')
       .eq('brand_id', card.brand_id)
       .order('due_date', { ascending: false }),
-    productionQuery,
   ])
 
   const history = buildOfferHistory(
     (brandOffersRaw ?? []) as unknown as OfferHistoryCard[],
     (brandProjectsRaw ?? []) as unknown as OfferHistoryProject[],
   )
-  const dna = (dnaRaw ?? null) as unknown as OfferBriefDna | null
-  const production = (productionRaw ?? null) as unknown as OfferBriefProduction | null
+  const dna = (dnaRaw ?? null) as Pick<BrandDna,
+    'tagline' | 'positioning' | 'competitive_differentiation' | 'core_value_prop' |
+    'top_pain_points' | 'proof_points' | 'common_offers' | 'price_anchor' |
+    'top_objections' | 'winning_hooks' | 'offer_presentation'
+  > | null
 
   return (
     <div style={{ padding: '24px', maxWidth: 1120, margin: '0 auto' }}>
@@ -110,7 +91,6 @@ export default async function OfferPage({
         card={card}
         brand={card.brands}
         dna={dna}
-        production={production}
         history={history}
         isEditor={isEditor}
         assignees={assignees}

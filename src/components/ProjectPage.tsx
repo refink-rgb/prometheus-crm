@@ -7,6 +7,7 @@ import { easternToday } from '@/lib/eastern'
 import type { TrackedCampaign, LpTracking, FunnelDailyRow, LpAdMatch } from '@/lib/results'
 import type { Project, Brand, CreativeAsset, ProjectComment, BrandDna, ProjectImage, Journey, BrandComment, BrandDocument, ProjectBrief } from '@/lib/types'
 import PreviewProjectView, { type BrandLandingPage } from '@/components/preview/PreviewProjectView'
+import type { LpBriefSourceOffer } from '@/lib/markdown-export'
 
 // PREVIEW ROUTE — deliberately not in the sidebar nav.
 //
@@ -52,9 +53,10 @@ export default async function ProjectPage({ projectId }: { projectId: string }) 
     { data: brandCommentsRaw },
     { data: brandDocumentsRaw },
     { data: projectBriefsRaw },
+    { data: sourceOfferRaw },
     profiles,
   ] = await Promise.all([
-    supabase.from('brands').select('id, name, brand_notes, ai_sensitivity, brand_guidelines').eq('id', p.brand_id).single(),
+    supabase.from('brands').select('id, name, website, brand_notes, ai_sensitivity, brand_guidelines, growth_strategist, profit_engineer').eq('id', p.brand_id).single(),
     // ALL assets, hidden included. The page it replaces did the same. Filtering
     // here removed hidden creatives from the only screen that can un-hide them,
     // which turned a reversible soft-delete into a permanent one.
@@ -106,6 +108,12 @@ export default async function ProjectPage({ projectId }: { projectId: string }) 
       .select('*')
       .eq('project_id', projectId)
       .order('created_at', { ascending: false }),
+    // The offer this card was spawned from, for the LP brief's rationale
+    // (problem statement, success criterion, guardrails live on the offer
+    // only). Cards created by hand, or whose offer was deleted, have none.
+    p.source_offer_card_id
+      ? supabase.from('offer_cards').select('problem_statement, success_metric, success_target, guardrails').eq('id', p.source_offer_card_id).maybeSingle()
+      : Promise.resolve({ data: null }),
     getCachedProfiles(),
   ])
 
@@ -199,6 +207,7 @@ export default async function ProjectPage({ projectId }: { projectId: string }) 
         .filter(r => !lpTracking?.ended_on || r.stat_date <= lpTracking.ended_on)}
       nowMs={nowMs}
       brandAdAccount={brandAdAccount}
+      sourceOffer={(sourceOfferRaw ?? null) as LpBriefSourceOffer | null}
     />
   )
 }

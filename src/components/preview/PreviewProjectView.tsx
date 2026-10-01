@@ -26,6 +26,7 @@ import type { AssetRevision } from '@/lib/revisions'
 import ReviewWorkspace from '@/components/preview/ReviewWorkspace'
 import Link from 'next/link'
 import CopyMarkdownButton from '@/components/CopyMarkdownButton'
+import MarkdownActions from '@/components/MarkdownActions'
 import DuplicateProjectButton from '@/components/DuplicateProjectButton'
 import ProjectBriefs from '@/components/preview/ProjectBriefs'
 import ListEditor, { type ListRow } from '@/components/preview/ListEditor'
@@ -39,7 +40,7 @@ import BrandGuidelines from '@/components/preview/BrandGuidelines'
 import BrandThread from '@/components/preview/BrandThread'
 import BrandLogo from '@/components/preview/BrandLogo'
 import { summariseProjectOffer, fetchProductThumbnails } from '@/lib/actions'
-import { projectBriefMarkdown } from '@/lib/markdown-export'
+import { projectBriefMarkdown, projectLpBriefMarkdown, lpBriefFilename, type LpBriefSourceOffer } from '@/lib/markdown-export'
 import { STAGE_COLORS } from '@/lib/stageColors'
 import { STAGE_LABELS, normalizeStage } from '@/lib/types'
 
@@ -359,7 +360,7 @@ function CommentList({ comments, empty }: { comments: ProjectComment[]; empty: s
 
 export default function PreviewProjectView({
   project: p, brand, assets, comments, images, dna, revisionsByAsset, lpEditorName, creativeEditorName, journeyName, journeys, profiles, campaigns, todayIso, authorName, brandLandingPages, brandComments, brandDocuments, projectBriefs, serverNow, currentUserId,
-  lpTracking, lpAdMatches, lpDaily, accountDaily, nowMs, brandAdAccount,
+  lpTracking, lpAdMatches, lpDaily, accountDaily, nowMs, brandAdAccount, sourceOffer = null,
 }: {
   project: Project; brand: Brand; assets: CreativeAsset[]; comments: ProjectComment[]
   images: ProjectImage[]; dna: BrandDna | null
@@ -383,6 +384,8 @@ export default function PreviewProjectView({
   nowMs: number
   /** brands.meta_ad_account_id — the tracking form's preferred account option. */
   brandAdAccount: string | null
+  /** Rationale fields from the source offer card, for the LP brief export. Null when the card has no linked offer. */
+  sourceOffer?: LpBriefSourceOffer | null
 }) {
   const [tab, setTab] = useState<Tab>('overview')
 
@@ -1428,6 +1431,30 @@ export default function PreviewProjectView({
                     style={{ fontSize: 11, fontWeight: 600, padding: '4px 8px', borderRadius: 999, background: 'var(--surface-2)', color: 'var(--text-secondary)', border: '1px dashed var(--border-strong)', textDecoration: 'none' }}
                   >{lpOpen.length} open client note{lpOpen.length === 1 ? '' : 's'} ↓</a>
                 )}
+
+                {/* The landing page team's handoff file: offer, product,
+                    inspiration, brand context, visual system and timeline.
+                    No copy fields (they are written here, not handed down). */}
+                <MarkdownActions
+                  markdown={() => projectLpBriefMarkdown(p, {
+                    brandName: brand?.name ?? null,
+                    website: brand?.website ?? null,
+                    brandNotes: brand?.brand_notes ?? null,
+                    brandGuidelines: brand?.brand_guidelines ?? null,
+                    growthStrategist: brand?.growth_strategist ?? null,
+                    profitEngineer: brand?.profit_engineer ?? null,
+                    lpEditor: lpEditorName,
+                    creativeEditor: creativeEditorName,
+                    journeyName,
+                    dna,
+                    sourceOffer,
+                  })}
+                  filename={lpBriefFilename(p, brand?.name ?? null)}
+                  showCopy={false}
+                  downloadLabel="↓ LP brief .md"
+                  downloadTitle="Download the landing page brief as Markdown: offer, product, inspiration, brand context, visual system and timeline. No page copy."
+                  style={{ marginLeft: 'auto' }}
+                />
               </div>
 
               {/* 1 — the page, first: 60 of 66 already have one, so this is a
