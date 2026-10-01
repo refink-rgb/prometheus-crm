@@ -185,23 +185,73 @@ export function projectBriefMarkdown(
 
 // --- Offer card ---------------------------------------------------------------
 
+// Everything the LP team reads off a Brand DNA when they build from an offer:
+// the strategic fields the offer workspace already shows, plus the visual
+// system (type, color, CTA, photography) a page has to honour. A superset of
+// what offerCardMarkdown needs, so one fetch feeds both exports.
+export type OfferBriefDna = Pick<BrandDna,
+  | 'tagline'
+  | 'positioning'
+  | 'voice_adjectives'
+  | 'competitive_differentiation'
+  | 'core_value_prop'
+  | 'top_pain_points'
+  | 'proof_points'
+  | 'common_offers'
+  | 'price_anchor'
+  | 'top_objections'
+  | 'winning_hooks'
+  | 'offer_presentation'
+  | 'logo_url'
+  | 'primary_font'
+  | 'secondary_font'
+  | 'headline_weight'
+  | 'body_weight'
+  | 'primary_color'
+  | 'secondary_color'
+  | 'accent_color'
+  | 'background_colors'
+  | 'contrast_color'
+  | 'cta_style'
+  | 'lighting'
+  | 'color_grading'
+  | 'composition'
+  | 'subject_matter'
+  | 'props_and_surfaces'
+  | 'mood'
+  | 'packaging_description'
+  | 'text_overlay_style'
+  | 'ugc_usage'
+>
+
+// The production card spawned from the offer, as far as the LP brief cares:
+// the launch date, the per-stage targets and the links the team works from.
+export type OfferBriefProduction = Pick<Project,
+  | 'id'
+  | 'name'
+  | 'due_date'
+  | 'stage_brief_due_date'
+  | 'stage_in_progress_due_date'
+  | 'stage_internal_review_due_date'
+  | 'stage_client_review_due_date'
+  | 'moment_code'
+  | 'lp_url'
+  | 'drive_folder_url'
+  | 'product_images_link'
+  | 'shopify_coupon_code'
+>
+
 export interface OfferMarkdownContext {
   brandName?: string | null
   website?: string | null
   brandNotes?: string | null
-  dna?: Pick<BrandDna,
-    | 'tagline'
-    | 'positioning'
-    | 'competitive_differentiation'
-    | 'core_value_prop'
-    | 'top_pain_points'
-    | 'proof_points'
-    | 'common_offers'
-    | 'price_anchor'
-    | 'top_objections'
-    | 'winning_hooks'
-    | 'offer_presentation'
-  > | null
+  // The client's own rules, pasted on the brand page. Distinct from brandNotes
+  // (ours). Only the LP brief emits it; the offer export never did.
+  brandGuidelines?: string | null
+  growthStrategist?: string | null
+  profitEngineer?: string | null
+  dna?: Partial<OfferBriefDna> | null
+  production?: OfferBriefProduction | null
   history?: OfferHistoryEntry[]
 }
 
@@ -280,6 +330,159 @@ export function offerCardMarkdown(
       ],
     },
   ], brandName ?? undefined)
+
+  if (!context.history?.length) return base
+
+  return `${base}\n## Brand Offer History\n\n${offerHistoryTable(context.history)}\n`
+}
+
+// --- LP brief -------------------------------------------------------------------
+//
+// The handoff document for the landing page team: everything they need to
+// build the page, and nothing they must not touch. Deliberately EXCLUDES the
+// client approval message (that is for the client), the internal/client
+// sign-off trail, and every copy field (headline, body, CTA, ad copy live on
+// the production card and are written by the copy team, not handed down).
+// What it ADDS over the offer export: the client's brand guidelines, the
+// Brand DNA visual system, the production timeline and the working links.
+
+function colorList(values: Array<string | null | undefined> | null | undefined): string[] | null {
+  if (!values) return null
+  const present = values.filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+  return present.length ? present : null
+}
+
+export function offerLpBriefMarkdown(
+  card: OfferCard,
+  ownerName?: string | null,
+  context: OfferMarkdownContext = {},
+): string {
+  const brandName = context.brandName ?? card.brand?.name ?? null
+  const dna = context.dna ?? null
+  const prod = context.production ?? null
+  const momentLabel = `${offerMonthLabel(card.target_month)} · M${card.moment_slot}`
+  const title = card.offer?.trim()
+    ? `${brandName ?? 'Brand'} · ${card.offer.trim()}`
+    : card.name
+  const successTarget = card.success_target === null || card.success_target === undefined
+    ? null
+    : `${card.success_target}`
+
+  const base = buildMarkdown(title, [
+    {
+      fields: [
+        { label: 'Brand', value: brandName },
+        { label: 'Website', value: context.website },
+        { label: 'Moment', value: momentLabel },
+        { label: 'Page Type', value: card.page_type },
+        { label: 'Offer Owner', value: ownerName },
+        { label: 'Growth Strategist', value: context.growthStrategist },
+        { label: 'Profit Engineer', value: context.profitEngineer },
+        { label: 'Moment Code', value: prod?.moment_code },
+      ],
+    },
+    {
+      heading: 'Timeline',
+      fields: [
+        { label: 'Launch (live)', value: fmtDate(prod?.due_date) },
+        { label: 'Brief due', value: fmtDate(prod?.stage_brief_due_date) },
+        { label: 'Build due', value: fmtDate(prod?.stage_in_progress_due_date) },
+        { label: 'Internal review due', value: fmtDate(prod?.stage_internal_review_due_date) },
+        { label: 'Client review due', value: fmtDate(prod?.stage_client_review_due_date) },
+      ],
+    },
+    {
+      heading: 'Why This Offer',
+      fields: [
+        { label: 'Problem we are solving', value: card.problem_statement },
+        { label: 'Success metric', value: card.success_metric },
+        { label: 'Success target', value: successTarget },
+        { label: 'Guardrails', value: card.guardrails },
+      ],
+    },
+    {
+      heading: 'The Offer',
+      fields: [
+        { label: 'Offer dynamics', value: card.offer_dynamics_type },
+        { label: 'Offer', value: card.offer },
+        { label: 'Full mechanics', value: card.offer_description },
+        { label: 'Coupon code', value: prod?.shopify_coupon_code },
+      ],
+    },
+    {
+      heading: 'Product',
+      fields: [
+        { label: 'Product featured', value: card.product_featured },
+        { label: 'Product context', value: card.product_description },
+        { label: 'Retail price', value: card.retail_price },
+        { label: 'Product images', value: card.product_images_link ?? prod?.product_images_link },
+      ],
+    },
+    {
+      heading: 'Inspiration & References',
+      fields: [
+        { label: 'Reference pages and competitors', value: card.competitor_reference },
+        { label: 'Client ad inspiration and creative rules', value: card.client_ad_inspiration },
+      ],
+    },
+    {
+      heading: 'Brand Context',
+      fields: [
+        { label: 'Account notes', value: context.brandNotes },
+        { label: 'Tagline', value: dna?.tagline },
+        { label: 'Positioning', value: dna?.positioning },
+        { label: 'Voice', value: dna?.voice_adjectives },
+        { label: 'Core value proposition', value: dna?.core_value_prop },
+        { label: 'Competitive differentiation', value: dna?.competitive_differentiation },
+        { label: 'Top pain points', value: dna?.top_pain_points },
+        { label: 'Proof points', value: dna?.proof_points },
+        { label: 'Top objections', value: dna?.top_objections },
+        { label: 'Winning hooks', value: dna?.winning_hooks },
+        { label: 'Common offers', value: dna?.common_offers },
+        { label: 'Price anchor', value: dna?.price_anchor },
+        { label: 'How offers are presented', value: dna?.offer_presentation },
+      ],
+    },
+    {
+      heading: 'Visual System',
+      fields: [
+        { label: 'Logo', value: dna?.logo_url },
+        { label: 'Primary font', value: dna?.primary_font },
+        { label: 'Secondary font', value: dna?.secondary_font },
+        { label: 'Headline weight', value: dna?.headline_weight },
+        { label: 'Body weight', value: dna?.body_weight },
+        { label: 'Primary color', value: dna?.primary_color },
+        { label: 'Secondary color', value: dna?.secondary_color },
+        { label: 'Accent color', value: dna?.accent_color },
+        { label: 'Background colors', value: colorList(dna?.background_colors) },
+        { label: 'Contrast color', value: dna?.contrast_color },
+        { label: 'CTA style', value: dna?.cta_style },
+        { label: 'Photography: lighting', value: dna?.lighting },
+        { label: 'Photography: color grading', value: dna?.color_grading },
+        { label: 'Photography: composition', value: dna?.composition },
+        { label: 'Photography: subject matter', value: dna?.subject_matter },
+        { label: 'Photography: props and surfaces', value: dna?.props_and_surfaces },
+        { label: 'Mood', value: dna?.mood },
+        { label: 'Packaging', value: dna?.packaging_description },
+        { label: 'Text overlay style', value: dna?.text_overlay_style },
+        { label: 'UGC usage', value: dna?.ugc_usage },
+      ],
+    },
+    {
+      heading: 'Brand Guidelines (client-supplied)',
+      fields: [
+        { label: 'Guidelines', value: context.brandGuidelines },
+      ],
+    },
+    {
+      heading: 'Working Links',
+      fields: [
+        { label: 'Production card', value: prod?.id ? `/brands/${card.brand_id}/projects/${prod.id}` : null },
+        { label: 'Landing page URL', value: prod?.lp_url },
+        { label: 'Drive folder', value: prod?.drive_folder_url },
+      ],
+    },
+  ], `${brandName ?? ''} · LP brief · ${momentLabel}`.replace(/^ · /, ''))
 
   if (!context.history?.length) return base
 

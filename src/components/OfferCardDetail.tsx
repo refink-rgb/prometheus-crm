@@ -10,7 +10,6 @@ import {
   offerMonthLabel,
   profileName,
   type Brand,
-  type BrandDna,
   type OfferCard,
   type OfferStage,
   type Profile,
@@ -26,7 +25,7 @@ import {
 import { offerCompletion, type OfferHistoryEntry } from '@/lib/offer-history'
 import { offerApprovalState } from '@/lib/offer-approvals'
 import ClientOfferLink from '@/components/ClientOfferLink'
-import { offerCardMarkdown } from '@/lib/markdown-export'
+import { offerCardMarkdown, offerLpBriefMarkdown, type OfferBriefDna, type OfferBriefProduction } from '@/lib/markdown-export'
 import Avatar from '@/components/Avatar'
 import ClientApprovalMessage from '@/components/ClientApprovalMessage'
 import MarkdownActions from '@/components/MarkdownActions'
@@ -55,14 +54,11 @@ const TABS: Array<{ id: WorkspaceTab; label: string; short: string }> = [
 ]
 
 type OfferBrand = Pick<Brand,
-  'id' | 'name' | 'website' | 'brand_notes' | 'growth_strategist' | 'profit_engineer' | 'start_date' | 'client_token'
+  'id' | 'name' | 'website' | 'brand_notes' | 'brand_guidelines' | 'growth_strategist' | 'profit_engineer' | 'start_date' | 'client_token'
 >
 
-type OfferDna = Pick<BrandDna,
-  'tagline' | 'positioning' | 'competitive_differentiation' | 'core_value_prop' |
-  'top_pain_points' | 'proof_points' | 'common_offers' | 'price_anchor' |
-  'top_objections' | 'winning_hooks' | 'offer_presentation'
->
+// Partial: fixtures and older DNA rows may not carry every visual-system column.
+type OfferDna = Partial<OfferBriefDna>
 
 const sectionTitle: React.CSSProperties = {
   fontSize: 'var(--text-xs)',
@@ -86,6 +82,7 @@ export default function OfferCardDetail({
   card,
   brand,
   dna,
+  production = null,
   history,
   isEditor,
   assignees,
@@ -93,6 +90,8 @@ export default function OfferCardDetail({
   card: OfferCard
   brand: OfferBrand
   dna: OfferDna | null
+  /** The production card spawned from this offer, when one exists. Feeds the LP brief timeline. */
+  production?: OfferBriefProduction | null
   history: OfferHistoryEntry[]
   isEditor: boolean
   assignees: Profile[]
@@ -108,17 +107,21 @@ export default function OfferCardDetail({
   const stageColor = OFFER_STAGE_COLORS[card.stage]
   const ownerProfile = owner ? assignees.find(profile => profile.id === owner) : undefined
   const completion = offerCompletion(card)
-  const markdown = () => offerCardMarkdown(
-    card,
-    ownerProfile ? profileName(ownerProfile) : null,
-    {
-      brandName: brand.name,
-      website: brand.website,
-      brandNotes: brand.brand_notes,
-      dna,
-      history,
-    },
-  )
+  const markdownContext = {
+    brandName: brand.name,
+    website: brand.website,
+    brandNotes: brand.brand_notes,
+    brandGuidelines: brand.brand_guidelines,
+    growthStrategist: brand.growth_strategist,
+    profitEngineer: brand.profit_engineer,
+    dna,
+    production,
+    history,
+  }
+  const markdown = () => offerCardMarkdown(card, ownerProfile ? profileName(ownerProfile) : null, markdownContext)
+  // The landing page team's handoff: context + inspo + timeline, no approval
+  // message and no copy fields (those are written on the production card).
+  const lpBrief = () => offerLpBriefMarkdown(card, ownerProfile ? profileName(ownerProfile) : null, markdownContext)
 
   function setStage(stage: OfferStage) {
     setError(null)
@@ -216,11 +219,20 @@ export default function OfferCardDetail({
                 {card.offer_description?.trim() || 'Build the strategic rationale, mechanics, product story, and approval message in one place.'}
               </p>
             </div>
-            <MarkdownActions
-              markdown={markdown}
-              filename={`${brand.name}-${offerMonthLabel(card.target_month)}-M${card.moment_slot}-offer`}
-              copyLabel="Copy full brief"
-            />
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <MarkdownActions
+                markdown={markdown}
+                filename={`${brand.name}-${offerMonthLabel(card.target_month)}-M${card.moment_slot}-offer`}
+                copyLabel="Copy full brief"
+              />
+              <MarkdownActions
+                markdown={lpBrief}
+                filename={`${brand.name}-${offerMonthLabel(card.target_month)}-M${card.moment_slot}-lp-brief`}
+                showCopy={false}
+                downloadLabel="↓ LP brief .md"
+                downloadTitle="Download the landing page team brief: offer, product, inspiration, brand context, visual system and timeline. No approval message, no copy."
+              />
+            </div>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 18 }}>

@@ -16,11 +16,18 @@ export default function MarkdownActions({
   markdown,
   filename,
   copyLabel = 'Copy Markdown',
+  downloadLabel = '↓ Download .md',
+  downloadTitle = 'Download this view as a Markdown file',
+  showCopy = true,
   style,
 }: {
   markdown: string | (() => string)
   filename: string
   copyLabel?: string
+  downloadLabel?: string
+  downloadTitle?: string
+  /** False renders the download button alone — for a second export next to the main pair. */
+  showCopy?: boolean
   style?: React.CSSProperties
 }) {
   function download() {
@@ -38,15 +45,15 @@ export default function MarkdownActions({
 
   return (
     <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, ...style }}>
-      <CopyMarkdownButton markdown={markdown} label={copyLabel} />
+      {showCopy && <CopyMarkdownButton markdown={markdown} label={copyLabel} />}
       <button
         type="button"
         className="btn-secondary"
         onClick={download}
-        title="Download this view as a Markdown file"
+        title={downloadTitle}
         style={{ fontSize: 'var(--text-sm)', whiteSpace: 'nowrap' }}
       >
-        ↓ Download .md
+        {downloadLabel}
       </button>
     </div>
   )
