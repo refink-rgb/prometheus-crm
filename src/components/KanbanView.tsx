@@ -17,7 +17,7 @@ import CopyMarkdownButton from '@/components/CopyMarkdownButton'
 import { pipelineMarkdown } from '@/lib/markdown-export'
 import { Search, Hourglass, UserRound, Users, Building2, ChevronDown, X } from 'lucide-react'
 
-type PipelineProject = Project & { brands: { id: string; name: string } }
+type PipelineProject = Project & { brands: { id: string; name: string; is_priority?: boolean } }
 type StatusFilter = 'all' | 'overdue' | 'in_review'
 // Which track's stage a card is columned by. 'combined' keeps the historical
 // behavior (the earliest of the two tracks); 'lp' / 'creatives' column by that
@@ -187,7 +187,11 @@ export default function KanbanView({
   const columns = useMemo(
     () => STAGE_ORDER.map(stage => ({
       stage,
-      cards: displayed.filter(p => cardColumn(p, trackView) === stage),
+      // Priority clients first; the stable sort keeps due-date order within
+      // each group (the server already ordered by due_date).
+      cards: displayed
+        .filter(p => cardColumn(p, trackView) === stage)
+        .sort((a, b) => Number(!!b.brands.is_priority) - Number(!!a.brands.is_priority)),
     })),
     [displayed, trackView]
   )

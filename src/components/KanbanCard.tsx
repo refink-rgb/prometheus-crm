@@ -9,9 +9,9 @@ import { STAGE_ORDER, STAGE_LABELS, profileName, type Stage, type Project, type 
 import { isProjectOverdue, parseAndDaysUntil, parseDueDate, phaseDueTone, STAGE_COLORS, STAGE_DUE_FIELD, type PhaseDueTone } from '@/lib/stageColors'
 import { updateProjectStageDueDate, updateProjectEditor } from '@/lib/actions'
 import Avatar from '@/components/Avatar'
-import { ChevronLeft, ChevronRight, GripVertical, AlertTriangle, Check, Hourglass, UserPlus, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, GripVertical, AlertTriangle, Check, Hourglass, UserPlus, X, Star } from 'lucide-react'
 
-type PipelineProject = Project & { brands: { id: string; name: string } }
+type PipelineProject = Project & { brands: { id: string; name: string; is_priority?: boolean } }
 
 // The card's controls — move back, move forward, drag — share one 20px square
 // so they read as a single cluster in the top-right corner.
@@ -82,6 +82,9 @@ function KanbanCardInner({ p, isGhost = false, columnStage, onMove, editorsById,
     : null
 
   const brandInitial = (p.brands.name.trim()[0] ?? '?').toUpperCase()
+  // Priority client: a gold wash + star. Overdue still outranks it — a late
+  // card must read as late first, whoever the client is.
+  const isPriority = !!p.brands.is_priority
   const SEGMENTS = STAGE_ORDER.length - 1
   const filledSegments = Math.round((progress / 100) * SEGMENTS)
 
@@ -93,8 +96,14 @@ function KanbanCardInner({ p, isGhost = false, columnStage, onMove, editorsById,
         position: 'relative',
         background: isOverdue
           ? 'color-mix(in srgb, var(--danger) 4%, var(--surface))'
-          : 'var(--surface)',
-        border: `1px solid ${isOverdue ? 'color-mix(in srgb, var(--danger) 40%, transparent)' : 'var(--border)'}`,
+          : isPriority
+            ? 'color-mix(in srgb, #f5b341 3%, var(--surface))'
+            : 'var(--surface)',
+        border: `1px solid ${isOverdue
+          ? 'color-mix(in srgb, var(--danger) 40%, transparent)'
+          : isPriority
+            ? 'color-mix(in srgb, #f5b341 38%, transparent)'
+            : 'var(--border)'}`,
         borderRadius: 12,
         boxShadow: '0 1px 2px rgba(0,0,0,0.25)',
         overflow: 'hidden',
@@ -184,6 +193,22 @@ function KanbanCardInner({ p, isGhost = false, columnStage, onMove, editorsById,
             }}>
               {p.brands.name}
             </span>
+            {isPriority && (
+              <span
+                title="Priority client"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 3, flexShrink: 0,
+                  fontSize: 9, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase',
+                  color: '#f5b341',
+                  background: 'color-mix(in srgb, #f5b341 12%, transparent)',
+                  border: '1px solid color-mix(in srgb, #f5b341 30%, transparent)',
+                  borderRadius: 20, padding: '2px 7px',
+                }}
+              >
+                <Star size={9} strokeWidth={2} fill="#f5b341" aria-hidden />
+                Priority
+              </span>
+            )}
           </div>
 
           {/* Project name */}

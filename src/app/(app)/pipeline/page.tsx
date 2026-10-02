@@ -5,7 +5,7 @@ import { canEdit } from '@/lib/permissions'
 import type { Project } from '@/lib/types'
 import KanbanView from '@/components/KanbanView'
 
-type PipelineProject = Project & { brands: { id: string; name: string } }
+type PipelineProject = Project & { brands: { id: string; name: string; is_priority?: boolean } }
 
 export default async function PipelinePage() {
   const supabase = await createClient()
@@ -16,14 +16,23 @@ export default async function PipelinePage() {
   // Kanban cards read exactly these fields. `select('*')` was dragging the
   // JSONB copy banks + brief fields for every active project (~110 KB vs ~7 KB
   // measured) on every board load.
-  const [{ data: pipelineRaw }, profiles] = await Promise.all([
+  const COLS = 'id, name, brand_id, due_date, stage_brief_due_date, stage_in_progress_due_date, stage_internal_review_due_date, stage_client_review_due_date, is_complete, lp_stage, creatives_stage, lp_approved, creatives_approved, lp_editor_id, creative_editor_id, moment_code'
+  const fetchPipeline = (brandCols: string) =>
     supabase
       .from('projects')
-      .select('id, name, brand_id, due_date, stage_brief_due_date, stage_in_progress_due_date, stage_internal_review_due_date, stage_client_review_due_date, is_complete, lp_stage, creatives_stage, lp_approved, creatives_approved, lp_editor_id, creative_editor_id, brands(id, name), moment_code')
+      .select(`${COLS}, brands(${brandCols})`)
       .eq('is_complete', false)
-      .order('due_date', { ascending: true }),
+      .order('due_date', { ascending: true })
+
+  let [{ data: pipelineRaw, error: pipelineErr }, profiles] = await Promise.all([
+    fetchPipeline('id, name, is_priority'),
     getCachedProfiles(),
   ])
+  // brands.is_priority arrives with a hand-run migration (repo convention) —
+  // 42703 = column doesn't exist yet, so fall back rather than break the board.
+  if (pipelineErr?.code === '42703') {
+    ;({ data: pipelineRaw } = await fetchPipeline('id, name'))
+  }
 
   const pipeline = (pipelineRaw ?? []) as unknown as PipelineProject[]
   // Anyone flagged for either track — the union is what a card can display and
