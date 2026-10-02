@@ -478,6 +478,7 @@ export default function KanbanView({
                 draggedCardId={activeId}
                 onMove={moveCard}
                 editorsById={editorsById}
+                editors={editors}
               />
             ))}
           </div>
@@ -508,6 +509,7 @@ function KanbanColumnInner({
   draggedCardId,
   onMove,
   editorsById,
+  editors,
 }: {
   stage: Stage
   cards: PipelineProject[]
@@ -516,6 +518,7 @@ function KanbanColumnInner({
   draggedCardId: string | null
   onMove: (card: PipelineProject, targetStage: Stage) => void
   editorsById: Map<string, Profile>
+  editors: Profile[]
 }) {
   const color = STAGE_COLORS[stage]
   const { setNodeRef } = useDroppable({ id: stage })
@@ -613,7 +616,7 @@ function KanbanColumnInner({
             .filter(p => p.id !== draggedCardId)
             .map(p => (
               <div key={p.id} style={{ flexShrink: 0 }}>
-                <KanbanCard p={p} columnStage={stage} onMove={onMove} editorsById={editorsById} />
+                <KanbanCard p={p} columnStage={stage} onMove={onMove} editorsById={editorsById} editors={editors} />
               </div>
             ))
         )}

@@ -1,14 +1,14 @@
 'use client'
 
-import { memo, useState, useTransition } from 'react'
+import { memo, useEffect, useRef, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useDraggable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
 import { STAGE_ORDER, STAGE_LABELS, profileName, type Stage, type Project, type Profile } from '@/lib/types'
 import { isProjectOverdue, parseAndDaysUntil, parseDueDate, phaseDueTone, STAGE_COLORS, STAGE_DUE_FIELD, type PhaseDueTone } from '@/lib/stageColors'
-import { updateProjectStageDueDate } from '@/lib/actions'
+import { updateProjectStageDueDate, updateProjectEditor } from '@/lib/actions'
 import Avatar from '@/components/Avatar'
-import { ChevronLeft, ChevronRight, GripVertical, AlertTriangle, Check, Hourglass } from 'lucide-react'
+import { ChevronLeft, ChevronRight, GripVertical, AlertTriangle, Check, Hourglass, UserPlus, X } from 'lucide-react'
 
 type PipelineProject = Project & { brands: { id: string; name: string } }
 
@@ -35,9 +35,11 @@ interface KanbanCardProps {
   onMove?: (card: PipelineProject, targetStage: Stage) => void
   /** Memoized in KanbanView — a fresh Map here would defeat the memo() below. */
   editorsById: Map<string, Profile>
+  /** The assignable roster (stable server-props reference, same memo rule). */
+  editors?: Profile[]
 }
 
-function KanbanCardInner({ p, isGhost = false, columnStage, onMove, editorsById }: KanbanCardProps) {
+function KanbanCardInner({ p, isGhost = false, columnStage, onMove, editorsById, editors = [] }: KanbanCardProps) {
   const lpEditor = p.lp_editor_id ? editorsById.get(p.lp_editor_id) : undefined
   const creativeEditor = p.creative_editor_id ? editorsById.get(p.creative_editor_id) : undefined
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
@@ -239,16 +241,25 @@ function KanbanCardInner({ p, isGhost = false, columnStage, onMove, editorsById 
             />
           )}
 
-          {/* Editors left, go-live anchor right. */}
-          {(p.due_date || lpEditor || creativeEditor) && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
-              <div style={{ display: 'flex', gap: 3, flexShrink: 0 }}>
-                {lpEditor && (
-                  <Avatar name={profileName(lpEditor)} size={20} title={`LP: ${profileName(lpEditor)}`} />
-                )}
-                {creativeEditor && (
-                  <Avatar name={profileName(creativeEditor)} size={20} title={`Creative: ${profileName(creativeEditor)}`} />
-                )}
+          {/* Editors left (click to assign), go-live anchor right. */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
+              <div style={{ display: 'flex', gap: 4, flexShrink: 0, minWidth: 0 }}>
+                <EditorSlot
+                  track="lp"
+                  label="LP"
+                  projectId={p.id}
+                  brandId={p.brands.id}
+                  assigned={lpEditor ?? null}
+                  roster={editors.filter(e => e.is_lp_editor)}
+                />
+                <EditorSlot
+                  track="creative"
+                  label="CR"
+                  projectId={p.id}
+                  brandId={p.brands.id}
+                  assigned={creativeEditor ?? null}
+                  roster={editors.filter(e => e.is_creative_editor)}
+                />
               </div>
               {p.due_date && (
                 <span
@@ -266,8 +277,7 @@ function KanbanCardInner({ p, isGhost = false, columnStage, onMove, editorsById 
                   Go-live · {due?.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                 </span>
               )}
-            </div>
-          )}
+          </div>
 
           {/* Progress: one segment per stage transition, filled for the
               distance both tracks have covered on average. */}
@@ -411,6 +421,172 @@ function PhaseDueControl({
         {shortDate}{pill && <span style={{ opacity: 0.85 }}>· {pill}</span>}
       </span>
     </button>
+  )
+}
+
+// One track's assignee on the card: a labeled pill that reads "LP · Omkar"
+// when assigned and a dashed "+ LP" prompt when not, opening a roster menu in
+// place. Optimistic — the pick shows immediately, a failed save reverts.
+// The menu is position:fixed (measured off the button) because the card root
+// clips overflow, and it closes on any outside pointerdown or Escape.
+function EditorSlot({
+  track,
+  label,
+  projectId,
+  brandId,
+  assigned,
+  roster,
+}: {
+  track: 'lp' | 'creative'
+  label: string
+  projectId: string
+  brandId: string
+  assigned: Profile | null
+  roster: Profile[]
+}) {
+  const [override, setOverride] = useState<{ v: Profile | null } | null>(null)
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null)
+  const [, startSave] = useTransition()
+  const btnRef = useRef<HTMLButtonElement>(null)
+
+  const current = override ? override.v : assigned
+
+  useEffect(() => {
+    if (!menuAt) return
+    const close = (e: PointerEvent) => {
+      if (btnRef.current?.parentElement?.contains(e.target as Node)) return
+      setMenuAt(null)
+    }
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenuAt(null) }
+    // Capture phase: the card footer stops pointerdown propagation (to keep
+    // the drag sensor out), which would otherwise eat the outside-click close.
+    window.addEventListener('pointerdown', close, true)
+    window.addEventListener('keydown', esc)
+    return () => {
+      window.removeEventListener('pointerdown', close, true)
+      window.removeEventListener('keydown', esc)
+    }
+  }, [menuAt])
+
+  function openMenu() {
+    const r = btnRef.current?.getBoundingClientRect()
+    if (!r) return
+    // Below the pill by default; above when the viewport bottom is close.
+    const estHeight = Math.min(roster.length + 1, 8) * 30 + 12
+    const y = r.bottom + estHeight > window.innerHeight ? r.top - estHeight - 4 : r.bottom + 4
+    setMenuAt({ x: Math.min(r.left, window.innerWidth - 190), y })
+  }
+
+  function pick(editor: Profile | null) {
+    const prev = current
+    setOverride({ v: editor })
+    setMenuAt(null)
+    startSave(async () => {
+      const res = await updateProjectEditor(projectId, brandId, track, editor?.id ?? null)
+      if (res?.error) setOverride({ v: prev })
+    })
+  }
+
+  return (
+    <div style={{ position: 'relative', minWidth: 0 }}>
+      <button
+        ref={btnRef}
+        type="button"
+        className="focus-ring-pill"
+        onClick={() => (menuAt ? setMenuAt(null) : openMenu())}
+        title={current
+          ? `${label === 'LP' ? 'LP editor' : 'Creative editor'}: ${profileName(current)} — click to change`
+          : `Assign a ${label === 'LP' ? 'LP' : 'creative'} editor`}
+        style={current ? {
+          display: 'inline-flex', alignItems: 'center', gap: 5,
+          fontSize: 10.5, fontWeight: 600, color: 'var(--text-secondary)',
+          background: 'var(--surface-raised)', border: '1px solid var(--border)',
+          borderRadius: 20, padding: '2px 8px 2px 3px', cursor: 'pointer',
+          maxWidth: 110, minWidth: 0,
+        } : {
+          display: 'inline-flex', alignItems: 'center', gap: 4,
+          fontSize: 10.5, fontWeight: 600, color: 'var(--warning)',
+          background: 'color-mix(in srgb, var(--warning) 7%, transparent)',
+          border: '1px dashed color-mix(in srgb, var(--warning) 45%, transparent)',
+          borderRadius: 20, padding: '3px 9px', cursor: 'pointer',
+        }}
+      >
+        {current ? (
+          <>
+            <Avatar name={profileName(current)} size={16} />
+            <span style={{ display: 'flex', alignItems: 'baseline', gap: 3, minWidth: 0 }}>
+              <span style={{ color: 'var(--text-muted)', fontWeight: 700, fontSize: 9 }}>{label}</span>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {profileName(current).split(' ')[0]}
+              </span>
+            </span>
+          </>
+        ) : (
+          <>
+            <UserPlus size={11} strokeWidth={2.2} aria-hidden />
+            {label}
+          </>
+        )}
+      </button>
+
+      {menuAt && (
+        <div
+          role="listbox"
+          aria-label={`Assign ${label} editor`}
+          style={{
+            position: 'fixed', left: menuAt.x, top: menuAt.y, zIndex: 50,
+            minWidth: 180, maxHeight: 252, overflowY: 'auto',
+            background: 'var(--surface)', border: '1px solid var(--border-strong, var(--border))',
+            borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.45)',
+            padding: 4,
+          }}
+        >
+          {roster.length === 0 && (
+            <div style={{ padding: '7px 10px', fontSize: 11, color: 'var(--text-muted)' }}>
+              No one is flagged as {label === 'LP' ? 'an LP' : 'a creative'} editor on the roster.
+            </div>
+          )}
+          {roster.map(e => {
+            const isCurrent = current?.id === e.id
+            return (
+              <button
+                key={e.id}
+                type="button"
+                onClick={() => pick(e)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 7, width: '100%',
+                  padding: '5px 8px', borderRadius: 7, border: 'none',
+                  background: isCurrent ? 'var(--surface-raised)' : 'transparent',
+                  color: 'var(--text-primary)', fontSize: 12, cursor: 'pointer', textAlign: 'left',
+                }}
+                onMouseEnter={ev => { (ev.currentTarget as HTMLElement).style.background = 'var(--surface-raised)' }}
+                onMouseLeave={ev => { (ev.currentTarget as HTMLElement).style.background = isCurrent ? 'var(--surface-raised)' : 'transparent' }}
+              >
+                <Avatar name={profileName(e)} size={18} />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{profileName(e)}</span>
+                {isCurrent && <Check size={12} strokeWidth={2.5} aria-hidden style={{ marginLeft: 'auto', color: 'var(--success)', flexShrink: 0 }} />}
+              </button>
+            )
+          })}
+          {current && (
+            <button
+              type="button"
+              onClick={() => pick(null)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 7, width: '100%',
+                padding: '5px 8px', borderRadius: 7, border: 'none',
+                background: 'transparent', color: 'var(--text-muted)', fontSize: 12,
+                cursor: 'pointer', textAlign: 'left',
+                borderTop: '1px solid var(--border)', marginTop: 3, paddingTop: 7,
+              }}
+            >
+              <X size={12} strokeWidth={2.2} aria-hidden />
+              Unassign
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 

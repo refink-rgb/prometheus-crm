@@ -418,6 +418,45 @@ export async function updateProjectStageDueDate(
   revalidatePath('/calendar')
 }
 
+// Assign (or clear) a track's editor straight from a pipeline card. Returns
+// { error } instead of throwing — prod masks thrown server-action messages
+// (repo convention since the offer-save fix).
+export async function updateProjectEditor(
+  projectId: string,
+  brandId: string,
+  track: 'lp' | 'creative',
+  editorId: string | null,
+): Promise<{ error?: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!(await canEdit(user.email))) return { error: 'Not authorized.' }
+
+  const column = track === 'lp' ? 'lp_editor_id' : 'creative_editor_id'
+
+  // The roster flags are the contract: a card must not be assignable to
+  // someone the team roster doesn't list for that track.
+  if (editorId) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('id, is_lp_editor, is_creative_editor')
+      .eq('id', editorId)
+      .maybeSingle()
+    const capable = track === 'lp' ? profile?.is_lp_editor : profile?.is_creative_editor
+    if (!capable) return { error: 'That person is not on the roster for this track.' }
+  }
+
+  const { error } = await supabase
+    .from('projects')
+    .update({ [column]: editorId })
+    .eq('id', projectId)
+  if (error) return { error: error.message }
+
+  revalidatePath('/pipeline')
+  revalidatePath(`/brands/${brandId}/projects/${projectId}`)
+  return {}
+}
+
 export async function updateProjectDeliverable(formData: FormData) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
