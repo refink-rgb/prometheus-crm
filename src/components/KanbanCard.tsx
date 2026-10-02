@@ -242,9 +242,11 @@ function KanbanCardInner({ p, isGhost = false, columnStage, onMove, editorsById,
             />
           )}
 
-          {/* Editors left (click to assign), go-live anchor right. */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
-              <div style={{ display: 'flex', gap: 4, flexShrink: 0, minWidth: 0 }}>
+          {/* Editors left (click to assign), go-live anchor right. Wraps when
+              two named pills + the go-live chip outgrow the card, instead of
+              clipping the go-live date at the card edge. */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, flexWrap: 'wrap', rowGap: 6 }}>
+              <div style={{ display: 'flex', gap: 4, flexShrink: 1, minWidth: 0 }}>
                 <EditorSlot
                   track="lp"
                   label="LP"
@@ -272,6 +274,7 @@ function KanbanCardInner({ p, isGhost = false, columnStage, onMove, editorsById,
                     background: isOverdue ? 'color-mix(in srgb, var(--danger) 12%, transparent)' : STAGE_COLORS.live.bg,
                     borderRadius: 20, padding: '3px 9px',
                     display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0,
+                    marginLeft: 'auto',
                   }}
                 >
                   <RocketIcon />
@@ -505,7 +508,7 @@ function EditorSlot({
           fontSize: 10.5, fontWeight: 600, color: 'var(--text-secondary)',
           background: 'var(--surface-raised)', border: '1px solid var(--border)',
           borderRadius: 20, padding: '2px 8px 2px 3px', cursor: 'pointer',
-          maxWidth: 110, minWidth: 0,
+          maxWidth: 96, minWidth: 0, flexShrink: 1,
         } : {
           display: 'inline-flex', alignItems: 'center', gap: 4,
           fontSize: 10.5, fontWeight: 600, color: 'var(--warning)',
