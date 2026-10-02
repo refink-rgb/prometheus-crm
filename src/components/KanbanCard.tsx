@@ -1,6 +1,7 @@
 'use client'
 
 import { memo, useEffect, useRef, useState, useTransition } from 'react'
+import { createPortal } from 'react-dom'
 import Link from 'next/link'
 import { useDraggable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
@@ -448,13 +449,15 @@ function EditorSlot({
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null)
   const [, startSave] = useTransition()
   const btnRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
 
   const current = override ? override.v : assigned
 
   useEffect(() => {
     if (!menuAt) return
     const close = (e: PointerEvent) => {
-      if (btnRef.current?.parentElement?.contains(e.target as Node)) return
+      const t = e.target as Node
+      if (btnRef.current?.contains(t) || menuRef.current?.contains(t)) return
       setMenuAt(null)
     }
     const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenuAt(null) }
@@ -529,8 +532,14 @@ function EditorSlot({
         )}
       </button>
 
-      {menuAt && (
+      {/* Portaled to <body>: the card lifts on :hover with a CSS transform,
+          and a transformed ancestor becomes the containing block for
+          position:fixed — in place, the menu teleported out from under the
+          cursor the moment you hovered it (live bug, Oct 2), so it could
+          never be clicked. Outside the card, fixed means fixed. */}
+      {menuAt && createPortal(
         <div
+          ref={menuRef}
           role="listbox"
           aria-label={`Assign ${label} editor`}
           style={{
@@ -584,7 +593,8 @@ function EditorSlot({
               Unassign
             </button>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   )
