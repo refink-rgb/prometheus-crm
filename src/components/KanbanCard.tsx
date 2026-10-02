@@ -193,11 +193,16 @@ function KanbanCardInner({ p, isGhost = false, columnStage, onMove, editorsById,
             }}>
               {p.brands.name}
             </span>
-            {isPriority && (
+          </div>
+
+          {/* Priority chip on its own line — inline it squeezed the brand name
+              into an ellipsis next to the controls cluster. */}
+          {isPriority && (
+            <div style={{ marginTop: -4 }}>
               <span
                 title="Priority client"
                 style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 3, flexShrink: 0,
+                  display: 'inline-flex', alignItems: 'center', gap: 3,
                   fontSize: 9, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase',
                   color: '#f5b341',
                   background: 'color-mix(in srgb, #f5b341 12%, transparent)',
@@ -208,8 +213,8 @@ function KanbanCardInner({ p, isGhost = false, columnStage, onMove, editorsById,
                 <Star size={9} strokeWidth={2} fill="#f5b341" aria-hidden />
                 Priority
               </span>
-            )}
-          </div>
+            </div>
+          )}
 
           {/* Project name */}
           <div style={{
