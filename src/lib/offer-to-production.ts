@@ -44,11 +44,11 @@ const STRATEGIC_FIELDS = [
   'product_images_link',
 ] as const
 
-// Default LIVE target for auto-created cards: M1 mid-month (15th), M2 month-end.
+// Default LIVE target for auto-created cards: M1 mid-month (15th), M2 and later month-end.
 // A placeholder cadence, not a policy — due dates are PM-managed metadata and
 // get adjusted on the card. due_date is NOT NULL on projects, so some value is
 // required at creation time.
-function defaultDueDate(targetMonth: string, momentSlot: 1 | 2): string {
+function defaultDueDate(targetMonth: string, momentSlot: number): string {
   const year = Number(targetMonth.slice(0, 4))
   const month = Number(targetMonth.slice(5, 7)) // 1-12
   if (momentSlot === 1) return `${targetMonth.slice(0, 7)}-15`
@@ -88,9 +88,10 @@ export async function createProductionCardFromOffer(
   if (existing) {
     // Heal the reverse pointer if a previous run died between the two writes.
     if (offer.derived_production_card_id !== existing.id) {
-      await supabase.from('offer_cards')
+      const { error: healErr } = await supabase.from('offer_cards')
         .update({ derived_production_card_id: existing.id })
         .eq('id', offerId)
+      if (healErr) throw new Error(`Production reverse link failed: ${healErr.message}`)
     }
     return { created: false, projectId: existing.id, reason: 'already_exists' }
   }
@@ -125,36 +126,57 @@ export async function createProductionCardFromOffer(
     STRATEGIC_FIELDS.map(f => [f, (offer as Record<string, unknown>)[f] ?? null])
   )
 
-  const { data: project, error: projErr } = await supabase
-    .from('projects')
-    .insert({
-      brand_id: brand.id,
-      name: `${monthLabel} · M${offer.moment_slot} Moment`,
-      due_date: defaultDueDate(offer.target_month, offer.moment_slot),
-      // Minted here too, so no project can exist without one. The name is a
-      // placeholder at this point ("September 2026 · M1 Moment"), so the code
-      // reads MVS2MM… until someone names the offer — and it STAYS that way on
-      // purpose. Freezing it is what stops a rename from invalidating an ad
-      // name a media buyer has already typed into Meta.
-      moment_code: momentCode(
-        brand.name,
-        `${monthLabel} · M${offer.moment_slot} Moment`,
-        defaultDueDate(offer.target_month, offer.moment_slot),
-      ),
-      journey_id: journeyId,
-      marketing_moment: offer.moment_slot,
-      source_offer_card_id: offerId,
-      created_by: createdBy,
-      ...strategic,
-      // Everything else (copy fields, rationale fields, stage due dates,
-      // editors) stays blank/default — lp_stage and creatives_stage default
-      // to 'brief' at the DB level.
-    })
-    .select('id')
-    .single()
-  if (projErr || !project) {
-    throw new Error(`Production card creation failed: ${projErr?.message ?? 'no row returned'}`)
+  const name = `${monthLabel} · M${offer.moment_slot} Moment`
+  const dueDate = defaultDueDate(offer.target_month, offer.moment_slot)
+  const row = {
+    brand_id: brand.id,
+    name,
+    due_date: dueDate,
+    journey_id: journeyId,
+    marketing_moment: offer.moment_slot,
+    source_offer_card_id: offerId,
+    created_by: createdBy,
+    ...strategic,
+    // Remaining fields keep their defaults; both tracks start at 'brief'.
   }
+
+  // Preserve the historical code when available. Initials collapse M2/M3/etc
+  // to M and their due dates all land at month-end. On a code collision only,
+  // add the full slot before the date, then a bounded version for repeat offers.
+  // Never rename an existing code: media buyers already use it in ad names.
+  const variants = [undefined, `M${offer.moment_slot}`,
+    ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map(v => `M${offer.moment_slot}${v}`)]
+  let project: { id: string } | null = null
+  let lastError = 'no row returned'
+  for (const variant of variants) {
+    const { data, error } = await supabase.from('projects')
+      .insert({ ...row, moment_code: momentCode(brand.name, name, dueDate, variant) })
+      .select('id')
+      .single()
+    if (!error && data) {
+      project = data
+      break
+    }
+    lastError = error?.message ?? 'no row returned'
+    if (error?.code !== '23505' || !error.message.includes('uq_projects_moment_code')) break
+
+    // A concurrent call may have won this insert. Recheck before allocating a
+    // different code or we could create two projects for the same offer.
+    const { data: winner, error: winnerErr } = await supabase.from('projects')
+      .select('id')
+      .eq('source_offer_card_id', offerId)
+      .limit(1)
+      .maybeSingle()
+    if (winnerErr) throw new Error(`Idempotency check failed: ${winnerErr.message}`)
+    if (winner) {
+      const { error: healErr } = await supabase.from('offer_cards')
+        .update({ derived_production_card_id: winner.id })
+        .eq('id', offerId)
+      if (healErr) throw new Error(`Production reverse link failed: ${healErr.message}`)
+      return { created: false, projectId: winner.id, reason: 'already_exists' }
+    }
+  }
+  if (!project) throw new Error(`Production card creation failed: ${lastError}`)
 
   const { error: linkErr } = await supabase
     .from('offer_cards')
