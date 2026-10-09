@@ -36,7 +36,7 @@ export async function GET(
     supabase.from('projects').select('name').eq('id', projectId).single(),
     (() => {
       const q = supabase.from('creative_assets')
-        .select('id, name, drive_file_id, published_url, sort_order')
+        .select('id, name, drive_file_id, published_url, sort_order, media_type, video_url')
         .eq('project_id', projectId).eq('is_hidden', false)
       if (set === 'live') return q.eq('client_visible', true).order('sort_order')
       if (set === 'internal') return q.eq('internal_status', 'approved').order('sort_order')

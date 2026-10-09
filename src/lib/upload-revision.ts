@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/client'
 import { createRevisionUploadUrl, attachRevisionUpload } from '@/lib/actions'
+import { MAX_VIDEO_BYTES, VIDEO_TYPES } from '@/lib/creative-media'
 
 // Put a revised creative in front of an asset, without the bytes touching our
 // server.
@@ -19,7 +20,13 @@ export async function uploadRevisionFile(
   projectId: string,
   brandId: string,
 ): Promise<{ ok: true; revisionNumber: number | null } | { ok: false; error: string }> {
-  if (!file.type.startsWith('image/')) return { ok: false, error: 'That is not an image file.' }
+  const video = file.type in VIDEO_TYPES
+  if (!video && !file.type.startsWith('image/')) return { ok: false, error: 'That is not an image or a video (MP4, MOV, WebM).' }
+  // Checked BEFORE uploading: Storage only refuses an oversized file after every
+  // byte has gone up, which on a video is a minute of waiting for an error.
+  if (file.size > MAX_VIDEO_BYTES) {
+    return { ok: false, error: `${(file.size / 1048576).toFixed(1)}MB — the limit is ${MAX_VIDEO_BYTES / 1048576}MB. Export a lighter cut.` }
+  }
 
   const signed = await createRevisionUploadUrl(assetId, file.type)
   if (!signed.ok) return signed

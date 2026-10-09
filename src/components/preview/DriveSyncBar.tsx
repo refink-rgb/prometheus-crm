@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { syncDriveImages } from '@/lib/actions'
+import { startVideoImport } from '@/lib/video-import-client'
 
 // Where creatives come into a project.
 //
@@ -18,12 +19,13 @@ import { syncDriveImages } from '@/lib/actions'
 // Report what the sync actually DID, not just how many files it saw. "Synced 66
 // images" hid the fact that 30 of them were fixes attached to existing ads and
 // 2 were skipped as ambiguous.
-function describeSync(r: { total: number; added: number; revised: number; updated: number; hidden: number; skipped: string[] }): string {
+function describeSync(r: { total: number; added: number; revised: number; updated: number; hidden: number; skipped: string[]; videosQueued?: number }): string {
   const bits: string[] = []
   if (r.added) bits.push(`${r.added} new`)
   if (r.revised) bits.push(`${r.revised} revision${r.revised === 1 ? '' : 's'} attached`)
   if (r.updated) bits.push(`${r.updated} unchanged`)
   if (r.hidden) bits.push(`${r.hidden} no longer in the folder`)
+  if (r.videosQueued) bits.push(`${r.videosQueued} video${r.videosQueued === 1 ? '' : 's'} copying from Drive — playable in a minute or two`)
   return `${r.total} file${r.total === 1 ? '' : 's'}` + (bits.length ? ` — ${bits.join(', ')}` : '')
 }
 
@@ -58,6 +60,7 @@ export default function DriveSyncBar({
         return
       }
       setMsg(describeSync(r))
+      if (r.videosQueued) void startVideoImport(projectId)
       if (r.skipped.length) setErr(`Skipped: ${r.skipped.join(' · ')}`)
       setEditing(false)
       router.refresh()

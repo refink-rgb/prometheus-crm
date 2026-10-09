@@ -93,11 +93,14 @@ export function extractDriveFolderId(folderUrl: string): string {
 // is keyed on the file ID alone and its CDN caches hard, so swapping a file's
 // CONTENTS in Drive — same ID — keeps serving the old render for hours. Carrying
 // the modified time lets the sync put a version on the URL.
-type DriveFile = { id: string; name: string; mimeType: string; modifiedTime?: string }
+type DriveFile = { id: string; name: string; mimeType: string; modifiedTime?: string; size?: string }
 
 /**
- * List image files in a Drive folder (non-recursive, non-trashed).
- * Uses SA if available, else falls back to GOOGLE_DRIVE_API_KEY.
+ * List the creatives in a Drive folder — images and videos — non-recursive,
+ * non-trashed. Uses SA if available, else falls back to GOOGLE_DRIVE_API_KEY.
+ *
+ * Videos used to be filtered out here, silently: a folder of video ads synced
+ * to an empty project with no reason given.
  */
 export async function listDriveFolder(folderId: string): Promise<DriveFile[]> {
   const sa = readServiceAccountKey()
@@ -111,7 +114,7 @@ export async function listDriveFolder(folderId: string): Promise<DriveFile[]> {
 
   const params = new URLSearchParams({
     q: `'${folderId}' in parents and trashed=false`,
-    fields: 'files(id,name,mimeType,modifiedTime)',
+    fields: 'files(id,name,mimeType,modifiedTime,size)',
     orderBy: 'name',
     pageSize: '200',
   })
@@ -136,7 +139,48 @@ export async function listDriveFolder(folderId: string): Promise<DriveFile[]> {
     )
   }
   const data = (await res.json()) as { files?: DriveFile[] }
-  return (data.files ?? []).filter(f => f.mimeType.startsWith('image/'))
+  return (data.files ?? []).filter(f => f.mimeType.startsWith('image/') || f.mimeType.startsWith('video/'))
+}
+
+/**
+ * Download one Drive file's bytes. Service account only — the API-key fallback
+ * cannot read file contents. `maxBytes` refuses before downloading when Drive
+ * reports a larger size, and again while reading if it did not.
+ */
+export async function downloadDriveFile(
+  fileId: string,
+  maxBytes: number,
+): Promise<{ ok: true; bytes: Buffer; mimeType: string } | { ok: false; reason: 'too_large' | 'error'; message: string }> {
+  if (!readServiceAccountKey()) return { ok: false, reason: 'error', message: 'Drive service account is not configured.' }
+  const token = await getDriveAccessToken()
+  const headers = { Authorization: `Bearer ${token}` }
+
+  const meta = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${fileId}?fields=size,mimeType&supportsAllDrives=true`,
+    { headers },
+  )
+  if (!meta.ok) return { ok: false, reason: 'error', message: `Drive could not find the file (HTTP ${meta.status}).` }
+  const m = (await meta.json()) as { size?: string; mimeType?: string }
+  if (m.size && Number(m.size) > maxBytes) {
+    return { ok: false, reason: 'too_large', message: `${(Number(m.size) / 1048576).toFixed(1)}MB` }
+  }
+
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&supportsAllDrives=true`, { headers })
+  if (!res.ok || !res.body) return { ok: false, reason: 'error', message: `Drive download failed (HTTP ${res.status}).` }
+  const chunks: Uint8Array[] = []
+  let total = 0
+  const reader = res.body.getReader()
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.byteLength
+    if (total > maxBytes) {
+      await reader.cancel()
+      return { ok: false, reason: 'too_large', message: `over ${(maxBytes / 1048576).toFixed(0)}MB` }
+    }
+    chunks.push(value)
+  }
+  return { ok: true, bytes: Buffer.concat(chunks), mimeType: m.mimeType ?? res.headers.get('content-type') ?? 'video/mp4' }
 }
 
 /**

@@ -6,7 +6,8 @@ import { addProjectComment, approveProject, deleteProjectComment, updateAssetSta
 import { useConfirm } from '@/components/ConfirmDialog'
 import { useToast } from '@/components/Toast'
 import type { CreativeAsset, ProjectComment } from '@/lib/types'
-import { driveThumb, resizeDriveThumb } from '@/lib/drive-thumb'
+import { CreativePlayer } from '@/components/CreativeMedia'
+import { clientSrc, isVideoAsset } from '@/lib/creative-media'
 
 // ─── Single asset row ────────────────────────────────────────────────────────
 
@@ -126,8 +127,10 @@ function AssetRow({
   // automatically now — an uploaded fix, or a Drive sync, moves it — so this is
   // the latest edit unless someone pinned an older one with "Show client this".
   // NULL means nothing has been edited: they see the Drive original.
-  const imgSrc = asset.published_url
-    ?? resizeDriveThumb(asset.thumbnail_url, 2048) ?? driveThumb(asset.drive_file_id, 2048)
+  const imgSrc = clientSrc(asset)
+  // A pin is a spot on a still image. On a video it would point at whatever
+  // frame happened to be showing, so videos take plain comments only.
+  const video = isVideoAsset(asset)
   const statusColors: Record<CreativeAsset['status'], { bg: string; color: string; border: string }> = {
     pending:       { bg: 'transparent',           color: 'var(--text-muted)',    border: 'var(--border)' },
     approved:      { bg: 'rgba(34,197,94,0.12)',   color: 'var(--success)',       border: 'rgba(34,197,94,0.3)' },
@@ -160,14 +163,19 @@ function AssetRow({
           style={{ position: 'relative', cursor: pinMode ? 'crosshair' : 'default', flex: 1 }}
           onClick={handleImageClick}
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={imgSrc}
-            alt={asset.name ?? `Creative ${index + 1}`}
-            decoding="async"
-            style={{ width: '100%', display: 'block', userSelect: 'none' }}
-            draggable={false}
-          />
+          {video ? (
+            <CreativePlayer asset={asset} audience="client" alt={asset.name ?? `Creative ${index + 1}`}
+              style={{ width: '100%', display: 'block' }} />
+          ) : (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={imgSrc ?? undefined}
+              alt={asset.name ?? `Creative ${index + 1}`}
+              decoding="async"
+              style={{ width: '100%', display: 'block', userSelect: 'none' }}
+              draggable={false}
+            />
+          )}
 
           {/* Pending pin */}
           {pendingPin && (
@@ -387,8 +395,8 @@ function AssetRow({
             </button>
           </div>
 
-          {/* Pin toggle */}
-          <button
+          {/* Pin toggle — images only */}
+          {!video && <button
             onClick={() => { setPinMode(m => !m); setPendingPin(null) }}
             style={{
               width: '100%', padding: '7px 12px', borderRadius: 8, fontSize: 12, fontWeight: 500,
@@ -399,7 +407,7 @@ function AssetRow({
             }}
           >
             📍 {pinMode ? 'Click on the image to drop a pin…' : 'Add pin comment'}
-          </button>
+          </button>}
         </div>
       </div>
     </div>

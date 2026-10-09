@@ -443,6 +443,16 @@ export interface CreativeAsset {
   // INTERNAL QC approval — set ONLY by the internal review tool. Kept separate
   // from `status` so an internal approve never shows as approved to the client.
   internal_status: 'pending' | 'approved' | 'needs_revision' | 'rejected' | 'revised'
+  // Image or video, fixed per creative (a video ad's revisions are videos).
+  // See migration 20261009_add_creative_videos and src/lib/creative-media.ts.
+  media_type?: 'image' | 'video'
+  /** Playable copy of the Drive original, in project-images. Videos only. */
+  video_url?: string | null
+  video_status?: 'pending' | 'importing' | 'ready' | 'failed' | 'too_large' | null
+  /** The Drive file the importer copies next (the original, or a re-uploaded fix). */
+  video_source_id?: string | null
+  video_error?: string | null
+  video_started_at?: string | null
 }
 
 // A generated marketing-moment report (anonymized public case study). `data` is

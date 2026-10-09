@@ -27,7 +27,7 @@ export async function GET(
   // Exactly what the client sees on the review page: client-visible, not hidden.
   const { data: assets } = await supabase
     .from('creative_assets')
-    .select('id, name, drive_file_id, published_url, sort_order')
+    .select('id, name, drive_file_id, published_url, sort_order, media_type, video_url')
     .eq('project_id', project.id)
     .eq('is_hidden', false)
     .eq('client_visible', true)

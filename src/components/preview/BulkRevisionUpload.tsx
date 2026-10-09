@@ -47,14 +47,14 @@ export default function BulkRevisionUpload({
     // A drop can carry anything on the desktop — a PDF, a folder's .DS_Store.
     // Only images are creatives, and silently ignoring the rest beats a plan
     // full of rows that could never match.
-    const files = dropped.filter(f => f.type.startsWith('image/'))
+    const files = dropped.filter(f => f.type.startsWith('image/') || f.type.startsWith('video/'))
     const skipped = dropped.length - files.length
     if (!files.length) {
       setPlan(null)
-      setFailures([skipped ? 'Those are not images. Drop the re-exported PNG or JPG files.' : 'Nothing to upload.'])
+      setFailures([skipped ? 'Those are not images or videos. Drop the re-exported files.' : 'Nothing to upload.'])
       return
     }
-    if (skipped > 0) setFailures([`${skipped} file${skipped === 1 ? '' : 's'} ignored — only images can be a revision.`])
+    if (skipped > 0) setFailures([`${skipped} file${skipped === 1 ? '' : 's'} ignored — only images and videos can be a revision.`])
     const r = matchRevisionsToAssets(files, assets)
     setPlan({
       matched: r.matched,
@@ -124,7 +124,7 @@ export default function BulkRevisionUpload({
           }}
         >
           <input
-            type="file" accept="image/*" multiple disabled={busy} style={{ display: 'none' }}
+            type="file" accept="image/*,video/mp4,video/quicktime,video/webm" multiple disabled={busy} style={{ display: 'none' }}
             onChange={e => { const f = Array.from(e.target.files ?? []); e.target.value = ''; if (f.length) buildPlan(f) }}
           />
           <span style={{ fontSize: 12, fontWeight: 600 }}>Upload a batch of revisions</span>

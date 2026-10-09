@@ -1048,6 +1048,8 @@ export interface DriveSyncResult {
   hidden: number
   /** Named so the UI can say WHY something was left out. */
   skipped: string[]
+  /** Videos waiting to be copied into CRM storage. The caller starts the import. */
+  videosQueued: number
 }
 
 /**
@@ -1094,9 +1096,14 @@ export async function syncDriveImages(
 
   const { data: existing } = await supabase
     .from('creative_assets')
-    .select('id, drive_file_id, is_hidden, name, revision_url, status')
+    .select('id, drive_file_id, is_hidden, name, revision_url, status, thumbnail_url, media_type, video_url, video_status')
     .eq('project_id', projectId)
   const live = (existing ?? []).filter(a => !a.is_hidden)
+  const { isVideoMime } = await import('@/lib/creative-media')
+  // One Drive file's version, as the importer stamps it into the copy's path.
+  // A copy whose path carries the same stamp is already this exact file.
+  const videoKey = (f: { id: string; modifiedTime?: string }) => `${f.id}@${Date.parse(f.modifiedTime ?? '') || 0}`
+  const hasCopy = (url: string | null | undefined, key: string) => !!url && url.includes(key.replace('@', '-'))
 
   // An empty folder is almost always a bad link rather than a deliberate purge.
   // Refuse rather than quietly emptying the project.
@@ -1107,7 +1114,7 @@ export async function syncDriveImages(
       return {
         refused: 'empty-folder',
         live: live.length,
-        message: `That folder has no images we can see, but this project has ${live.length} creative${live.length === 1 ? '' : 's'}. `
+        message: `That folder has no images or videos we can see, but this project has ${live.length} creative${live.length === 1 ? '' : 's'}. `
           + 'Nothing was changed — check the link, and that the folder is shared with us.',
       }
     }
@@ -1115,7 +1122,7 @@ export async function syncDriveImages(
     await supabase.from('projects').update({ drive_folder_url: folderUrl }).eq('id', projectId)
     revalidatePath(`/brands/${brandId}/projects/${projectId}`)
     revalidatePath(`/preview/project/${projectId}`)
-    return { total: 0, added: 0, revised: 0, updated: 0, hidden: 0, skipped: [] }
+    return { total: 0, added: 0, revised: 0, updated: 0, hidden: 0, skipped: [], videosQueued: 0 }
   }
 
   const driveFileIds = imageFiles.map(f => f.id)
@@ -1153,9 +1160,15 @@ export async function syncDriveImages(
   // So: a new file whose name matches a live creative is that creative's
   // revision, not a new ad. Same rule the bulk uploader uses, applied here.
   const knownIds = new Set((existing ?? []).map(a => a.drive_file_id))
+  // Keyed by kind as well as name: a video called "hero" is not a fix for an
+  // image called "hero", and attaching one to the other would put an .mp4
+  // where every viewer expects a picture.
+  const kindOf = (mime: string | null | undefined, mediaType?: string | null) =>
+    mediaType === 'video' || isVideoMime(mime) ? 'video' : 'image'
   const byName = new Map<string, { id: string; drive_file_id: string }[]>()
   for (const a of live) {
-    const key = normaliseAssetName(a.name ?? '')
+    const base = normaliseAssetName(a.name ?? '')
+    const key = base ? `${kindOf(null, a.media_type)}:${base}` : ''
     if (!key) continue
     const bucket = byName.get(key)
     if (bucket) bucket.push(a as { id: string; drive_file_id: string })
@@ -1169,7 +1182,7 @@ export async function syncDriveImages(
 
   for (const f of imageFiles) {
     if (knownIds.has(f.id)) continue                      // already a row; the upsert refreshes it
-    const candidates = byName.get(normaliseAssetName(f.name)) ?? []
+    const candidates = byName.get(`${kindOf(f.mimeType)}:${normaliseAssetName(f.name)}`) ?? []
     if (candidates.length === 0) { asNewAd.push(f); continue }
     if (candidates.length > 1) {
       // The project already holds two creatives with that name, so there is no
@@ -1208,11 +1221,30 @@ export async function syncDriveImages(
         // modifiedTime so the URL only changes when the file actually does.
         thumbnail_url: driveThumb(f.id, 600, f.modifiedTime),
         sort_order: i,
+        media_type: isVideoMime(f.mimeType) ? 'video' : 'image',
       })),
       { onConflict: 'project_id,drive_file_id', ignoreDuplicates: false }
     )
 
   if (error) throw new Error(error.message)
+
+  // Video ORIGINALS that need copying into our storage: new ones, and any whose
+  // Drive file was replaced in place (same id, newer modifiedTime). Clients
+  // cannot sign in to Drive, so a video only plays once it has its own copy.
+  let videosQueued = 0
+  const byDriveId = new Map((existing ?? []).map(a => [a.drive_file_id, a]))
+  for (const f of imageFiles) {
+    if (!isVideoMime(f.mimeType) || revisionIds.has(f.id)) continue
+    const key = videoKey(f)
+    const prior = byDriveId.get(f.id)
+    if (prior && hasCopy(prior.video_url, key)) continue
+    if (prior && (prior.video_status === 'pending' || prior.video_status === 'importing')) { videosQueued++; continue }
+    const { error: qErr } = await supabase.from('creative_assets')
+      .update({ video_status: 'pending', video_source_id: key, video_error: null })
+      .eq('project_id', projectId).eq('drive_file_id', f.id)
+    if (qErr) skipped.push(`${f.name}: ${qErr.message}`)
+    else videosQueued++
+  }
 
   // Only now that the new set is safely in: retire what the folder no longer
   // holds. Still a soft hide — the row keeps its comments, revisions and
@@ -1253,8 +1285,24 @@ export async function syncDriveImages(
     const { recordAssetRevision } = await import('@/lib/revisions')
     const byId = new Map((existing ?? []).map(a => [a.id, a]))
     for (const { file, assetId } of asRevision) {
-      const url = driveThumb(file.id, 2048, file.modifiedTime)
       const prior = byId.get(assetId)
+
+      // A re-uploaded VIDEO cannot be linked like a picture — Drive's thumbnail
+      // URL is a still frame. It is queued for copying instead, and the
+      // importer records the revision once the copy plays from our storage.
+      if (isVideoMime(file.mimeType)) {
+        const key = videoKey(file)
+        if (hasCopy(prior?.revision_url, key)) continue
+        if (prior?.video_status === 'pending' || prior?.video_status === 'importing') { videosQueued++; continue }
+        const { error: qErr } = await supabase.from('creative_assets')
+          .update({ video_status: 'pending', video_source_id: key, video_error: null })
+          .eq('id', assetId)
+        if (qErr) skipped.push(`${file.name}: ${qErr.message}`)
+        else { videosQueued++; revised++ }
+        continue
+      }
+
+      const url = driveThumb(file.id, 2048, file.modifiedTime)
 
       // A Drive revision file never becomes a creative_assets row, so it is
       // still unrecognised on the NEXT sync and matches this same asset again.
@@ -1306,6 +1354,7 @@ export async function syncDriveImages(
     updated: imageFiles.length - asNewAd.length - asRevision.length,
     hidden: toHide.length,
     skipped,
+    videosQueued,
   }
 }
 
@@ -4266,9 +4315,20 @@ export async function createRevisionUploadUrl(
   if (!user) redirect('/login')
   if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
-  if (!contentType.startsWith('image/')) return { ok: false, error: 'That is not an image file.' }
+  const { VIDEO_TYPES } = await import('@/lib/creative-media')
+  const video = contentType in VIDEO_TYPES
+  if (!video && !contentType.startsWith('image/')) return { ok: false, error: 'That is not an image or a video (MP4, MOV, WebM).' }
 
-  const ext = contentType === 'image/png' ? 'png'
+  // A fix replaces like with like: an .mp4 on an image creative is a broken
+  // picture in every viewer, and a still on a video creative stops it playing.
+  const { data: target } = await supabase.from('creative_assets').select('media_type').eq('id', assetId).maybeSingle()
+  const isVideoAsset = (target as { media_type?: string } | null)?.media_type === 'video'
+  if (video !== isVideoAsset) {
+    return { ok: false, error: isVideoAsset ? 'This creative is a video — upload the revised video.' : 'This creative is an image — upload the revised image.' }
+  }
+
+  const ext = video ? VIDEO_TYPES[contentType]
+    : contentType === 'image/png' ? 'png'
     : contentType === 'image/webp' ? 'webp'
     : contentType === 'image/gif' ? 'gif' : 'jpg'
   // Same folder the old path used, so nothing that reads revisions/ changes.

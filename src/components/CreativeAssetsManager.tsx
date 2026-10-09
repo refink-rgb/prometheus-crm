@@ -6,6 +6,8 @@ import { syncDriveImages, toggleAssetVisibility, applyAiEdits, approveAndPublish
 import { useRouter } from 'next/navigation'
 import type { CreativeAsset, ProjectComment } from '@/lib/types'
 import { driveThumb, resizeDriveThumb } from '@/lib/drive-thumb'
+import { isVideoAsset, posterOf } from '@/lib/creative-media'
+import { startVideoImport } from '@/lib/video-import-client'
 
 const QUALITY_OPTIONS: Array<{ value: 'low' | 'medium' | 'high'; label: string; price: string }> = [
   { value: 'low',    label: 'Low',    price: '$0.011' },
@@ -52,7 +54,8 @@ function InternalLightbox({
 
   const hasComments = comments.length > 0
   const hasRevision = !!asset.revision_url
-  const mainImage = hasRevision ? asset.revision_url! : (resizeDriveThumb(asset.thumbnail_url, 2048) ?? driveThumb(asset.drive_file_id, 2048))
+  // A video's revision_url is an .mp4: this panel shows its poster frame instead.
+  const mainImage = isVideoAsset(asset) ? posterOf(asset, 2048) : hasRevision ? asset.revision_url! : (resizeDriveThumb(asset.thumbnail_url, 2048) ?? driveThumb(asset.drive_file_id, 2048))
   const originalThumb = hasRevision ? (asset.thumbnail_url ?? driveThumb(asset.drive_file_id, 600)) : null
 
   const pinnedComments = comments.filter(c => c.pin_x != null)
@@ -321,12 +324,13 @@ function InternalLightbox({
 // Report what the sync actually DID, not just how many files it saw. "Synced 66
 // images" hid the fact that 30 of them were fixes attached to existing ads and
 // 2 were skipped as ambiguous.
-function describeSync(r: { total: number; added: number; revised: number; updated: number; hidden: number; skipped: string[] }): string {
+function describeSync(r: { total: number; added: number; revised: number; updated: number; hidden: number; skipped: string[]; videosQueued?: number }): string {
   const bits: string[] = []
   if (r.added) bits.push(`${r.added} new`)
   if (r.revised) bits.push(`${r.revised} revision${r.revised === 1 ? '' : 's'} attached`)
   if (r.updated) bits.push(`${r.updated} unchanged`)
   if (r.hidden) bits.push(`${r.hidden} no longer in the folder`)
+  if (r.videosQueued) bits.push(`${r.videosQueued} video${r.videosQueued === 1 ? '' : 's'} copying from Drive — playable in a minute or two`)
   return `${r.total} file${r.total === 1 ? '' : 's'}` + (bits.length ? ` — ${bits.join(', ')}` : '')
 }
 
@@ -364,6 +368,7 @@ export default function CreativeAssetsManager({
         setSyncMsg(r.message)
         return
       }
+      if (r.videosQueued) void startVideoImport(projectId)
       setSyncMsg(`✓ ${describeSync(r)}${r.skipped.length ? ` · skipped ${r.skipped.length}` : ''}`)
       router.refresh()
     } catch (err: unknown) {
@@ -650,7 +655,7 @@ function AssetThumb({
   onToggle: () => void
   onClick: () => void
 }) {
-  const displayUrl = asset.revision_url
+  const displayUrl = isVideoAsset(asset) ? posterOf(asset) : asset.revision_url
     ?? asset.thumbnail_url
     ?? driveThumb(asset.drive_file_id, 600)
 

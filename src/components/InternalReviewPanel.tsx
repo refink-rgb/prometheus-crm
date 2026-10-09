@@ -20,6 +20,8 @@ import {
 import type { CreativeAsset, ProjectComment } from '@/lib/types'
 import { driveThumb, resizeDriveThumb } from '@/lib/drive-thumb'
 import EditableNoteBody from './preview/EditableNoteBody'
+import { CreativePlayer } from '@/components/CreativeMedia'
+import { isVideoAsset, posterOf } from '@/lib/creative-media'
 
 const QUALITY_OPTIONS: Array<{ value: 'low' | 'medium' | 'high'; label: string; price: string }> = [
   { value: 'low',    label: 'Low',    price: '$0.011' },
@@ -306,7 +308,7 @@ export default function InternalReviewPanel({
       }}>
         {assets.map((a, i) => {
           const isActive = i === activeIdx
-          const thumb = a.revision_url ?? a.thumbnail_url ?? driveThumb(a.drive_file_id, 600)
+          const thumb = isVideoAsset(a) ? posterOf(a) : a.revision_url ?? a.thumbnail_url ?? driveThumb(a.drive_file_id, 600)
           return (
             <button
               key={a.id}
@@ -442,7 +444,10 @@ function AssetView({
   const pinIndex = (c: ProjectComment) => pinnedComments.findIndex(p => p.id === c.id) + 1
 
   // The untouched Drive import — always reachable, even after N edits.
-  const originalSrc = asset.thumbnail_url
+  // For a video the "source" of every version is the file to PLAY; the
+  // Original is our copy of the Drive file (empty while it is still copying).
+  const video = isVideoAsset(asset)
+  const originalSrc = video ? (asset.video_url ?? '') : asset.thumbnail_url
     ?? resizeDriveThumb(asset.thumbnail_url, 2048) ?? driveThumb(asset.drive_file_id, 2048)
   const originalHref = `https://drive.google.com/uc?export=view&id=${asset.drive_file_id}`
 
@@ -734,14 +739,19 @@ function AssetView({
           style={{ position: 'relative', cursor: pinMode ? 'crosshair' : 'default', minHeight: 400 }}
           onClick={handleImageClick}
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={displaySrc}
-            alt={asset.name ?? 'Creative'}
-            decoding="async"
-            style={{ width: '100%', display: 'block', userSelect: 'none', maxHeight: 'calc(100vh - 260px)', objectFit: 'contain', background: '#080808' }}
-            draggable={false}
-          />
+          {video ? (
+            <CreativePlayer asset={asset} src={displaySrc || null} audience="team" alt={asset.name ?? 'Creative'}
+              style={{ width: '100%', display: 'block', maxHeight: 'calc(100vh - 260px)', objectFit: 'contain' }} />
+          ) : (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={displaySrc}
+              alt={asset.name ?? 'Creative'}
+              decoding="async"
+              style={{ width: '100%', display: 'block', userSelect: 'none', maxHeight: 'calc(100vh - 260px)', objectFit: 'contain', background: '#080808' }}
+              draggable={false}
+            />
+          )}
 
           {/* Pending pin */}
           {pendingPin && (
@@ -787,7 +797,7 @@ function AssetView({
 
         {/* Pin toggle button overlay */}
         <div style={{ padding: '10px 12px', background: 'rgba(0,0,0,0.4)', borderTop: '1px solid var(--border)' }}>
-          <button
+          {!video && (<button
             onClick={() => { setPinMode(m => !m); setPendingPin(null) }}
             style={{
               width: '100%', padding: '7px 12px', borderRadius: 8, fontSize: 12, fontWeight: 500,
@@ -798,7 +808,7 @@ function AssetView({
             }}
           >
             📍 {pinMode ? 'Click on the image to drop a pin…' : 'Add pin comment'}
-          </button>
+          </button>)}
         </div>
       </div>
 
@@ -1011,7 +1021,7 @@ function AssetView({
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
+            accept="image/*,video/mp4,video/quicktime,video/webm"
             multiple
             onChange={e => setDirectRefs(Array.from(e.target.files ?? []))}
             style={{ fontSize: 11, marginBottom: 8, width: '100%' }}

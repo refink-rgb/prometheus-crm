@@ -10,6 +10,9 @@ import { uploadRevisionFile } from '@/lib/upload-revision'
 import { commentStamp } from '@/lib/stamp'
 import { useConfirm } from '@/components/ConfirmDialog'
 import BulkRevisionUpload from './BulkRevisionUpload'
+import { CreativePlayer, CreativeTile } from '@/components/CreativeMedia'
+import { isVideoAsset, posterOf } from '@/lib/creative-media'
+import { startVideoImport } from '@/lib/video-import-client'
 import EditableNoteBody from './EditableNoteBody'
 import {
   updateAssetStatusInternal,
@@ -277,6 +280,17 @@ export default function ReviewWorkspace({
   // below the grid, the filters and the bulk uploader, so a click that only
   // changed state left the reviewer looking at an unchanged screen and reading
   // the button as broken.
+  // While any video is still being copied from Drive: make sure the copy is
+  // running (it may have died with an editor's closed tab, or a function
+  // timeout) and refresh so it plays the moment it lands.
+  const preparingVideos = assets.some(a => isVideoAsset(a) && (a.video_status === 'pending' || a.video_status === 'importing'))
+  useEffect(() => {
+    if (!preparingVideos) return
+    void startVideoImport(projectId)
+    const t = setInterval(() => router.refresh(), 8000)
+    return () => clearInterval(t)
+  }, [preparingVideos, projectId, router])
+
   const pickAsset = (id: string, scroll = false) => {
     setSelected(id)
     if (scroll) requestAnimationFrame(() => detailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
@@ -284,8 +298,10 @@ export default function ReviewWorkspace({
   // thumbnail_url is preferred because it is the only place the &v= cache-buster
   // written by the last sync survives. Rebuilding from drive_file_id throws it
   // away, which is what let a replaced Drive file keep showing its old render.
+  // A video's still is always Drive's poster frame: its revision_url is an
+  // .mp4, which an <img> cannot show.
   const thumb = (a: CreativeAsset) =>
-    a.revision_url ?? a.thumbnail_url ?? driveThumb(a.drive_file_id, 600)
+    isVideoAsset(a) ? posterOf(a) : a.revision_url ?? a.thumbnail_url ?? driveThumb(a.drive_file_id, 600)
   const full = (a: CreativeAsset) =>
     a.revision_url ?? resizeDriveThumb(a.thumbnail_url, 2048) ?? driveThumb(a.drive_file_id, 2048)
 
@@ -524,7 +540,7 @@ export default function ReviewWorkspace({
       }}>
         <input
           type="file"
-          accept="image/*"
+          accept="image/*,video/mp4,video/quicktime,video/webm"
           disabled={uploading || pending}
           style={{ display: 'none' }}
           onChange={async e => {
@@ -633,11 +649,14 @@ export default function ReviewWorkspace({
     // The Original's fullUrl must NOT go through full(), which prefers
     // revision_url — on a revised ad that made "Original → expand" show the
     // latest edit.
-    const originalUrl = a.thumbnail_url ?? driveThumb(a.drive_file_id, 600)
-    const originalFull = resizeDriveThumb(a.thumbnail_url, 2048) ?? driveThumb(a.drive_file_id, 2048)
+    // For a video: every row's still is the poster, and fullUrl is the file to
+    // PLAY — the Original is our copy of the Drive file (null while copying).
+    const video = isVideoAsset(a)
+    const originalUrl = video ? posterOf(a) : a.thumbnail_url ?? driveThumb(a.drive_file_id, 600)
+    const originalFull = video ? (a.video_url ?? '') : resizeDriveThumb(a.thumbnail_url, 2048) ?? driveThumb(a.drive_file_id, 2048)
     const rows = [
       { key: 'original', label: 'Original', url: null as string | null, thumb: originalUrl, fullUrl: originalFull, at: null as string | null },
-      ...revs.map(r => ({ key: r.id, label: `Edit ${r.revision_number}`, url: r.image_url, thumb: r.image_url, fullUrl: r.image_url, at: r.created_at })),
+      ...revs.map(r => ({ key: r.id, label: `Edit ${r.revision_number}`, url: r.image_url, thumb: video ? posterOf(a) : r.image_url, fullUrl: r.image_url, at: r.created_at })),
     ]
     // client_visible is the "is the client seeing this at all" flag — it is
     // exactly what the client review link filters on. published_url only
@@ -677,7 +696,7 @@ export default function ReviewWorkspace({
               }}>
                 {/* Clicking the row VIEWS this version. Publishing is the button. */}
                 <button
-                  onClick={() => setViewOverride({ assetId: a.id, url: r.thumb, full: r.fullUrl, label: r.label })}
+                  onClick={() => setViewOverride({ assetId: a.id, url: video ? r.fullUrl : r.thumb, full: r.fullUrl, label: r.label })}
                   title={`View ${r.label}`}
                   style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0, padding: 0, border: 'none', background: 'none', cursor: 'pointer', textAlign: 'left' }}
                 >
@@ -967,8 +986,7 @@ export default function ReviewWorkspace({
                 padding: 0, border: `2px solid ${on ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 10,
                 overflow: 'hidden', cursor: 'pointer', background: 'var(--surface-1)', textAlign: 'left', position: 'relative',
               }}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={thumb(a)} alt="" loading="lazy" style={{ width: '100%', aspectRatio: '4/5', objectFit: 'cover', display: 'block' }} />
+                <CreativeTile asset={a} src={thumb(a)} style={{ width: '100%', aspectRatio: '4/5' }} />
                 {/* Quiet, and only in the mode where it means anything. This was a
                     solid black caps box across the artwork — but roughly half a
                     project's creatives are unpublished at any time, so shouting it
@@ -1059,10 +1077,17 @@ export default function ReviewWorkspace({
                     </button>
                   </div>
                 )}
-                <button onClick={() => setZoom(true)} title="Click to view full size" style={{ display: 'block', width: '100%', padding: 0, border: 'none', background: 'none', cursor: 'zoom-in', marginBottom: 8 }}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={override?.url ?? thumb(active)} alt="" style={{ width: '100%', borderRadius: 10, display: 'block' }} />
-                </button>
+                {/* A video plays in place: wrapped in the zoom button, every click
+                    on its controls would open the zoom instead. */}
+                {isVideoAsset(active) ? (
+                  <CreativePlayer asset={active} src={override?.full || null} audience="team"
+                    style={{ width: '100%', borderRadius: 10, display: 'block', marginBottom: 8 }} />
+                ) : (
+                  <button onClick={() => setZoom(true)} title="Click to view full size" style={{ display: 'block', width: '100%', padding: 0, border: 'none', background: 'none', cursor: 'zoom-in', marginBottom: 8 }}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={override?.url ?? thumb(active)} alt="" style={{ width: '100%', borderRadius: 10, display: 'block' }} />
+                  </button>
+                )}
               </div>
 
               <div style={{ minWidth: 0 }}>
@@ -1235,14 +1260,19 @@ export default function ReviewWorkspace({
               {shown.length > 1 && (
                 <button onClick={() => step(-1)} title="Previous (←)" aria-label="Previous creative" style={{ ...galleryNavBtn, left: 0 }}>‹</button>
               )}
-              <button
-                onClick={() => setZoom(true)}
-                title="Click to view full size"
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%', minHeight: 0, padding: 0, border: 'none', background: 'none', cursor: 'zoom-in' }}
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={override?.full ?? full(active)} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block', borderRadius: 8 }} />
-              </button>
+              {isVideoAsset(active) ? (
+                <CreativePlayer asset={active} src={override?.full || null} audience="team"
+                  style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block', borderRadius: 8 }} />
+              ) : (
+                <button
+                  onClick={() => setZoom(true)}
+                  title="Click to view full size"
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%', minHeight: 0, padding: 0, border: 'none', background: 'none', cursor: 'zoom-in' }}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={override?.full ?? full(active)} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block', borderRadius: 8 }} />
+                </button>
+              )}
               {shown.length > 1 && (
                 <button onClick={() => step(1)} title="Next (→)" aria-label="Next creative" style={{ ...galleryNavBtn, right: 0 }}>›</button>
               )}
@@ -1267,8 +1297,7 @@ export default function ReviewWorkspace({
                       opacity: on ? 1 : 0.62,
                     }}
                   >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={thumb(a)} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                    <CreativeTile asset={a} src={thumb(a)} badge={18} style={{ width: '100%', height: '100%' }} />
                     {n > 0 && (
                       <span style={{ position: 'absolute', top: 3, right: 3, fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 999, background: 'rgba(0,0,0,0.6)', color: '#fff' }}>{n}</span>
                     )}
@@ -1325,8 +1354,15 @@ export default function ReviewWorkspace({
           {override && (
             <div style={{ position: 'fixed', top: 22, left: 24, fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.85)' }}>{override.label}</div>
           )}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={override?.full ?? full(active)} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: 10 }} />
+          {isVideoAsset(active) ? (
+            <span onClick={e => e.stopPropagation()} style={{ display: 'contents' }}>
+              <CreativePlayer asset={active} src={override?.full || null} audience="team"
+                style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: 10 }} />
+            </span>
+          ) : (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={override?.full ?? full(active)} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: 10 }} />
+          )}
         </div>
       )}
     </div>
