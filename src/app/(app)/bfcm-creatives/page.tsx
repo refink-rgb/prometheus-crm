@@ -14,7 +14,7 @@ export default async function BfcmCreativesPage() {
       {configured.map(({ brand, plan }) => {
         const locked = (plan?.state as { status?: string } | null)?.status === 'locked'
         return <Link key={brand.slug} href={`/bfcm-creatives/${brand.slug}`} className="card" style={{ display: 'block', padding: 26, textDecoration: 'none', color: 'var(--text-primary)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}><span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{locked ? 'Plan locked' : plan?.version ? 'In progress' : 'Ready to start'}</span><span aria-hidden="true">↗</span></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}><span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{locked ? 'Plan locked' : plan?.version ? 'In progress' : 'Onboarding not started yet'}</span><span aria-hidden="true">↗</span></div>
           <h2 style={{ fontSize: 22, fontWeight: 700, margin: '24px 0' }}>{brand.name}</h2>
           <span style={{ fontSize: 13, fontWeight: 600 }}>Open plan →</span>
         </Link>
