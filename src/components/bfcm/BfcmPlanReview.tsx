@@ -1,7 +1,8 @@
 'use client'
 
-import { Fragment, type ReactNode } from 'react'
-import { CATEGORIES, effectivePrePercent, stageQuantities, type Brand, type PlanSnapshot, type StageOffer } from '@/lib/bfcm/model'
+import { type ReactNode } from 'react'
+import { type Brand, type PlanSnapshot, type StageOffer } from '@/lib/bfcm/model'
+import { phaseAllocation } from '@/lib/bfcm/phase-allocation'
 import type { MotionReference } from '@/lib/bfcm/content'
 import styles from './BfcmPlanReview.module.css'
 
@@ -60,12 +61,8 @@ function OfferReview({ offer, title, inactive = false }: { offer: StageOffer; ti
 
 /** A read-only view of precisely the supplied snapshot, including historical versions. */
 export default function BfcmPlanReview({ brand, snapshot, motionReferences, files, busy, downloadFile }: BfcmPlanReviewProps) {
-  const allocation = snapshot.allocation
-  const statics = allocation.textOffer + allocation.refreshedStatic + allocation.newStatic
-  const motion = allocation.refreshedVideo + allocation.motionGraphics
-  const total = statics + motion
-  const prePercent = effectivePrePercent({ noPreBf: snapshot.noPreBf ?? false, prePercent: snapshot.prePercent })
-  const stages = stageQuantities(total, prePercent)
+  const phases = phaseAllocation(snapshot)
+  const { prePercent } = phases
   const globalApproval = snapshot.approvedCopiesRevision !== null && snapshot.approvedCopiesRevision === snapshot.copyRevision
   const fileIds = snapshot.fileIds ?? []
   const notes = snapshot.notes ?? ''
@@ -74,16 +71,22 @@ export default function BfcmPlanReview({ brand, snapshot, motionReferences, file
   return <div className={styles.review}>
     <section className={styles.section} aria-label="Creative allocation">
       <h3>Creative allocation</h3>
+      <p className={styles.muted}>Based on the plan’s phase split.</p>
       <div className={styles.columns}>
-        {[{ title: 'Statics', categories: CATEGORIES.slice(0, 3), subtotal: statics }, { title: 'Motion', categories: CATEGORIES.slice(3), subtotal: motion }].map(group => <div className={styles.group} key={group.title}>
-          <h4>{group.title}</h4>
-          <dl className={styles.quantities}>{group.categories.map(category => <Fragment key={category.id}><dt>{category.label}</dt><dd>{allocation[category.id]}</dd></Fragment>)}</dl>
-          <div className={styles.subtotal}><span>{group.title} subtotal</span><strong>{group.subtotal}</strong></div>
+        {phases.groups.map(group => <div className={styles.group} key={group.id}>
+          <h4>{group.label}</h4>
+          <table className={styles.phaseTable} aria-label={`${group.label} phase allocation`}>
+            <thead><tr><th scope="col">Type</th><th scope="col">Pre-BF</th><th scope="col">BF</th><th scope="col">Total</th></tr></thead>
+            <tbody>{group.rows.map(row => <tr key={row.id}><th scope="row">{row.label}</th><td>{row.pre}</td><td>{row.bf}</td><td>{row.total}</td></tr>)}</tbody>
+            <tfoot><tr><th scope="row">{group.label} subtotal</th><td>{group.pre}</td><td>{group.bf}</td><td>{group.total}</td></tr></tfoot>
+          </table>
         </div>)}
       </div>
-      <div className={styles.total}><strong>Total allocated</strong><strong>{total}</strong></div>
+      <table className={styles.phaseTable} aria-label="Total phase allocation">
+        <thead><tr><th scope="col">Allocation</th><th scope="col">Pre-BF · {prePercent}%</th><th scope="col">BF · {100 - prePercent}%</th><th scope="col">Total</th></tr></thead>
+        <tbody><tr><th scope="row">Total allocated</th><td>{phases.pre}</td><td>{phases.bf}</td><td>{phases.total}</td></tr></tbody>
+      </table>
       <p className={styles.muted}>Current contract limit: {brand.cap}</p>
-      <dl className={styles.quantities}><dt>Pre-Black Friday · {prePercent}%</dt><dd>{stages.pre}</dd><dt>Black Friday · {100 - prePercent}%</dt><dd>{stages.bf}</dd></dl>
     </section>
 
     <section className={styles.section} aria-label="Planned offers">
