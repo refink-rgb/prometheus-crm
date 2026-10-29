@@ -54,6 +54,6 @@ export async function listStaffPlans() {
 /** Minimal CRM choices for the staff-only creation modal. */
 export async function listBfcmBrandOptions() {
   await requireBfcmEditor()
-  const { data, error } = await createServiceClient().from('brands').select('id,name').eq('is_active', true).order('name')
+  const { data, error } = await createServiceClient().from('brands').select('id,name').order('name')
   return { brands: (data ?? []) as { id: string; name: string }[], unavailable: !!error }
 }

@@ -45,8 +45,8 @@ export async function createStaffBfcmPlan(input: CreateBfcmPlanInput): Promise<C
     await requireBfcmEditor()
     if (!validInput(input)) return { ok: false, error: 'Choose a brand and valid whole-number quantities. Static and motion totals must match the creative total.' }
     const client = createServiceClient()
-    const { data: crmBrand, error: brandError } = await client.from('brands').select('id,name,website,is_active').eq('id', input.brandId).eq('is_active', true).single()
-    if (brandError || !crmBrand || typeof crmBrand.name !== 'string' || !crmBrand.name.trim()) return { ok: false, error: 'Choose an active CRM brand.' }
+    const { data: crmBrand, error: brandError } = await client.from('brands').select('id,name,website').eq('id', input.brandId).single()
+    if (brandError || !crmBrand || typeof crmBrand.name !== 'string' || !crmBrand.name.trim()) return { ok: false, error: 'Choose an existing CRM brand.' }
     const existingPlan = async () => client.from('bfcm_plans').select('slug').eq('brand_id', crmBrand.id).maybeSingle()
     const existing = await existingPlan()
     if (existing.error) return { ok: false, error: 'Unable to check existing plans. Try again.' }
