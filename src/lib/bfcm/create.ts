@@ -52,6 +52,22 @@ export async function createStaffBfcmPlan(input: CreateBfcmPlanInput): Promise<C
     if (existing.error) return { ok: false, error: 'Unable to check existing plans. Try again.' }
     if (existing.data) return { ok: true, slug: existing.data.slug, existing: true }
 
+    // Separate CRM records can represent the same brand. Compare only exact normalized
+    // names, including unlinked legacy plans; do not inspect or transplant plan state.
+    const normalizeName = (name: string) => name.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '')
+    const normalizedName = normalizeName(crmBrand.name)
+    if (normalizedName) {
+      const pageSize = 200
+      for (let offset = 0; ; offset += pageSize) {
+        const { data: names, error: namesError } = await client.from('bfcm_plans')
+          .select('slug,name:config->brand->>name').order('slug', { ascending: true }).range(offset, offset + pageSize - 1)
+        if (namesError) return { ok: false, error: 'Unable to check existing plans. Try again.' }
+        const match = (names ?? []).find(plan => typeof plan.name === 'string' && normalizeName(plan.name) === normalizedName)
+        if (match) return { ok: true, slug: match.slug, existing: true }
+        if (!names || names.length < pageSize) break
+      }
+    }
+
     const { data: catalogs, error: catalogError } = await client.from('bfcm_plans')
       .select('references:config->motionReferences,pool:config->motionReferencePool').order('slug', { ascending: true }).limit(200)
     if (catalogError) return { ok: false, error: 'Unable to load the motion reference catalog. Try again.' }

@@ -34,16 +34,16 @@ export default function BfcmAddProject({ brands, unavailable = false }: { brands
     finally { submitting.current = false; setBusy(false) }
   }
   const field = { display: 'grid', gap: 8, fontSize: 14 } as const
-  const input = { width: '100%', padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--bg-primary)', color: 'var(--text-primary)' } as const
+  const input = { width: '100%', padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--surface)', color: 'var(--text-primary)' } as const
   return <>
     <button className="btn-primary" disabled={unavailable} onClick={() => { setError(''); dialog.current?.showModal() }}>Add project</button>
-    <dialog ref={dialog} aria-labelledby="bfcm-add-title" onCancel={event => { if (busy) event.preventDefault() }} style={{ width: 'min(520px,calc(100vw - 32px))', maxHeight: 'calc(100vh - 40px)', padding: 28, border: '1px solid var(--border)', borderRadius: 16, background: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
+    <dialog ref={dialog} aria-labelledby="bfcm-add-title" onCancel={event => { if (busy) event.preventDefault() }} style={{ width: 'min(520px,calc(100vw - 32px))', maxHeight: 'calc(100vh - 40px)', margin: 'auto', position: 'fixed', inset: 0, padding: 28, border: '1px solid var(--border)', borderRadius: 16, background: 'var(--surface)', color: 'var(--text-primary)' }}>
       <form onSubmit={submit} style={{ display: 'grid', gap: 20 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 20 }}><h2 id="bfcm-add-title" style={{ margin: 0, fontSize: 24 }}>Add BFCM project</h2><button type="button" aria-label="Close" className="btn-secondary" disabled={busy} onClick={close}>×</button></div>
         <label style={field}>Brand<select style={input} value={brandId} onChange={event => setBrandId(event.target.value)} disabled={busy} required><option value="">Select a brand</option>{brands.map(brand => <option key={brand.id} value={brand.id}>{brand.name}{brand.existingSlug ? ' — existing plan' : ''}</option>)}</select></label>
         {existing ? <p style={{ margin: 0 }}>This brand already has a BFCM plan.</p> : <>
           <label style={field}>Total creatives<input style={input} type="number" min="1" max="100000" step="1" value={cap} onChange={event => setCap(event.target.value)} disabled={busy} required /></label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 14 }}><input type="checkbox" checked={grouped} onChange={event => setGrouped(event.target.checked)} disabled={busy} />Set contracted Statics / Motion quantities</label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 14 }}><input type="checkbox" style={{ width: 16, height: 16, flexShrink: 0, margin: 0 }} checked={grouped} onChange={event => setGrouped(event.target.checked)} disabled={busy} />Set contracted Statics / Motion quantities</label>
           {grouped && <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}><label style={field}>Statics<input style={input} type="number" min="0" max="100000" step="1" value={statics} onChange={event => setStatics(event.target.value)} disabled={busy} required /></label><label style={field}>Motion<input style={input} type="number" min="0" max="100000" step="1" value={motion} onChange={event => setMotion(event.target.value)} disabled={busy} required /></label></div>}
         </>}
         {error && <p role="alert" style={{ margin: 0, color: 'var(--danger,#b42318)' }}>{error}</p>}
