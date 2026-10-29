@@ -1,19 +1,21 @@
 import Link from 'next/link'
+import BfcmAddProject from '@/components/bfcm/BfcmAddProject'
 import { parsePlanConfig } from '@/lib/bfcm/content'
-import { listStaffPlans } from '@/lib/bfcm/server'
+import { listStaffPlans, listBfcmBrandOptions } from '@/lib/bfcm/server'
 import { productionSummary } from '@/lib/bfcm/production'
 import { loadAllProductionSteps } from '@/lib/bfcm/production-server'
 import { easternToday } from '@/lib/eastern'
 
 export const dynamic = 'force-dynamic'
 export default async function BfcmCreativesPage() {
-  const { plans, unavailable } = await listStaffPlans()
+  const [{ plans, unavailable }, options] = await Promise.all([listStaffPlans(), listBfcmBrandOptions()])
   const allSteps = unavailable ? [] : await loadAllProductionSteps()
   const today = easternToday()
   const configured = plans.flatMap(plan => { const config = parsePlanConfig(plan.config, plan.slug); return config ? [{ plan, brand: config.brand }] : [] })
   return <main style={{ padding: '40px clamp(20px,4vw,64px)', maxWidth: 1400, margin: 'auto' }}>
-    <h1 style={{ fontSize: 36, fontWeight: 800, letterSpacing: '-.03em', margin: '0 0 32px' }}>BFCM Creatives</h1>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 20, flexWrap: 'wrap', marginBottom: 32 }}><h1 style={{ fontSize: 36, fontWeight: 800, letterSpacing: '-.03em', margin: 0 }}>BFCM Creatives</h1><BfcmAddProject unavailable={unavailable || options.unavailable} brands={options.brands.map(brand => ({ ...brand, existingSlug: plans.find(plan => plan.brand_id === brand.id)?.slug ?? null }))} /></div>
     {unavailable && <div role="alert" className="card" style={{ marginBottom: 24 }}>Unable to load plans. Try again.</div>}
+    {!unavailable && options.unavailable && <p role="alert">Unable to load brand choices. Reload to add a project.</p>}
     {!unavailable && configured.length === 0 && <p>No plans.</p>}
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(260px,1fr))', gap: 20 }}>
       {configured.map(({ brand, plan }) => {

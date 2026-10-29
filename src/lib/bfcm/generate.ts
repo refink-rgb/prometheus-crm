@@ -38,6 +38,7 @@ Return ONLY JSON {"copies":[${targets.length} strings]}. Each string 5–40 word
   if (!Array.isArray(lines) || lines.length !== targets.length || lines.some(s => typeof s !== 'string' || !s.trim() || s.length > 500) || new Set(lines.map(s => String(s).trim().toLowerCase())).size !== targets.length) throw new Error('Generation did not return valid, unique replacement lines. Try again.')
   const replacements = new Map(targets.map((copy, i) => [copy.id, String(lines[i]).trim()]))
   const copies = draft.copies.map(copy => replacements.has(copy.id) ? { ...copy, text: replacements.get(copy.id)!, source: 'Nova' as const } : copy)
-  if (new Set(copies.map(copy => copy.text.trim().toLowerCase())).size !== copies.length) throw new Error('Generation repeated an existing line. No copy was replaced. Try again.')
+  const populatedLines = copies.map(copy => copy.text.trim().toLowerCase()).filter(Boolean)
+  if (new Set(populatedLines).size !== populatedLines.length) throw new Error('Generation repeated an existing line. No copy was replaced. Try again.')
   return copies
 }
