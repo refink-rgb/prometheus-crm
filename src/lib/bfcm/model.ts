@@ -17,7 +17,7 @@ export type CopyLine = { id: string; text: string; source: 'BF anterior' | 'Rece
 export type Draft = {
   schemaVersion: 1; brandSlug: string; revision: number; copyRevision: number; status: 'draft' | 'locked'
   offers: { pre: StageOffer; bf: StageOffer }; prePercent: number; allocation: Allocation; allocationLocks: Category[]
-  notes: string; fileIds: string[]; useClientCopy: boolean; noPreBf: boolean
+  notes: string; missing?: string; fileIds: string[]; useClientCopy: boolean; noPreBf: boolean
   copies: CopyLine[]; approvedCopyIds: string[]; approvedCopiesRevision: number | null; motionIds: string[]; visibleMotionIds?: string[]; voiceover: boolean; sfx: boolean
   history: PlanVersion[]
 }
@@ -32,7 +32,7 @@ export function suggestedAllocation(brand: Brand): Allocation {
 const blankOffer = (): StageOffer => ({ offer: '', startDate: '', endDate: '', sitewide: true, included: '', hasExclusions: false, exclusions: '' })
 export function createDraft(brand: Brand, copies?: CopyLine[]): Draft {
   if (copies && (copies.length !== 30 || new Set(copies.map(c => c.id)).size !== 30)) throw new Error('Exactly 30 uniquely identified copy lines are required.')
-  return { schemaVersion: 1, brandSlug: brand.slug, revision: 0, copyRevision: 0, status: 'draft', offers: { pre: blankOffer(), bf: blankOffer() }, prePercent: 30, allocation: suggestedAllocation(brand), allocationLocks: [], notes: '', fileIds: [], useClientCopy: false, noPreBf: false, copies: copies ? structuredClone(copies) : Array.from({ length: 30 }, (_, i) => ({ id: `copy-${i + 1}`, text: '', source: 'Nova' as const })), approvedCopyIds: [], approvedCopiesRevision: null, motionIds: [], voiceover: false, sfx: false, history: [] }
+  return { schemaVersion: 1, brandSlug: brand.slug, revision: 0, copyRevision: 0, status: 'draft', offers: { pre: blankOffer(), bf: blankOffer() }, prePercent: 30, allocation: suggestedAllocation(brand), allocationLocks: [], notes: '', missing: '', fileIds: [], useClientCopy: false, noPreBf: false, copies: copies ? structuredClone(copies) : Array.from({ length: 30 }, (_, i) => ({ id: `copy-${i + 1}`, text: '', source: 'Nova' as const })), approvedCopyIds: [], approvedCopiesRevision: null, motionIds: [], voiceover: false, sfx: false, history: [] }
 }
 /** Preserve the saved split while the pre-BF phase is temporarily disabled. */
 export function effectivePrePercent(draft: Pick<Draft, 'noPreBf' | 'prePercent'>): number { return draft.noPreBf ? 0 : draft.prePercent }
@@ -75,7 +75,7 @@ export function validateCopies(copies: CopyLine[]): string[] {
 export function validateDraft(brand: Brand, draft: Draft): string[] {
   return [...(draft.brandSlug !== brand.slug ? ['Brand mismatch.'] : []), ...validateOffers(draft.offers, draft.noPreBf), ...validateAllocation(brand, draft.allocation), ...(draft.useClientCopy ? [] : validateCopies(draft.copies)), ...(!Number.isInteger(draft.prePercent) || draft.prePercent < 0 || draft.prePercent > 100 ? ['Stage allocation must be between 0 and 100%.'] : []), ...(!draft.useClientCopy && (draft.approvedCopiesRevision !== draft.copyRevision || draft.copies.some(c => !isCopyApproved(draft, c.id))) ? ['Explicitly approve the current 30 copy lines.'] : [])]
 }
-export type DraftPatch = Partial<Pick<Draft, 'offers' | 'prePercent' | 'allocation' | 'allocationLocks' | 'copies' | 'motionIds' | 'voiceover' | 'sfx' | 'notes' | 'useClientCopy' | 'noPreBf'>>
+export type DraftPatch = Partial<Pick<Draft, 'offers' | 'prePercent' | 'allocation' | 'allocationLocks' | 'copies' | 'motionIds' | 'voiceover' | 'sfx' | 'notes' | 'missing' | 'useClientCopy' | 'noPreBf'>>
 export function updateDraft(draft: Draft, patch: DraftPatch): Draft {
   if (draft.status === 'locked') throw new Error('Reopen this plan before editing.')
   if (patch.allocation && draft.allocationLocks.some(c => patch.allocation![c] !== draft.allocation[c])) throw new Error('Unlock the category before changing its quantity.')
@@ -139,6 +139,8 @@ export function parseStoredDraft(raw: string, brandSlug: string): Draft | null {
       if (!Object.prototype.hasOwnProperty.call(snapshot, 'approvedCopyIds')) Object.assign(snapshot, { approvedCopyIds: snapshot.approvedCopiesRevision === snapshot.copyRevision ? snapshot.copies.map(c => c.id) : [] })
     }
     upgrade(draft)
+    // Default only the current draft; historical snapshots remain unchanged.
+    if (!Object.prototype.hasOwnProperty.call(draft, 'missing')) draft.missing = ''
     for (const version of draft.history) upgrade(version.snapshot)
     return draft
   } catch { return null }
@@ -152,6 +154,7 @@ function isDraftShape(value: unknown, brandSlug: string, historyAllowed = true):
   if (d.approvedCopiesRevision !== null && (!isInt(d.approvedCopiesRevision) || d.approvedCopiesRevision !== d.copyRevision)) return false
   if ('fileIds' in d && (!Array.isArray(d.fileIds) || d.fileIds.length > 20 || d.fileIds.some(id => typeof id !== 'string' || !/^[a-f0-9-]{36}$/.test(id)) || new Set(d.fileIds).size !== d.fileIds.length)) return false
   if ('notes' in d && (typeof d.notes !== 'string' || d.notes.length > 20_000)) return false
+  if ('missing' in d && (typeof d.missing !== 'string' || d.missing.length > 20_000)) return false
   if ('useClientCopy' in d && typeof d.useClientCopy !== 'boolean') return false
   if ('noPreBf' in d && typeof d.noPreBf !== 'boolean') return false
   if (typeof d.voiceover !== 'boolean' || typeof d.sfx !== 'boolean') return false

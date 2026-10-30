@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import BfcmMissing from '@/components/bfcm/BfcmMissing'
 import BfcmAddProject from '@/components/bfcm/BfcmAddProject'
 import { parsePlanConfig } from '@/lib/bfcm/content'
 import { listStaffPlans, listBfcmBrandOptions } from '@/lib/bfcm/server'
@@ -28,6 +29,7 @@ export default async function BfcmCreativesPage() {
           <h2 style={{ fontSize: 22, fontWeight: 700, margin: '24px 0' }}>{brand.name}</h2>
           {production.total > 0 && <p style={{ fontSize: 13, margin: '-12px 0 20px', color: production.next?.due_date && production.next.due_date < today ? 'var(--danger, #c0392b)' : 'var(--text-secondary)' }}>{production.next ? `${production.done} of ${production.total} done · next: ${production.next.title}${production.next.due_date ? ` · due ${production.next.due_date}` : ''}` : 'Production done'}</p>}
           <span style={{ fontSize: 13, fontWeight: 600 }}>Open plan →</span>
+          <BfcmMissing value={(plan.state as { missing?: unknown } | null)?.missing} />
         </Link>
       })}
     </div>
