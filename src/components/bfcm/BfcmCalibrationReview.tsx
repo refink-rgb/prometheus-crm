@@ -27,7 +27,7 @@ export default function BfcmCalibrationReview({ token, tracks, items, feedback }
 
   return <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
     {open && <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <p style={{ margin: 0, color: 'var(--text-secondary)', lineHeight: 1.6 }}>These are early samples so we can lock the direction before making your full Black Friday set. Mark each one, leave notes (click “Pin a note” to point at a spot on an image), then submit your feedback at the bottom.</p>
+      <p style={{ margin: 0, color: 'var(--text-secondary)', lineHeight: 1.6 }}>These are real ads from your Black Friday set, made first so you can shape everything that follows. Your feedback here sets the direction for the rest of the set, so this is the moment to tell us what’s working and what isn’t. Mark each creative, leave notes (click “Pin a note” to point at a spot on an image), then submit your feedback at the bottom. Once you submit, we build the rest of your set from it.</p>
       <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', maxWidth: 320, textTransform: 'none', letterSpacing: 'normal', margin: 0 }}>
         Your name
         <input value={name} onChange={e => { setName(e.target.value); saveName(e.target.value) }} placeholder="So we know who left each note" style={{ padding: '8px 10px', fontWeight: 400 }} />
@@ -69,7 +69,7 @@ function TrackReview({ token, name, label, track, state, items, feedback }: { to
   const changes = Object.values(statuses).filter(st => st === 'needs_changes').length
 
   async function submit() {
-    const ok = await confirm({ title: `Submit your ${lower} feedback`, message: `This sends your notes on the ${lower} to the team, who use them to make the full set. You won’t be able to change them here afterwards.`, confirmLabel: 'Submit feedback' })
+    const ok = await confirm({ title: `Submit your ${lower} feedback`, message: `This sends your notes on the ${lower} to the team, who use them to build the rest of your set. You won’t be able to change them here afterwards.`, confirmLabel: 'Submit feedback' })
     if (!ok) return
     setSubmitting(true)
     const result = await clientSubmitCalibrationTrack(token, track, name, note)
@@ -79,9 +79,9 @@ function TrackReview({ token, name, label, track, state, items, feedback }: { to
 
   return <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
     {locked && <div style={{ padding: 'var(--space-3) var(--space-4)', borderRadius: 10, background: 'color-mix(in srgb, var(--success) 10%, transparent)', border: '1px solid color-mix(in srgb, var(--success) 25%, transparent)', color: 'var(--success)', fontWeight: 600 }}>
-      {label} feedback submitted{state.submitted_by_name ? ` by ${state.submitted_by_name}` : ''}. Thank you, the team is using it for the full set.
+      {label} feedback submitted{state.submitted_by_name ? ` by ${state.submitted_by_name}` : ''}. Thank you, the team is using it to build the rest of your set.
     </div>}
-    <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}><strong style={{ color: 'var(--text-primary)' }}>{items.length}</strong> samples · <span style={{ color: 'var(--success)' }}>{approved} look good</span> · <span style={{ color: 'var(--danger)' }}>{changes} need changes</span></div>
+    <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}><strong style={{ color: 'var(--text-primary)' }}>{items.length}</strong> creatives · <span style={{ color: 'var(--success)' }}>{approved} look good</span> · <span style={{ color: 'var(--danger)' }}>{changes} need changes</span></div>
     {items.map((item, i) => <Sample key={item.id} index={i} item={item} token={token} name={name} locked={locked}
       status={statuses[item.id] ?? 'pending'} onStatus={st => setStatuses(prev => ({ ...prev, [item.id]: st }))}
       initial={feedback.filter(f => f.item_id === item.id)} />)}
@@ -131,12 +131,12 @@ function Sample({ index, item, token, name, locked, status, onStatus, initial }:
         const rect = e.currentTarget.getBoundingClientRect()
         setPin({ x: ((e.clientX - rect.left) / rect.width) * 100, y: ((e.clientY - rect.top) / rect.height) * 100 }); setPinMode(false)
       }}>
-      {isImage ? <img src={item.url} alt={`Sample ${index + 1}`} style={{ width: '100%', display: 'block' }} /> : <video src={item.url} controls playsInline preload="metadata" style={{ width: '100%', display: 'block' }} />}
+      {isImage ? <img src={item.url} alt={`Creative ${index + 1}`} style={{ width: '100%', display: 'block' }} /> : <video src={item.url} controls playsInline preload="metadata" style={{ width: '100%', display: 'block' }} />}
       {isImage && [...pinned.map((n, i) => ({ key: n.id, x: n.pin_x!, y: n.pin_y!, label: String(i + 1) })), ...(pin ? [{ key: 'new', x: pin.x, y: pin.y, label: '+' }] : [])].map(p =>
         <span key={p.key} style={{ position: 'absolute', left: `${p.x}%`, top: `${p.y}%`, width: 22, height: 22, margin: '-11px 0 0 -11px', borderRadius: '50%', background: 'var(--accent)', color: '#fff', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid #fff', pointerEvents: 'none' }}>{p.label}</span>)}
     </div>
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
-      <strong>Sample {index + 1}</strong>
+      <strong>Creative {index + 1}</strong>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <button style={button(status === 'approved', 'var(--success)')} disabled={locked || busy} aria-pressed={status === 'approved'} onClick={() => void setStatus('approved')}>✓ Looks good</button>
         <button style={button(status === 'needs_changes', 'var(--danger)')} disabled={locked || busy} aria-pressed={status === 'needs_changes'} onClick={() => void setStatus('needs_changes')}>↩ Needs changes</button>
@@ -146,7 +146,7 @@ function Sample({ index, item, token, name, locked, status, onStatus, initial }:
         <div style={{ whiteSpace: 'pre-wrap', color: 'var(--text-secondary)', overflowWrap: 'anywhere' }}>{n.body}</div>
       </div>)}
       {!locked && <form onSubmit={e => void post(e)} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <textarea value={text} onChange={e => setText(e.target.value)} rows={2} maxLength={5000} placeholder={pin ? 'Note for the pinned spot…' : 'What should change, or what do you like?'} aria-label={`Note on sample ${index + 1}`}
+        <textarea value={text} onChange={e => setText(e.target.value)} rows={2} maxLength={5000} placeholder={pin ? 'Note for the pinned spot…' : 'What should change, or what do you like?'} aria-label={`Note on creative ${index + 1}`}
           style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--background)', color: 'var(--text-primary)', font: 'inherit', resize: 'vertical' }} />
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {isImage && <button type="button" className="btn-secondary btn-sm" onClick={() => { setPinMode(m => !m); setPin(null) }}>{pinMode ? 'Click the image…' : pin ? 'Move pin' : '📍 Pin a note'}</button>}
