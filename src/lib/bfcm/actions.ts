@@ -9,7 +9,7 @@ import { loadPlan, requireBfcmEditor, resolveClientPlan } from './server'
 
 type Operation = 'save' | 'approve' | 'lock' | 'reopen' | 'apply-offers' | 'approve-copy' | 'unapprove-copy' | 'regenerate-copy' | 'more-references'
 type Result = { ok: true; version: number; draft?: Draft } | { ok: false; error: string }
-const editable = ['offers', 'prePercent', 'allocation', 'allocationLocks', 'copies', 'motionIds', 'voiceover', 'sfx', 'notes', 'useClientCopy', 'noPreBf'] as const
+const editable = ['offers', 'prePercent', 'allocation', 'allocationLocks', 'copies', 'motionIds', 'voiceover', 'sfx', 'notes', 'missing', 'useClientCopy', 'noPreBf'] as const
 
 async function persist(slug: string, input: Draft, expectedVersion: number, operation: Operation, copyId?: string): Promise<Result> {
   if (!['save', 'approve', 'lock', 'reopen', 'apply-offers', 'approve-copy', 'unapprove-copy', 'regenerate-copy', 'more-references'].includes(operation) || !Number.isSafeInteger(expectedVersion) || expectedVersion < 0) return { ok: false, error: 'Invalid request.' }
