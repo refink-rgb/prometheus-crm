@@ -607,22 +607,19 @@ export async function updateBrandDetails(formData: FormData) {
     else throw new Error('Meta ad account ID must look like act_1234567890.')
   }
 
-  const core = { monthly_retainer, start_date, growth_strategist, is_active, is_trial, profit_engineer, pipeline_status, brand_notes }
+  // Only the fields this form actually carries. A form without a growth
+  // strategist (or notes) field must not save them as empty: that silently
+  // cleared both on every save.
+  const core: Record<string, unknown> = { monthly_retainer, start_date, is_active, is_trial, profit_engineer, pipeline_status }
+  if (formData.has('growth_strategist')) core.growth_strategist = growth_strategist
+  if (formData.has('brand_notes')) core.brand_notes = brand_notes
 
-  // Try with onboarding_transcript + meta_ad_account_id. If either column
-  // doesn't exist yet (migrations 20260701_add_onboarding_transcript.sql /
-  // 20260915_lp_tracking_ux.sql not applied), fall back to a save without
-  // them so the rest of the account details still persist.
   const { error } = await supabase
     .from('brands')
-    .update({ ...core, onboarding_transcript, meta_ad_account_id })
+    .update({ ...core, ...(formData.has('onboarding_transcript') ? { onboarding_transcript } : {}), meta_ad_account_id })
     .eq('id', brandId)
 
-  if (error) {
-    const missingColumn = error.code === '42703' || /onboarding_transcript|meta_ad_account_id/.test(error.message ?? '')
-    if (!missingColumn) throw new Error(error.message)
-    await supabase.from('brands').update(core).eq('id', brandId)
-  }
+  if (error) throw new Error(error.message)
 
   revalidatePath(`/brands/${brandId}`)
 }
@@ -3044,171 +3041,6 @@ export async function signOut() {
   redirect('/login')
 }
 
-// Brand DNA — Gemini-driven research + synthesis pass. Writes a new active row
-// on `brand_dna` and flips any prior active row to is_active=false, so there's
-// exactly one active version per brand. Expected runtime 30-90s; the brand
-// page carries `maxDuration = 120` to accommodate.
-//
-// Returns { ok, error } instead of throwing: thrown errors from server actions
-// are redacted to a generic "Server Components render" message in production,
-// so the panel could never surface the real cause. Same pattern used by
-// createProject above.
-export async function buildBrandDna(
-  brandId: string,
-): Promise<{ ok: true } | { ok: false; error: string }> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
-  if (!(await canEdit(user.email))) return { ok: false, error: 'Not authorized.' }
-
-  try {
-    const { data: brand } = await supabase
-      .from('brands')
-      .select('name, website')
-      .eq('id', brandId)
-      .single()
-    if (!brand) return { ok: false, error: 'Brand not found.' }
-    if (!brand.website) return { ok: false, error: 'Brand website is required to research DNA.' }
-
-    const { researchBrandDna, synthesizeBrandDna } = await import('@/lib/ai/gemini')
-    const { extractSitePalette } = await import('@/lib/ai/palette')
-    const { TEXT_FIELDS } = await import('@/lib/ai/brand-dna-schema')
-
-    // Palette comes straight from the site's CSS (exact hex codes) and runs in
-    // parallel with the Gemini research pass. Extraction failure degrades to
-    // the old behavior instead of failing the run.
-    const [{ dossier, urls }, palette] = await Promise.all([
-      researchBrandDna(brand.name, brand.website),
-      extractSitePalette(brand.website).catch(() => null),
-    ])
-    const dna = await synthesizeBrandDna(dossier, urls, palette)
-
-    const normalized: Record<string, unknown> = { ...dna }
-    for (const field of TEXT_FIELDS) {
-      if (normalized[field] === '') normalized[field] = null
-    }
-
-    const { data: prevActive } = await supabase
-      .from('brand_dna')
-      .select('id, version, logo_url')
-      .eq('brand_id', brandId)
-      .eq('is_active', true)
-      .maybeSingle()
-
-    if (prevActive) {
-      const { error: flipErr } = await supabase.from('brand_dna').update({ is_active: false }).eq('id', prevActive.id)
-      if (flipErr) return { ok: false, error: `Failed to deactivate prior Brand DNA: ${flipErr.message}` }
-    }
-
-    const insertRow = {
-      ...normalized,
-      brand_id: brandId,
-      version: (prevActive?.version ?? 0) + 1,
-      is_active: true,
-      logo_url: prevActive?.logo_url ?? null,
-    }
-
-    const { error } = await supabase.from('brand_dna').insert(insertRow)
-    if (error) return { ok: false, error: `Failed to save Brand DNA: ${error.message}` }
-
-    revalidatePath(`/brands/${brandId}`)
-    return { ok: true }
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
-    console.error('[buildBrandDna]', brandId, msg, e)
-    return { ok: false, error: msg }
-  }
-}
-
-// Brand DNA, second route in: build it from the brand's own guideline document
-// (PDF/DOCX/PPTX) instead of researching the public web. A first-party brand
-// book states what the research pass can only infer, so this path skips the
-// search + site-palette work entirely and reads the document.
-//
-// The file arrives as a Storage path, not as bytes: server actions cap request
-// bodies at 1MB by default and real brand books run 5-50MB, so the browser
-// uploads to Storage first (same pattern as ImageUploader) and we download it
-// here. Keeping the file also gives the sources list something to point at.
-export async function buildBrandDnaFromGuideline(
-  brandId: string,
-  storagePath: string,
-  filename: string,
-): Promise<{ ok: true } | { ok: false; error: string }> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
-  if (!(await canEdit(user.email))) return { ok: false, error: 'Not authorized.' }
-
-  try {
-    const { data: brand } = await supabase
-      .from('brands')
-      .select('name')
-      .eq('id', brandId)
-      .single()
-    if (!brand) return { ok: false, error: 'Brand not found.' }
-
-    // Path is scoped to this brand's guideline folder so a crafted value can't
-    // pull an unrelated object out of the bucket.
-    if (!storagePath.startsWith(`brand-guidelines/${brandId}-`)) {
-      return { ok: false, error: 'Unexpected upload path.' }
-    }
-
-    const { data: blob, error: dlErr } = await supabase.storage
-      .from('project-images')
-      .download(storagePath)
-    if (dlErr || !blob) {
-      return { ok: false, error: `Could not read the uploaded guideline: ${dlErr?.message ?? 'not found'}` }
-    }
-
-    const { parseGuideline } = await import('@/lib/ai/brand-guideline')
-    const { readBrandGuideline, synthesizeBrandDna } = await import('@/lib/ai/gemini')
-    const { TEXT_FIELDS } = await import('@/lib/ai/brand-dna-schema')
-
-    const doc = await parseGuideline(filename, await blob.arrayBuffer())
-    const { dossier } = await readBrandGuideline(brand.name, doc)
-
-    const { data: { publicUrl } } = supabase.storage.from('project-images').getPublicUrl(storagePath)
-
-    // No site palette here: the guideline's own swatches are the ground truth,
-    // and a scraped CSS palette would only add competing hex codes.
-    const dna = await synthesizeBrandDna(dossier, [publicUrl], null,
-      `This dossier came from the brand's own guideline document ("${filename}"), not from public research. Treat every stated value as specification rather than inference. For the sources array, use the document URL supplied below as the url for each field you confirmed, and put the page or slide number in the note (e.g. "p.14, colour palette"). Do not invent a hex code, typeface or figure the dossier does not state — the guideline being silent on something is itself a finding.`)
-
-    const normalized: Record<string, unknown> = { ...dna }
-    for (const field of TEXT_FIELDS) {
-      if (normalized[field] === '') normalized[field] = null
-    }
-
-    const { data: prevActive } = await supabase
-      .from('brand_dna')
-      .select('id, version, logo_url')
-      .eq('brand_id', brandId)
-      .eq('is_active', true)
-      .maybeSingle()
-
-    if (prevActive) {
-      const { error: flipErr } = await supabase.from('brand_dna').update({ is_active: false }).eq('id', prevActive.id)
-      if (flipErr) return { ok: false, error: `Failed to deactivate prior Brand DNA: ${flipErr.message}` }
-    }
-
-    const { error } = await supabase.from('brand_dna').insert({
-      ...normalized,
-      brand_id: brandId,
-      version: (prevActive?.version ?? 0) + 1,
-      is_active: true,
-      logo_url: prevActive?.logo_url ?? null,
-    })
-    if (error) return { ok: false, error: `Failed to save Brand DNA: ${error.message}` }
-
-    revalidatePath(`/brands/${brandId}`)
-    return { ok: true }
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
-    console.error('[buildBrandDnaFromGuideline]', brandId, msg, e)
-    return { ok: false, error: msg }
-  }
-}
-
 // Manual corrections to the active Brand DNA record — edits apply in place
 // (no version bump; ✦ Rebuild still creates new versions). Only fields present
 // in the form are touched, so partial edit UIs stay safe.
@@ -3238,9 +3070,10 @@ export async function updateBrandDna(
   for (const f of arrayFields) {
     if (!formData.has(f)) continue
     // Array columns are NOT NULL in brand_dna — an emptied list saves as [],
-    // matching what buildBrandDna inserts (null here violates the constraint).
+    // matching what a DNA build inserts (null here violates the constraint).
     updates[f] = (formData.get(f) as string).split('\n').map(s => s.trim()).filter(Boolean)
   }
+  if (formData.has('client_context')) updates.client_context = (formData.get('client_context') as string).trim() || null
   if (Object.keys(updates).length === 0) return { ok: true }
   updates.updated_at = new Date().toISOString()
 
@@ -3259,7 +3092,7 @@ export async function updateBrandDna(
 // ── Brand logo ───────────────────────────────────────────────────────────
 //
 // One logo per brand, on the ACTIVE brand_dna row, so every project of the brand
-// shows the same file and a DNA rebuild carries it forward (buildBrandDna copies
+// shows the same file and a DNA rebuild carries it forward (buildBrandDnaFromAll copies
 // prevActive.logo_url). The bytes go browser -> Storage on a signed URL: through
 // a Server Action they hit the 1MB body limit, and a print-quality PNG logo is
 // often bigger than that.
@@ -3837,12 +3670,13 @@ export async function createBrandDocumentUploadUrl(
 // megabyte starts failing again.
 export async function attachBrandDocument(
   brandId: string,
-  input: { path: string; fileName: string; contentType: string; byteSize: number },
+  input: { path: string; fileName: string; contentType: string; byteSize: number; kind?: 'guidelines' | 'contract' | 'intake' | 'other' },
   revalidateProjectId?: string,
 ): Promise<{ ok: true; documentId: string } | { ok: false; error: string }> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
+  const kind = input.kind ?? (revalidateProjectId ? 'guidelines' : undefined)
   if (!(await canEdit(user.email))) throw new Error('Not authorized.')
 
   if (!isUuid(brandId)) return { ok: false, error: 'Unknown brand.' }
@@ -3876,6 +3710,8 @@ export async function attachBrandDocument(
       byte_size: Math.round(input.byteSize),
       uploaded_by: user.id,
       uploaded_by_name: uploadedByName,
+      // Project pages only have the guidelines panel, so their uploads are guidelines.
+      ...(kind && ['guidelines', 'contract', 'intake', 'other'].includes(kind) ? { kind } : {}),
     })
     .select('id')
     .single()

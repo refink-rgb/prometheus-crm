@@ -128,6 +128,11 @@ export interface Brand {
   ai_sensitivity: number | null
   /** The client's own rules, pasted. Distinct from brand_notes, which is ours. */
   brand_guidelines: string | null
+  /** How the client wants to be reached (20261029_brand_profile.sql). */
+  preferred_channel?: 'email' | 'whatsapp' | 'slack' | 'phone' | 'sms' | 'other' | null
+  channel_details?: string | null
+  intake_answers?: string | null
+  onboarding_call_url?: string | null
 }
 
 /** A file the client sent us, kept on the brand. Bytes live in the PRIVATE
@@ -143,6 +148,8 @@ export interface BrandDocument {
   uploaded_by: string | null
   uploaded_by_name: string | null
   created_at: string
+  /** guidelines | intake | other. Absent before 20261029_brand_profile.sql. */
+  kind?: 'guidelines' | 'contract' | 'intake' | 'other'
 }
 
 /** A creative brief on a project. Bytes live in the PRIVATE project-briefs
@@ -536,6 +543,10 @@ export interface BrandDna {
   research_markdown: string | null
   created_at: string
   updated_at: string
+  /** Everything the client told us, digested at build time (20261102_brand_profile.sql). */
+  client_context?: string | null
+  /** What the active build read. Compared with the page's sources to spot new information. */
+  built_from?: { key: string; label: string; stamp: string }[] | null
 }
 
 // ---------------------------------------------------------------------------
