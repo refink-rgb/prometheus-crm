@@ -17,7 +17,7 @@ import type { BrandDocument } from '@/lib/types'
 // Collapsed on Creatives, where it is reference rather than reading.
 
 export default function BrandGuidelines({
-  brandId, brandName, projectId, guidelines, documents = [], collapsed = false, embedded = false,
+  brandId, brandName, projectId, guidelines, documents = [], collapsed = false, embedded = false, documentKind,
 }: {
   brandId: string
   brandName: string
@@ -32,6 +32,8 @@ export default function BrandGuidelines({
    * no box, no toggle, compact document viewer, long text clamped.
    */
   embedded?: boolean
+  /** Brand page: uploads here are typed as guidelines and rows can be re-typed. */
+  documentKind?: 'guidelines'
 }) {
   const router = useRouter()
   const [editing, setEditing] = useState(false)
@@ -103,7 +105,7 @@ export default function BrandGuidelines({
     return (
       <>
         {body}
-        <BrandDocuments brandId={brandId} projectId={projectId} documents={documents} compact />
+        <BrandDocuments brandId={brandId} projectId={projectId} documents={documents} kind={documentKind} compact />
       </>
     )
   }
@@ -128,7 +130,7 @@ export default function BrandGuidelines({
         {open && (
           <div style={{ padding: '0 12px 12px 30px' }}>
             {body}
-            <BrandDocuments brandId={brandId} projectId={projectId} documents={documents} compact />
+            <BrandDocuments brandId={brandId} projectId={projectId} documents={documents} kind={documentKind} compact />
           </div>
         )}
       </div>

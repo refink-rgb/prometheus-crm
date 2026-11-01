@@ -2,16 +2,19 @@
 
 import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { buildBrandDna, buildBrandDnaFromGuideline, updateBrandDna } from '@/lib/actions'
+import { updateBrandDna } from '@/lib/actions'
+import { buildBrandDnaFromAll } from '@/lib/brands/dna-actions'
+import { newSinceBuild, type DnaSource } from '@/lib/brands/dna-sources'
 import { BRAND_LOGO_ACCEPT, uploadBrandLogoFile } from '@/lib/brand-logo-upload'
-import { createClient } from '@/lib/supabase/client'
-import { GUIDELINE_ACCEPT, MAX_GUIDELINE_BYTES } from '@/lib/ai/brand-guideline'
 import type { BrandDna } from '@/lib/types'
 
 // Edit-mode form config — mirrors the read-only sections below. 'list' fields
 // render as one-item-per-line textareas; 'color' fields get a live swatch.
 type EditKind = 'input' | 'textarea' | 'list' | 'color'
 const EDIT_SECTIONS: Array<{ title: string; fields: Array<{ name: string; label: string; kind: EditKind }> }> = [
+  { title: 'What the client told us', fields: [
+    { name: 'client_context', label: 'Digest of calls, contract, intake, feedback and team notes', kind: 'textarea' },
+  ]},
   { title: 'Prompt Modifier', fields: [
     { name: 'prompt_modifier', label: 'Prompt Modifier (prepended to ad-generation prompts)', kind: 'textarea' },
   ]},
@@ -193,7 +196,7 @@ function ColorListField({ label, values }: { label: string; values: string[] | n
   )
 }
 
-export default function BrandDnaPanel({ brandId, dna }: { brandId: string; dna: BrandDna | null }) {
+export default function BrandDnaPanel({ brandId, dna, sources }: { brandId: string; dna: BrandDna | null; sources: DnaSource[] }) {
   const router = useRouter()
   const [building, setBuilding] = useState(false)
   const [error, setError] = useState('')
@@ -203,9 +206,8 @@ export default function BrandDnaPanel({ brandId, dna }: { brandId: string; dna: 
   const [uploading, setUploading] = useState(false)
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
-  const guidelineRef = useRef<HTMLInputElement | null>(null)
-  const [guideline, setGuideline] = useState<File | null>(null)
-  const [guidelineStep, setGuidelineStep] = useState('')
+  const [skipped, setSkipped] = useState<string[]>([])
+  const fresh = newSinceBuild(sources, dna?.built_from ?? null)
 
   async function handleSave(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -228,66 +230,30 @@ export default function BrandDnaPanel({ brandId, dna }: { brandId: string; dna: 
     }
   }
 
+  // A build costs AI credits, so it only ever runs from this button, and says
+  // so when nothing has changed since the last one.
   async function handleBuild() {
-    const label = dna ? 'Rebuild Brand DNA?' : 'Build Brand DNA now?'
-    if (!confirm(`${label}\n\nThis runs a two-step Gemini research + synthesis pass (30-90s).`)) return
+    const message = !dna
+      ? 'Build Brand DNA?\n\nReads the website and everything on this brand. This takes 1-3 minutes.'
+      : fresh.length
+        ? `Rebuild Brand DNA?\n\nNew since the last build: ${fresh.join(', ')}.\n\nA new version is created and the old one is kept. Manual edits to this version are not carried over.`
+        : 'Nothing has changed since the last build, so this would spend AI credits for the same result. Rebuild anyway?'
+    if (!confirm(message)) return
     setBuilding(true)
     setError('')
+    setSkipped([])
     try {
-      const result = await buildBrandDna(brandId)
+      const result = await buildBrandDnaFromAll(brandId)
       if (!result.ok) {
         setError(result.error)
       } else {
+        setSkipped(result.skipped)
         router.refresh()
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Build failed')
     } finally {
       setBuilding(false)
-    }
-  }
-
-  // Guideline route: upload to Storage from the browser first, then hand the
-  // server action a path. Server actions cap request bodies at 1MB and brand
-  // books are far bigger, so the file cannot travel through the action itself.
-  async function handleBuildFromGuideline() {
-    if (!guideline) return
-    if (guideline.size > MAX_GUIDELINE_BYTES) {
-      setError(`That file is ${(guideline.size / 1024 / 1024).toFixed(1)}MB — the limit is ${MAX_GUIDELINE_BYTES / 1024 / 1024}MB.`)
-      return
-    }
-    const label = dna ? 'Rebuild Brand DNA from this guideline?' : 'Build Brand DNA from this guideline?'
-    if (!confirm(`${label}\n\n${guideline.name}\n\nThis replaces the current version (a new version is created, the old one is kept).`)) return
-
-    setBuilding(true)
-    setError('')
-    try {
-      setGuidelineStep('Uploading document…')
-      const supabase = createClient()
-      const ext = (guideline.name.split('.').pop() || 'pdf').toLowerCase().replace(/[^a-z0-9]/g, '')
-      const path = `brand-guidelines/${brandId}-${Date.now()}.${ext}`
-      const { error: upErr } = await supabase.storage
-        .from('project-images')
-        .upload(path, guideline, { contentType: guideline.type || undefined })
-      if (upErr) {
-        setError(`Upload failed: ${upErr.message}`)
-        return
-      }
-
-      setGuidelineStep('Reading the guideline…')
-      const result = await buildBrandDnaFromGuideline(brandId, path, guideline.name)
-      if (!result.ok) {
-        setError(result.error)
-      } else {
-        setGuideline(null)
-        if (guidelineRef.current) guidelineRef.current.value = ''
-        router.refresh()
-      }
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Build from guideline failed')
-    } finally {
-      setBuilding(false)
-      setGuidelineStep('')
     }
   }
 
@@ -363,7 +329,7 @@ export default function BrandDnaPanel({ brandId, dna }: { brandId: string; dna: 
               style={{ fontSize: 12 }}
             >
               {building
-                ? <>Generating… <span style={{ fontSize: 10, opacity: 0.7 }}>(~60s)</span></>
+                ? <>Building… <span style={{ fontSize: 10, opacity: 0.7 }}>(1-3 min)</span></>
                 : dna ? '✦ Rebuild' : '✦ Build Brand DNA'}
             </button>
           )}
@@ -403,39 +369,21 @@ export default function BrandDnaPanel({ brandId, dna }: { brandId: string; dna: 
         </div>
       </div>
 
-      {/* Second route in — the brand's own guideline. Hidden while editing so
-          the edit form stays the only thing on screen. */}
+      {skipped.length > 0 && (
+        <p style={{ color: 'var(--warning)', fontSize: 12, marginBottom: 16 }}>Not read in this build: {skipped.join('; ')}.</p>
+      )}
+
       {!editing && (
         <div style={{ marginBottom: 24, padding: 16, background: 'var(--surface-raised)', borderRadius: 8, border: '1px solid var(--border)' }}>
-          <div style={SECTION_LABEL}>Or build from a brand guideline</div>
-          <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, margin: '0 0 12px' }}>
-            Upload the brand book as <strong>PDF, DOCX or PPTX</strong> and the DNA is read from the client&apos;s stated
-            specification instead of researched from their website. PDF is the best input — its pages are read
-            visually, so colour swatches and type specimens come through. DOCX and PPTX are read as text only.
+          <div style={SECTION_LABEL}>{dna?.built_from ? 'Built from' : 'Will read'}</div>
+          <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0 }}>
+            {(dna?.built_from ?? sources).map(s => s.label).join(' · ') || 'Nothing yet. Add a website or files first.'}
           </p>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            <input
-              ref={guidelineRef}
-              type="file"
-              accept={GUIDELINE_ACCEPT}
-              disabled={building}
-              onChange={e => { setGuideline(e.target.files?.[0] ?? null); setError('') }}
-              style={{ fontSize: 12 }}
-            />
-            <button
-              onClick={handleBuildFromGuideline}
-              disabled={!guideline || building}
-              className="btn-primary"
-              style={{ fontSize: 12 }}
-            >
-              {building && guidelineStep
-                ? guidelineStep
-                : dna ? '✦ Rebuild from guideline' : '✦ Build from guideline'}
-            </button>
-          </div>
-          {guideline && !building && (
-            <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '8px 0 0' }}>
-              {guideline.name} · {(guideline.size / 1024 / 1024).toFixed(1)}MB
+          {dna && fresh.length > 0 && (
+            <p style={{ fontSize: 13, color: 'var(--warning)', fontWeight: 600, lineHeight: 1.6, margin: '8px 0 0' }}>
+              {dna.built_from
+                ? `New since this build: ${fresh.join(' · ')}. Rebuild to include it.`
+                : 'This version was built before client information was included. Rebuild to include it.'}
             </p>
           )}
         </div>
@@ -443,7 +391,7 @@ export default function BrandDnaPanel({ brandId, dna }: { brandId: string; dna: 
 
       {!dna && !building && (
         <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-          No Brand DNA yet. Click <strong>Build Brand DNA</strong> to run a two-step Gemini research + synthesis pass from the brand&apos;s website, or upload their brand guideline above to build it from the client&apos;s own document. Either way the result populates the fonts, colors, photography direction, packaging, ad style, and sales angles used to keep future creative on-brand.
+          No Brand DNA yet. Click <strong>Build Brand DNA</strong> to read the website and everything on this brand into one reference: guidelines, the onboarding call, contract, intake, feedback and team notes.
         </p>
       )}
 
@@ -501,6 +449,13 @@ export default function BrandDnaPanel({ brandId, dna }: { brandId: string; dna: 
       {dna && !editing && (
         <>
           {/* Prompt modifier — the payoff */}
+          {dna.client_context && (
+            <div style={{ marginBottom: 24 }}>
+              <div style={SECTION_LABEL}>What the client told us</div>
+              <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.65, whiteSpace: 'pre-wrap' }}>{dna.client_context}</div>
+            </div>
+          )}
+
           {dna.prompt_modifier && (
             <div style={{ marginBottom: 24, padding: 16, background: 'var(--surface-raised)', border: '1px solid var(--border)', borderRadius: 8 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>

@@ -20,7 +20,7 @@ export default function BrandThread({
 }: {
   brandId: string
   brandName: string
-  projectId: string
+  projectId?: string
   comments: BrandComment[]
   currentUserId: string | null
   compact?: boolean

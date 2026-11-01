@@ -23,7 +23,7 @@ export default function BrandBrief({
 }: {
   brandId: string
   brandName: string
-  projectId: string
+  projectId?: string
   notes: string | null
   sensitivity: number | null
 }) {

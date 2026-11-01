@@ -12,6 +12,8 @@ import {
   MAX_BRAND_DOC_BYTES, MB, resolveDocType,
 } from '@/lib/brand-docs'
 import type { BrandDocument } from '@/lib/types'
+import { setDocumentKind } from '@/lib/brands/actions'
+import { DOC_KINDS, type DocKind } from '@/lib/brands/profile'
 
 // The second half of the brand guidelines panel: the client's actual files.
 //
@@ -21,7 +23,7 @@ import type { BrandDocument } from '@/lib/types'
 // exact thing that broke the batch creative uploader in August.
 
 export default function BrandDocuments({
-  brandId, projectId, documents, compact = false,
+  brandId, projectId, documents, compact = false, kind, title, uploadLabel, uploadHint, emptyText,
 }: {
   brandId: string
   /** Absent on the brand page, which has no project to revalidate. */
@@ -29,6 +31,13 @@ export default function BrandDocuments({
   documents: BrandDocument[]
   /** The Creatives-tab copy: same list, shorter viewer. */
   compact?: boolean
+  /** Brand page: one list per file type. Uploads get this type, and each row
+   *  can be moved to another type. Absent elsewhere: every file, as before. */
+  kind?: DocKind
+  title?: string
+  uploadLabel?: string
+  uploadHint?: string
+  emptyText?: string
 }) {
   const router = useRouter()
   const [busy, setBusy] = useState<{ done: number; total: number; name: string } | null>(null)
@@ -99,7 +108,7 @@ export default function BrandDocuments({
 
         const attached = await attachBrandDocument(
           brandId,
-          { path: signed.path, fileName: file.name, contentType: type, byteSize: file.size },
+          { path: signed.path, fileName: file.name, contentType: type, byteSize: file.size, kind },
           projectId,
         )
         if (!attached.ok) { errs.push(`${file.name}: ${attached.error}`); continue }
@@ -153,7 +162,7 @@ export default function BrandDocuments({
   return (
     <section style={{ marginTop: 16, borderTop: '1px solid var(--border)', paddingTop: 14 }}>
       <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: 8 }}>
-        Brand guideline files{documents.length ? ` · ${documents.length}` : ''}
+        {title ?? 'Brand guideline files'}{documents.length ? ` · ${documents.length}` : ''}
       </div>
 
       {/* Click or drop. Hidden input inside a label, the same idiom the creative
@@ -190,10 +199,10 @@ export default function BrandDocuments({
         <span style={{ fontSize: 15 }}>⬆</span>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 12, fontWeight: 600 }}>
-            {busy ? `Uploading ${busy.name} — ${busy.done + 1} of ${busy.total}…` : 'Upload brand guidelines'}
+            {busy ? `Uploading ${busy.name} — ${busy.done + 1} of ${busy.total}…` : uploadLabel ?? 'Upload brand guidelines'}
           </div>
           <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
-            Brand book, style guide, logo or font rules · drop files or click · PDF, .docx, .pptx, .xlsx, .txt · up to {MAX_BRAND_DOC_BYTES / MB}MB
+            {uploadHint ?? 'Brand book, style guide, logo or font rules'} · drop files or click · PDF, .docx, .pptx, .xlsx, .txt · up to {MAX_BRAND_DOC_BYTES / MB}MB
           </div>
         </div>
       </label>
@@ -207,7 +216,7 @@ export default function BrandDocuments({
 
       {documents.length === 0 ? (
         <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-          No brand guideline files yet: the brand book, a type specimen, a signed style guide.
+          {emptyText ?? 'No brand guideline files yet: the brand book, a type specimen, a signed style guide.'}
         </div>
       ) : documents.map(d => {
         const spec = BRAND_DOC_TYPES[d.mime_type]
@@ -246,6 +255,23 @@ export default function BrandDocuments({
               )}
 
               <button onClick={() => download(d)} style={miniLink}>Download</button>
+              {kind && (
+                <select
+                  aria-label={`Move ${d.file_name} to`}
+                  value={kind}
+                  onChange={e => {
+                    const to = e.target.value as DocKind
+                    startTransition(async () => {
+                      const r = await setDocumentKind(brandId, d.id, to)
+                      if (!r.ok) setRowErr({ id: d.id, message: r.error })
+                      else router.refresh()
+                    })
+                  }}
+                  style={{ fontSize: 11.5, width: 'auto', padding: '2px 6px', minHeight: 0, flexShrink: 0 }}
+                >
+                  {Object.entries(DOC_KINDS).map(([k, v]) => <option key={k} value={k}>{k === kind ? v : `Move to ${v}`}</option>)}
+                </select>
+              )}
               <button onClick={() => remove(d)} title="Remove" aria-label={`Remove ${d.file_name}`} style={miniBtn}>✕</button>
             </div>
 
