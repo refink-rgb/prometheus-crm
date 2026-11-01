@@ -381,7 +381,9 @@ export default function BrandDnaPanel({ brandId, dna, sources }: { brandId: stri
           </p>
           {dna && fresh.length > 0 && (
             <p style={{ fontSize: 13, color: 'var(--warning)', fontWeight: 600, lineHeight: 1.6, margin: '8px 0 0' }}>
-              New since this build: {fresh.join(' · ')}. Rebuild to include it.
+              {dna.built_from
+                ? `New since this build: ${fresh.join(' · ')}. Rebuild to include it.`
+                : 'This version was built before client information was included. Rebuild to include it.'}
             </p>
           )}
         </div>
