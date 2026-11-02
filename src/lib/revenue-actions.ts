@@ -7,9 +7,8 @@
 
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
-import { canEdit } from '@/lib/permissions'
+import { canEdit, canViewDashboard } from '@/lib/permissions'
 import { getCachedProfiles } from '@/lib/profiles'
-import { isJobEditor } from '@/lib/types'
 import { easternToday } from '@/lib/eastern'
 import { readFirstSheet } from '@/lib/revenue/xlsx'
 import { normalizeClientName, parseRevenueSheet } from '@/lib/revenue/sheet'
@@ -32,7 +31,7 @@ export async function uploadRevenueSheet(
   if (!user || !(await canEdit(user.email))) return { ok: false, message: 'Not authorized.' }
   const profiles = await getCachedProfiles()
   const me = profiles.find(p => p.email === user.email?.toLowerCase()) ?? null
-  if (isJobEditor(me)) return { ok: false, message: 'Not authorized.' }
+  if (!canViewDashboard(user.email, me)) return { ok: false, message: 'Not authorized.' }
 
   const file = formData.get('file')
   if (!(file instanceof File) || file.size === 0) return { ok: false, message: 'Choose an .xlsx file first.' }

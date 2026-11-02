@@ -48,6 +48,18 @@ export function isOfferAssignee(email: string | undefined | null): boolean {
   return isManagement(email)
 }
 
+/** The full Dashboard (revenue, management metrics, client concerns) and the
+ *  revenue sheet upload. Everyone who isn't an LP/Creative editor, plus the
+ *  management roster even when they also hold an editor flag — Lucas and Kaylin
+ *  are in the editor pickers but run the business (Giovane, 2026-11-02). */
+export function canViewDashboard(
+  email: string | undefined | null,
+  profile: { is_lp_editor: boolean; is_creative_editor: boolean } | null | undefined,
+): boolean {
+  if (isManagement(email)) return true
+  return !(profile && (profile.is_lp_editor || profile.is_creative_editor))
+}
+
 /** The moment-code index at /codes — the master list of every project's
  *  searchable ad-account code. The management roster, nobody else. */
 export function canViewMomentCodes(email: string | undefined | null): boolean {

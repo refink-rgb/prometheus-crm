@@ -1,7 +1,7 @@
 import { createClient, getCachedUser } from '@/lib/supabase/server'
 import { getCachedProfiles } from '@/lib/profiles'
 import type { Project } from '@/lib/types'
-import { isJobEditor } from '@/lib/types'
+import { canViewDashboard } from '@/lib/permissions'
 import { easternToday } from '@/lib/eastern'
 import { loadDashboard } from '@/lib/dashboard/load'
 import { computeInsights } from '@/lib/insights'
@@ -32,9 +32,9 @@ export default async function DashboardPage({
   const myProfile = profiles.find(p => p.email === user?.email?.toLowerCase()) ?? null
 
   // LP / Creative editors never see money or client health: their home is
-  // just their own work.
-  if (isJobEditor(myProfile)) {
-    return <EditorHome profileId={myProfile!.id} />
+  // just their own work. The management roster sees everything regardless.
+  if (!canViewDashboard(user?.email, myProfile) && myProfile) {
+    return <EditorHome profileId={myProfile.id} />
   }
 
   const { tab: rawTab } = await searchParams
