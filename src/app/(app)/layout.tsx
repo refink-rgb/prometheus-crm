@@ -3,7 +3,6 @@ import { createClient, getCachedUser } from '@/lib/supabase/server'
 import { canEdit, canViewCapacity, canViewMomentCodes } from '@/lib/permissions'
 import { getCachedProfiles } from '@/lib/profiles'
 import { computeCapacity, type CapacityProject } from '@/lib/capacity'
-import { isJobEditor } from '@/lib/types'
 import { signOut } from '@/lib/actions'
 import Sidebar from '@/components/Sidebar'
 import { ToastProvider } from '@/components/Toast'
@@ -52,8 +51,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           .eq('is_complete', false)
       : Promise.resolve({ data: null }),
   ])
-  const myProfile = profiles.find(p => p.email === user.email?.toLowerCase()) ?? null
-  const showFinancials = isEditor && !isJobEditor(myProfile)
   const capacity = showCapacity
     ? computeCapacity(profiles, (capacityRes.data ?? []) as CapacityProject[])
     : null
@@ -62,7 +59,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <ToastProvider>
       <ConfirmDialogHost>
         <div style={{ minHeight: '100vh' }}>
-          <Sidebar email={user.email ?? null} showFinancials={showFinancials} capacity={capacity}  showCodes={canViewMomentCodes(user.email)}/>
+          <Sidebar email={user.email ?? null} capacity={capacity} showCodes={canViewMomentCodes(user.email)} />
           {/* Follows the sidebar. The variable is set by Sidebar (a client
               component); the fallback is what renders before its effect runs and on
               any page where the sidebar is absent. */}

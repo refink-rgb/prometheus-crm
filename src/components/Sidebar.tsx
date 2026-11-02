@@ -12,7 +12,6 @@ import { PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 
 interface SidebarProps {
   email?: string | null
-  showFinancials: boolean
   // Management-only workload counters; null hides the block entirely.
   capacity?: CapacitySummary | null
   /** Management-only: the moment-code index. */
@@ -41,13 +40,6 @@ const DashboardIcon = (
     <rect x="14" y="3" width="7" height="5" rx="1.5" />
     <rect x="14" y="12" width="7" height="9" rx="1.5" />
     <rect x="3" y="16" width="7" height="5" rx="1.5" />
-  </svg>
-)
-
-const FinancialsIcon = (
-  <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-    <line x1="12" y1="3" x2="12" y2="21" />
-    <path d="M17 6H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" />
   </svg>
 )
 
@@ -140,7 +132,7 @@ const ShowcaseIcon = (
   </svg>
 )
 
-export default function Sidebar({ email, showFinancials, capacity = null, showCodes = false }: SidebarProps) {
+export default function Sidebar({ email, capacity = null, showCodes = false }: SidebarProps) {
   const pathname = usePathname()
 
   // Collapsed to a 60px rail. Asked for by Janella, 1 Sep: reviewing creatives
@@ -169,19 +161,11 @@ export default function Sidebar({ email, showFinancials, capacity = null, showCo
     {
       href: '/',
       label: 'Dashboard',
-      // Insights lives under the Dashboard section as a sub-tab, so this item
-      // stays active on both routes.
-      matches: (p) => p === '/' || p.startsWith('/insights'),
+      // Financials and Insights were folded into the Dashboard's tabs
+      // (2026-11-02); their old URLs redirect here.
+      matches: (p) => p === '/',
       icon: DashboardIcon,
     },
-    ...(showFinancials
-      ? [{
-          href: '/financials',
-          label: 'Financials',
-          matches: (p: string) => p.startsWith('/financials'),
-          icon: FinancialsIcon,
-        }]
-      : []),
     {
       href: '/results',
       label: 'Results',

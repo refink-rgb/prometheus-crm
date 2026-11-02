@@ -121,6 +121,12 @@
   --viz-slip-2:  #f87171;
   --viz-slip-3:  #ef4444;
   --viz-slip-4:  #b91c1c;
+  /* Dashboard categorical slots (existing / new / back from pause; MM / PCE).
+   * Validated as a set against #161616 (dark) and #ffffff (light). */
+  --viz-cat-1:   #3987e5;
+  --viz-cat-2:   #d95926;
+  --viz-cat-3:   #199e70;
+  --viz-neutral: #4a4a4a;
 }
 
 /* ── Light theme ── Overrides only what needs to change. Accents, stage
@@ -149,6 +155,10 @@ html.theme-light {
   --viz-slip-2:  #ef4444;
   --viz-slip-3:  #b91c1c;
   --viz-slip-4:  #7f1d1d;
+  --viz-cat-1:   #2a78d6;
+  --viz-cat-2:   #eb6834;
+  --viz-cat-3:   #1baf7a;
+  --viz-neutral: #d4d4d4;
 
   /* Stage backgrounds: bump alpha up so tints stay legible on white. */
   --stage-brief-bg:     rgba(148, 163, 184, 0.20);
@@ -472,6 +482,8 @@ label {
 }
 @media (max-width: 768px) {
   .kpi-strip { grid-template-columns: repeat(2, 1fr) !important; }
+  .concern-row { grid-template-columns: 1fr !important; }
+  .dashboard-page { padding: var(--space-5) 16px var(--space-8) !important; }
   .bd-kanban-grid { grid-template-columns: repeat(4, minmax(180px, 1fr)) !important; }
   .app-sidebar { display: none !important; }
   .app-mobile-nav { display: flex !important; }

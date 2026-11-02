@@ -134,7 +134,7 @@ export default function TeamRollup({
               </div>
               <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', margin: 'var(--space-4) 0 0', lineHeight: 1.6 }}>
                 Cross-read this against Slip Attribution in{' '}
-                <a href="/insights" style={{ color: 'var(--accent)' }}>Insights</a> — that shows which
+                <a href="/?tab=management" style={{ color: 'var(--accent)' }}>Dashboard → Management</a> — that shows which
                 <em> stage</em> slips happen in, this shows what people say caused them.
               </p>
             </div>
