@@ -452,6 +452,13 @@ export interface CreativeAsset {
   sort_order: number
   created_at: string
   revision_url: string | null
+  /**
+   * A still frame of revision_url, for videos. Grabbed from the file in the
+   * browser on upload, or Drive's own thumbnail of a re-uploaded Drive file.
+   * Null means fall back to the ORIGINAL's Drive poster — which is what every
+   * still used to show, including on ads that had been re-cut.
+   */
+  revision_poster_url: string | null
   revision_prompt: string | null
   revision_created_at: string | null
   // The revision the client currently sees — set only on "Publish to client".

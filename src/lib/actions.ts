@@ -4191,7 +4191,10 @@ export async function addBriefLinesToCopyDeck(
 export async function createRevisionUploadUrl(
   assetId: string,
   contentType: string,
-): Promise<{ ok: true; path: string; token: string } | { ok: false; error: string }> {
+): Promise<
+  | { ok: true; path: string; token: string; posterPath: string | null; posterToken: string | null }
+  | { ok: false; error: string }
+> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
@@ -4218,7 +4221,19 @@ export async function createRevisionUploadUrl(
 
   const { data, error } = await supabase.storage.from('project-images').createSignedUploadUrl(path)
   if (error || !data) return { ok: false, error: error?.message ?? 'Could not start the upload.' }
-  return { ok: true, path: data.path, token: data.token }
+
+  // A video also gets a slot for its still frame, minted in the same round trip.
+  // Without one every viewer kept showing Drive's poster of the ORIGINAL, so a
+  // re-cut ad looked untouched (see migration 20261103_video_revision_posters).
+  // The browser grabs the frame; a failure there just leaves this slot empty.
+  let posterPath: string | null = null
+  let posterToken: string | null = null
+  if (video) {
+    const poster = await supabase.storage.from('project-images').createSignedUploadUrl(`${path}.poster.jpg`)
+    if (poster.data) { posterPath = poster.data.path; posterToken = poster.data.token }
+    else console.error('[createRevisionUploadUrl] no poster slot', assetId, poster.error?.message)
+  }
+  return { ok: true, path: data.path, token: data.token, posterPath, posterToken }
 }
 
 // Second half: the file is already in storage, so this only records it.
@@ -4227,6 +4242,8 @@ export async function attachRevisionUpload(
   path: string,
   projectId: string,
   brandId: string,
+  /** The still uploaded beside a video, when the browser managed to grab one. */
+  posterPath?: string | null,
 ): Promise<{ ok: true; revisionNumber: number | null } | { ok: false; error: string }> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -4236,8 +4253,13 @@ export async function attachRevisionUpload(
   // The path is minted by createRevisionUploadUrl above; check it anyway, since
   // this argument arrives from the browser.
   if (!path.startsWith(`revisions/${assetId}-`)) return { ok: false, error: 'That upload does not belong to this creative.' }
+  // Minted as `${path}.poster.jpg` above, so the same check covers it.
+  if (posterPath && posterPath !== `${path}.poster.jpg`) return { ok: false, error: 'That still does not belong to this upload.' }
 
   const { data: { publicUrl } } = supabase.storage.from('project-images').getPublicUrl(path)
+  const posterUrl = posterPath
+    ? supabase.storage.from('project-images').getPublicUrl(posterPath).data.publicUrl
+    : null
 
   // published_url advances with the revision. Holding it back until
   // someone pressed "send" is exactly what left a client sitting on an ad
@@ -4257,6 +4279,10 @@ export async function attachRevisionUpload(
   const patch: Record<string, unknown> = {
     revision_url: publicUrl,
     published_url: publicUrl,
+    // Written even when it is null: the LAST revision's still must not be left
+    // standing in front of this one. Null falls back to Drive's poster, which
+    // is merely stale, where a wrong still is a lie about what the ad says.
+    revision_poster_url: posterUrl,
     revision_created_at: new Date().toISOString(),
   }
   if ((priorRow as { status?: string } | null)?.status === 'approved') patch.status = 'pending'
@@ -4269,7 +4295,7 @@ export async function attachRevisionUpload(
 
   const { recordAssetRevision } = await import('@/lib/revisions')
   const revisionNumber = await recordAssetRevision(supabase, {
-    assetId, imageUrl: publicUrl, prompt: null, createdBy: user.email ?? null,
+    assetId, imageUrl: publicUrl, posterUrl, prompt: null, createdBy: user.email ?? null,
   })
 
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)

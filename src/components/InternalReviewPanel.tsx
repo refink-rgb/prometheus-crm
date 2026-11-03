@@ -21,7 +21,7 @@ import type { CreativeAsset, ProjectComment } from '@/lib/types'
 import { driveThumb, resizeDriveThumb } from '@/lib/drive-thumb'
 import EditableNoteBody from './preview/EditableNoteBody'
 import { CreativePlayer } from '@/components/CreativeMedia'
-import { isVideoAsset, posterOf } from '@/lib/creative-media'
+import { drivePosterOf, isVideoAsset, posterOf } from '@/lib/creative-media'
 
 const QUALITY_OPTIONS: Array<{ value: 'low' | 'medium' | 'high'; label: string; price: string }> = [
   { value: 'low',    label: 'Low',    price: '$0.011' },
@@ -449,20 +449,28 @@ function AssetView({
   const video = isVideoAsset(asset)
   const originalSrc = video ? (asset.video_url ?? '') : asset.thumbnail_url
     ?? resizeDriveThumb(asset.thumbnail_url, 2048) ?? driveThumb(asset.drive_file_id, 2048)
+  // drivePosterOf, not posterOf: this is the ORIGINAL's frame, and posterOf now
+  // answers with the current cut's.
+  const originalPoster = video ? drivePosterOf(asset, 2048) : null
   const originalHref = `https://drive.google.com/uc?export=view&id=${asset.drive_file_id}`
 
   // Version strip: Original, then each recorded edit oldest→newest.
+  // A video version carries its own still: the frame behind the play button has
+  // to describe the cut that is about to play, or a re-cut ad looks untouched.
+  // Null on an edit — pre-3-Nov uploads, or a capture the browser could not
+  // make — means no poster at all, so the file paints its own first frame.
   const versions = useMemo(() => [
-    { key: 'original', label: 'Original', src: originalSrc, prompt: null as string | null, at: null as string | null, by: null as string | null },
+    { key: 'original', label: 'Original', src: originalSrc, poster: originalPoster, prompt: null as string | null, at: null as string | null, by: null as string | null },
     ...revisions.map(r => ({
       key: r.id,
       label: `Edit ${r.revision_number}`,
       src: r.image_url,
+      poster: video ? r.poster_url : null,
       prompt: r.prompt,
       at: r.created_at,
       by: r.created_by,
     })),
-  ], [originalSrc, revisions])
+  ], [originalSrc, originalPoster, video, revisions])
 
   // Default to the newest version. `selectedKey` is null until the user picks.
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
@@ -483,6 +491,9 @@ function AssetView({
     ? versions[versions.length - 1].src
     : (asset.revision_url ?? originalSrc)
   const displaySrc = viewingOlder ? activeVersion.src : currentSrc
+  // undefined, not null, when showing the current version: that is the signal to
+  // the player to work the poster out itself (posterOf → the current still).
+  const displayPoster = viewingOlder ? activeVersion.poster : undefined
 
   // Edit count for the header callout. Falls back to "edited, count unknown"
   // for pre-history revisions so the badge never claims "Original" wrongly.
@@ -740,7 +751,7 @@ function AssetView({
           onClick={handleImageClick}
         >
           {video ? (
-            <CreativePlayer asset={asset} src={displaySrc || null} audience="team" alt={asset.name ?? 'Creative'}
+            <CreativePlayer asset={asset} src={displaySrc || null} poster={displayPoster} audience="team" alt={asset.name ?? 'Creative'}
               style={{ width: '100%', display: 'block', maxHeight: 'calc(100vh - 260px)', objectFit: 'contain' }} />
           ) : (
             // eslint-disable-next-line @next/next/no-img-element

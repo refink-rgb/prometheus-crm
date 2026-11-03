@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/client'
 import { createRevisionUploadUrl, attachRevisionUpload } from '@/lib/actions'
 import { MAX_VIDEO_BYTES, VIDEO_TYPES } from '@/lib/creative-media'
+import { captureVideoPoster } from '@/lib/video-poster'
 
 // Put a revised creative in front of an asset, without the bytes touching our
 // server.
@@ -40,5 +41,25 @@ export async function uploadRevisionFile(
     })
   if (error) return { ok: false, error: `Upload failed: ${error.message}` }
 
-  return attachRevisionUpload(assetId, signed.path, projectId, brandId)
+  // A video needs its own still, or every tile and the frame behind the play
+  // button keep showing Drive's poster of the cut this one replaces — which is
+  // how a re-cut ad could sit there labelled "Edit 2" still reading 30% OFF.
+  // Best-effort: a capture or an upload that fails leaves the poster null and
+  // the fallback is the old behaviour, not a broken picture.
+  let posterPath: string | null = null
+  if (video && signed.posterPath && signed.posterToken) {
+    const still = await captureVideoPoster(file)
+    if (still) {
+      const put = await supabase.storage
+        .from('project-images')
+        .uploadToSignedUrl(signed.posterPath, signed.posterToken, still, {
+          contentType: 'image/jpeg',
+          cacheControl: '31536000',
+        })
+      if (put.error) console.error('[uploadRevisionFile] poster upload', assetId, put.error.message)
+      else posterPath = signed.posterPath
+    }
+  }
+
+  return attachRevisionUpload(assetId, signed.path, projectId, brandId, posterPath)
 }

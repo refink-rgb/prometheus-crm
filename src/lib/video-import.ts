@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { downloadDriveFile } from '@/lib/drive'
+import { driveThumb } from '@/lib/drive-thumb'
 import { MAX_VIDEO_BYTES, VIDEO_TYPES } from '@/lib/creative-media'
 import { recordAssetRevision } from '@/lib/revisions'
 
@@ -110,13 +111,20 @@ async function importOne(supabase: SupabaseClient, row: Row, fetchVideo: VideoFe
     // A re-uploaded fix: the same rules as an image revision. published_url
     // follows it; a client approval of the OLD cut is reset, because they never
     // saw this one.
+    // The fix is its own file in Drive, so it has its own poster there. Without
+    // it every still stayed on the ORIGINAL's frame and a re-cut ad looked
+    // untouched (migration 20261103_video_revision_posters). Drive may not have
+    // rendered one yet for a just-uploaded file; a 404 falls back the same way
+    // a null does, to the original's.
+    const posterUrl = driveThumb(fileId, 600, Number(stamp) || 0)
     const patch: Record<string, unknown> = {
-      revision_url: publicUrl, published_url: publicUrl, revision_created_at: new Date().toISOString(),
+      revision_url: publicUrl, published_url: publicUrl, revision_poster_url: posterUrl,
+      revision_created_at: new Date().toISOString(),
       video_status: 'ready', video_source_id: null, video_error: null,
     }
     if (row.status === 'approved') patch.status = 'pending'
     await supabase.from('creative_assets').update(patch).eq('id', row.id)
-    await recordAssetRevision(supabase, { assetId: row.id, imageUrl: publicUrl, prompt: null, createdBy: 'Drive sync' })
+    await recordAssetRevision(supabase, { assetId: row.id, imageUrl: publicUrl, posterUrl, prompt: null, createdBy: 'Drive sync' })
     return 'revisions'
   } catch (e) {
     return fail('failed', e instanceof Error ? e.message : 'unknown error')

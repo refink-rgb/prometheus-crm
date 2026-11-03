@@ -11,7 +11,7 @@ import { commentStamp } from '@/lib/stamp'
 import { useConfirm } from '@/components/ConfirmDialog'
 import BulkRevisionUpload from './BulkRevisionUpload'
 import { CreativePlayer, CreativeTile } from '@/components/CreativeMedia'
-import { isVideoAsset, posterOf } from '@/lib/creative-media'
+import { drivePosterOf, isVideoAsset, posterOf } from '@/lib/creative-media'
 import { startVideoImport } from '@/lib/video-import-client'
 import EditableNoteBody from './EditableNoteBody'
 import {
@@ -167,7 +167,12 @@ export default function ReviewWorkspace({
   // `url` feeds the small list image, `full` the zoom overlay — Drive is asked
   // for w600 for one and w2048 for the other, so expanding a version hands the
   // reviewer something worth scrutinising rather than a blown-up thumbnail.
-  const [viewOverride, setViewOverride] = useState<{ assetId: string; url: string; full: string; label: string } | null>(null)
+  // `poster` rides along because a version's still is not derivable from its
+  // URL: a video's frames live in a separate file. Without it, clicking
+  // "Original" showed the original's file behind the CURRENT cut's frame.
+  const [viewOverride, setViewOverride] = useState<
+    { assetId: string; url: string; full: string; label: string; poster: string | null } | null
+  >(null)
   // Two columns once the PANEL is wide enough — measured on the panel itself,
   // not the window. The window says little about the room this element got: it
   // sits in a grid, in a page, behind a sidebar that collapses. Keying off the
@@ -652,11 +657,26 @@ export default function ReviewWorkspace({
     // For a video: every row's still is the poster, and fullUrl is the file to
     // PLAY — the Original is our copy of the Drive file (null while copying).
     const video = isVideoAsset(a)
-    const originalUrl = video ? posterOf(a) : a.thumbnail_url ?? driveThumb(a.drive_file_id, 600)
+    // drivePosterOf, not posterOf: posterOf now answers with the CURRENT cut's
+    // frame, which is the right answer everywhere except on the row whose whole
+    // job is to be the original.
+    const originalUrl = video ? drivePosterOf(a) : a.thumbnail_url ?? driveThumb(a.drive_file_id, 600)
     const originalFull = video ? (a.video_url ?? '') : resizeDriveThumb(a.thumbnail_url, 2048) ?? driveThumb(a.drive_file_id, 2048)
     const rows = [
-      { key: 'original', label: 'Original', url: null as string | null, thumb: originalUrl, fullUrl: originalFull, at: null as string | null },
-      ...revs.map(r => ({ key: r.id, label: `Edit ${r.revision_number}`, url: r.image_url, thumb: video ? posterOf(a) : r.image_url, fullUrl: r.image_url, at: r.created_at })),
+      { key: 'original', label: 'Original', url: null as string | null, thumb: originalUrl, fullUrl: originalFull, poster: video ? originalUrl : null, at: null as string | null },
+      // A video edit's still is its own captured frame. Null — an upload from
+      // before 3 Nov, or a capture the browser could not make — shows no poster
+      // at all rather than the original's, so the player paints the real first
+      // frame of the file it is about to play.
+      ...revs.map(r => ({
+        key: r.id,
+        label: `Edit ${r.revision_number}`,
+        url: r.image_url,
+        thumb: video ? (r.poster_url ?? originalUrl) : r.image_url,
+        fullUrl: r.image_url,
+        poster: video ? r.poster_url : null,
+        at: r.created_at,
+      })),
     ]
     // client_visible is the "is the client seeing this at all" flag — it is
     // exactly what the client review link filters on. published_url only
@@ -696,7 +716,7 @@ export default function ReviewWorkspace({
               }}>
                 {/* Clicking the row VIEWS this version. Publishing is the button. */}
                 <button
-                  onClick={() => setViewOverride({ assetId: a.id, url: video ? r.fullUrl : r.thumb, full: r.fullUrl, label: r.label })}
+                  onClick={() => setViewOverride({ assetId: a.id, url: video ? r.fullUrl : r.thumb, full: r.fullUrl, label: r.label, poster: r.poster })}
                   title={`View ${r.label}`}
                   style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0, padding: 0, border: 'none', background: 'none', cursor: 'pointer', textAlign: 'left' }}
                 >
@@ -1080,7 +1100,7 @@ export default function ReviewWorkspace({
                 {/* A video plays in place: wrapped in the zoom button, every click
                     on its controls would open the zoom instead. */}
                 {isVideoAsset(active) ? (
-                  <CreativePlayer asset={active} src={override?.full || null} audience="team"
+                  <CreativePlayer asset={active} src={override?.full || null} poster={override ? override.poster : undefined} audience="team"
                     style={{ width: '100%', borderRadius: 10, display: 'block', marginBottom: 8 }} />
                 ) : (
                   <button onClick={() => setZoom(true)} title="Click to view full size" style={{ display: 'block', width: '100%', padding: 0, border: 'none', background: 'none', cursor: 'zoom-in', marginBottom: 8 }}>
@@ -1261,7 +1281,7 @@ export default function ReviewWorkspace({
                 <button onClick={() => step(-1)} title="Previous (←)" aria-label="Previous creative" style={{ ...galleryNavBtn, left: 0 }}>‹</button>
               )}
               {isVideoAsset(active) ? (
-                <CreativePlayer asset={active} src={override?.full || null} audience="team"
+                <CreativePlayer asset={active} src={override?.full || null} poster={override ? override.poster : undefined} audience="team"
                   style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block', borderRadius: 8 }} />
               ) : (
                 <button
@@ -1356,7 +1376,7 @@ export default function ReviewWorkspace({
           )}
           {isVideoAsset(active) ? (
             <span onClick={e => e.stopPropagation()} style={{ display: 'contents' }}>
-              <CreativePlayer asset={active} src={override?.full || null} audience="team"
+              <CreativePlayer asset={active} src={override?.full || null} poster={override ? override.poster : undefined} audience="team"
                 style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: 10 }} />
             </span>
           ) : (

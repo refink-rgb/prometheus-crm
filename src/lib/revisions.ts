@@ -8,6 +8,8 @@ export interface AssetRevision {
   asset_id: string
   revision_number: number
   image_url: string
+  /** A still of image_url, for videos. Null for images, and for rows made before 3 Nov 2026. */
+  poster_url: string | null
   prompt: string | null
   created_by: string | null
   created_at: string
@@ -24,6 +26,8 @@ export async function recordAssetRevision(
   params: {
     assetId: string
     imageUrl: string
+    /** A still of imageUrl, for videos. Omit for an image — image_url IS the picture. */
+    posterUrl?: string | null
     prompt: string | null
     createdBy: string | null
   },
@@ -43,6 +47,7 @@ export async function recordAssetRevision(
       asset_id: params.assetId,
       revision_number: next,
       image_url: params.imageUrl,
+      poster_url: params.posterUrl ?? null,
       prompt: params.prompt,
       created_by: params.createdBy,
     })

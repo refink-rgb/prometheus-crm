@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { clientSrc, internalSrc, isVideoAsset, posterOf, videoWaitingNote, type MediaAsset } from '@/lib/creative-media'
+import { clientPosterOf, clientSrc, internalSrc, isVideoAsset, posterOf, videoWaitingNote, type MediaAsset } from '@/lib/creative-media'
 
 // A creative, shown as what it is: a picture, or a video that plays.
 //
@@ -56,16 +56,28 @@ export function CreativeTile({ asset, src, alt = '', style, badge = 28 }: {
  * own controls, or — while it is still being copied from Drive — its poster and
  * one line saying why it cannot play yet.
  */
-export function CreativePlayer({ asset, src, audience, style, alt = '' }: {
+export function CreativePlayer({ asset, src, poster, audience, style, alt = '' }: {
   asset: MediaAsset
   /** A specific version to show (a version row, or "what the client sees"). */
   src?: string | null
+  /**
+   * The still for THAT version. Pass it whenever `src` is not the current one,
+   * or the frame behind the play button describes a different cut of the ad —
+   * which is how a revised video sat there looking exactly like the original.
+   * `null` means show no poster and let the file paint its own first frame.
+   */
+  poster?: string | null
   audience: 'team' | 'client'
   style?: React.CSSProperties
   alt?: string
 }) {
   const video = isVideoAsset(asset)
   const url = src ?? (audience === 'client' ? clientSrc(asset) : internalSrc(asset))
+  // Each audience resolves its own still, because each plays a different file:
+  // the team is on revision_url, the client on published_url.
+  const still = poster !== undefined ? poster
+    : audience === 'client' ? clientPosterOf(asset, 2048)
+    : posterOf(asset, 2048)
 
   if (!video) {
     // eslint-disable-next-line @next/next/no-img-element
@@ -76,7 +88,7 @@ export function CreativePlayer({ asset, src, audience, style, alt = '' }: {
       <video
         key={url}
         src={url}
-        poster={posterOf(asset, 2048)}
+        {...(still ? { poster: still } : {})}
         controls
         playsInline
         preload="metadata"
@@ -87,7 +99,7 @@ export function CreativePlayer({ asset, src, audience, style, alt = '' }: {
   return (
     <span style={{ position: 'relative', display: 'block', ...style }}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={posterOf(asset, 2048)} alt={alt} style={{ width: '100%', display: 'block', opacity: 0.55 }} />
+      <img src={still ?? posterOf(asset, 2048)} alt={alt} style={{ width: '100%', display: 'block', opacity: 0.55 }} />
       <span style={{
         position: 'absolute', left: 12, right: 12, bottom: 12, padding: '8px 10px', borderRadius: 8,
         background: 'rgba(0,0,0,0.72)', color: '#fff', fontSize: 12, lineHeight: 1.45,

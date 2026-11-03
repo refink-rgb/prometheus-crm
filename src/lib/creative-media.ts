@@ -33,6 +33,8 @@ export interface MediaAsset {
   drive_file_id: string
   thumbnail_url?: string | null
   revision_url?: string | null
+  /** Still frame of revision_url, for videos. Null = no capture, use Drive's. */
+  revision_poster_url?: string | null
   published_url?: string | null
   media_type?: 'image' | 'video' | null
   video_url?: string | null
@@ -43,11 +45,24 @@ export interface MediaAsset {
 export const isVideoAsset = (a: Pick<MediaAsset, 'media_type'>): boolean => a.media_type === 'video'
 
 /**
- * The still picture for a grid tile or filmstrip. For a video it is Drive's own
- * poster frame — always an image, so tiles stay light and never autoplay.
+ * Drive's own poster frame for a video — the ORIGINAL file, whatever has been
+ * uploaded since. The version stack needs it to show the Original row as the
+ * original; everything else wants posterOf below.
+ */
+export function drivePosterOf(a: MediaAsset, size: 600 | 2048 = 600): string {
+  return resizeDriveThumb(a.thumbnail_url, size) ?? driveThumb(a.drive_file_id, size)
+}
+
+/**
+ * The still picture for a grid tile or filmstrip. For a video it is a frame of
+ * the CURRENT cut — always an image, so tiles stay light and never autoplay.
+ *
+ * Drive's poster is the fallback, not the answer: it is keyed to the original
+ * file, so on a revised video it showed the cut the editor had just replaced.
+ * revision_poster_url is a frame grabbed from the revision itself.
  */
 export function posterOf(a: MediaAsset, size: 600 | 2048 = 600): string {
-  if (isVideoAsset(a)) return resizeDriveThumb(a.thumbnail_url, size) ?? driveThumb(a.drive_file_id, size)
+  if (isVideoAsset(a)) return a.revision_poster_url ?? drivePosterOf(a, size)
   if (size === 600) return a.revision_url ?? a.thumbnail_url ?? driveThumb(a.drive_file_id, 600)
   return a.revision_url ?? resizeDriveThumb(a.thumbnail_url, 2048) ?? driveThumb(a.drive_file_id, 2048)
 }
@@ -56,6 +71,27 @@ export function posterOf(a: MediaAsset, size: 600 | 2048 = 600): string {
 export function internalSrc(a: MediaAsset): string | null {
   if (isVideoAsset(a)) return a.revision_url ?? a.video_url ?? null
   return posterOf(a, 2048)
+}
+
+/**
+ * The still for what the CLIENT is shown. Null means show no poster at all.
+ *
+ * It has to follow published_url, where posterOf follows revision_url. The two
+ * part company the moment someone uses "Show client this" to put a client back
+ * on an older cut: that writes published_url alone, so posterOf would paint the
+ * NEWEST cut's frame over a player streaming the older one. On the review link
+ * that frame is the only picture a client ever sees of a video.
+ */
+export function clientPosterOf(a: MediaAsset, size: 600 | 2048 = 600): string | null {
+  if (!isVideoAsset(a)) return null
+  // Nothing pinned, or pinned to the original: Drive's poster IS the original's.
+  if (!a.published_url || a.published_url === a.video_url) return drivePosterOf(a, size)
+  // Pinned to the current cut: the still captured from it.
+  if (a.published_url === a.revision_url) return a.revision_poster_url ?? null
+  // Pinned to some older edit, whose still is a row in creative_asset_revisions
+  // and not on this asset. No poster, so the file paints its own first frame —
+  // a moment of black beats a frame of the wrong ad.
+  return null
 }
 
 /** What the CLIENT is shown: the published version, else the original. */

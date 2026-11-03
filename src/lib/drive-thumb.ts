@@ -13,9 +13,11 @@
 export function driveThumb(
   fileId: string,
   size: 600 | 2048 = 600,
-  version?: string | null,
+  /** A modifiedTime, or the epoch ms the video importer already carries. */
+  version?: string | number | null,
 ): string {
-  const v = version ? `&v=${Date.parse(version) || 0}` : ''
+  const stamp = typeof version === 'number' ? version : version ? Date.parse(version) || 0 : null
+  const v = stamp === null ? '' : `&v=${stamp}`
   return `https://drive.google.com/thumbnail?id=${fileId}&sz=w${size}${v}`
 }
 
