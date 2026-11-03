@@ -16,6 +16,8 @@ interface SidebarProps {
   capacity?: CapacitySummary | null
   /** Management-only: the moment-code index. */
   showCodes?: boolean
+  /** Client Satisfaction: same audience as the full Dashboard. */
+  showSatisfaction?: boolean
 }
 
 function capacityColor(total: number): string {
@@ -89,6 +91,15 @@ const CodesIcon = (
   </svg>
 )
 
+const SatisfactionIcon = (
+  <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="9" />
+    <path d="M8.5 14.5c.9 1.2 2.1 1.8 3.5 1.8s2.6-.6 3.5-1.8" />
+    <line x1="9" y1="9.5" x2="9" y2="10" />
+    <line x1="15" y1="9.5" x2="15" y2="10" />
+  </svg>
+)
+
 const CapacityIcon = (
   <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
     <path d="M4 20V10" />
@@ -132,7 +143,7 @@ const ShowcaseIcon = (
   </svg>
 )
 
-export default function Sidebar({ email, capacity = null, showCodes = false }: SidebarProps) {
+export default function Sidebar({ email, capacity = null, showCodes = false, showSatisfaction = false }: SidebarProps) {
   const pathname = usePathname()
 
   // Collapsed to a 60px rail. Asked for by Janella, 1 Sep: reviewing creatives
@@ -166,6 +177,12 @@ export default function Sidebar({ email, capacity = null, showCodes = false }: S
       matches: (p) => p === '/',
       icon: DashboardIcon,
     },
+    ...(showSatisfaction ? [{
+      href: '/satisfaction',
+      label: 'Client Satisfaction',
+      matches: (p: string) => p.startsWith('/satisfaction'),
+      icon: SatisfactionIcon,
+    }] : []),
     {
       href: '/results',
       label: 'Results',
