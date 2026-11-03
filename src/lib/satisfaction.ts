@@ -9,6 +9,12 @@
 // 95% is the top on purpose (Giovane, 2026-11-03): there is always something
 // to improve, so no client sits at 100%. A straight 4 everywhere is 76%,
 // a straight 3 is 57%.
+//
+// Tags (Giovane, 2026-11-03):
+//   New     — Results has no weight while the client is new; the other four
+//             topics share it in proportion. Removing the tag puts the normal
+//             weights back.
+//   Churned — a label only. The score is computed the same way.
 
 export const MAX_SATISFACTION = 95
 
@@ -18,7 +24,7 @@ export interface TopicMeta {
   key: SatisfactionTopic
   label: string
   short: string
-  /** Share of the score. All weights add up to 1. */
+  /** Normal share of the score. All weights add up to 1. */
   weight: number
   question: string
   /** What each grade means, 1 → 5. */
@@ -53,11 +59,36 @@ export const SATISFACTION_TOPICS: TopicMeta[] = [
   },
 ]
 
-export type SatisfactionGrades = Record<SatisfactionTopic, number>
+export type SatisfactionGrades = Record<SatisfactionTopic, number | null>
 
-export function satisfactionScore(grades: SatisfactionGrades): number {
+export interface SatisfactionTags {
+  isNew: boolean
+}
+
+/** The weight each topic carries for this client: Results drops to 0 while New. */
+export function topicWeights(tags: SatisfactionTags): Record<SatisfactionTopic, number> {
+  const counted = SATISFACTION_TOPICS.filter(t => !(tags.isNew && t.key === 'results'))
+  const total = counted.reduce((s, t) => s + t.weight, 0)
+  const out = {} as Record<SatisfactionTopic, number>
+  for (const t of SATISFACTION_TOPICS) out[t.key] = counted.includes(t) ? t.weight / total : 0
+  return out
+}
+
+/** Topics that must be graded for a score: every topic with weight. */
+export function countedTopics(tags: SatisfactionTags): SatisfactionTopic[] {
+  const w = topicWeights(tags)
+  return SATISFACTION_TOPICS.filter(t => w[t.key] > 0).map(t => t.key)
+}
+
+/** Null until every counted topic has a grade. */
+export function satisfactionScore(grades: Partial<SatisfactionGrades>, tags: SatisfactionTags): number | null {
+  const w = topicWeights(tags)
   let weighted = 0
-  for (const t of SATISFACTION_TOPICS) weighted += t.weight * grades[t.key]
+  for (const k of countedTopics(tags)) {
+    const g = grades[k]
+    if (!isValidGrade(g)) return null
+    weighted += w[k] * g
+  }
   return Math.round((weighted / 5) * MAX_SATISFACTION * 10) / 10
 }
 
@@ -82,8 +113,8 @@ export const SATISFACTION_BAND_LABEL: Record<SatisfactionBand, string> = {
 /** A review older than this is flagged as due for a fresh look. */
 export const REVIEW_STALE_DAYS = 30
 
+/** A row of client_satisfaction: one per client, its current review. */
 export interface SatisfactionReview extends SatisfactionGrades {
-  id: string
   brand_id: string
   results_note: string | null
   timelines_note: string | null
@@ -91,12 +122,14 @@ export interface SatisfactionReview extends SatisfactionGrades {
   communication_note: string | null
   owner_feel_note: string | null
   general_note: string | null
-  score: number
-  reviewed_by_email: string | null
-  created_at: string
+  is_new: boolean
+  is_churned: boolean
+  score: number | null
+  updated_by_email: string | null
+  updated_at: string
 }
 
 export const REVIEW_COLUMNS =
-  'id, brand_id, results, timelines, quality, communication, owner_feel, ' +
+  'brand_id, results, timelines, quality, communication, owner_feel, ' +
   'results_note, timelines_note, quality_note, communication_note, owner_feel_note, general_note, ' +
-  'score, reviewed_by_email, created_at'
+  'is_new, is_churned, score, updated_by_email, updated_at'
