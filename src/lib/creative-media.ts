@@ -57,14 +57,30 @@ export function drivePosterOf(a: MediaAsset, size: 600 | 2048 = 600): string {
  * The still picture for a grid tile or filmstrip. For a video it is a frame of
  * the CURRENT cut — always an image, so tiles stay light and never autoplay.
  *
- * Drive's poster is the fallback, not the answer: it is keyed to the original
- * file, so on a revised video it showed the cut the editor had just replaced.
- * revision_poster_url is a frame grabbed from the revision itself.
+ * NULL for a video means we have no still of the cut that actually plays. Show
+ * the dark tile and its play badge, or let the player paint the file's own
+ * first frame. Drive's poster is NOT a fallback here: it is keyed to the
+ * original file, so on a revised video it is a picture of the cut the editor
+ * just replaced — the exact lie this module exists to stop. A still that is
+ * merely missing costs a glance; one that is confidently wrong cost us a day.
  */
-export function posterOf(a: MediaAsset, size: 600 | 2048 = 600): string {
-  if (isVideoAsset(a)) return a.revision_poster_url ?? drivePosterOf(a, size)
+export function posterOf(a: MediaAsset, size: 600 | 2048 = 600): string | null {
+  if (isVideoAsset(a)) {
+    if (a.revision_poster_url) return a.revision_poster_url
+    // Nothing has replaced the original, so Drive's poster still describes what
+    // plays. Once revision_url is set it does not, and there is no answer.
+    return a.revision_url ? null : drivePosterOf(a, size)
+  }
   if (size === 600) return a.revision_url ?? a.thumbnail_url ?? driveThumb(a.drive_file_id, 600)
   return a.revision_url ?? resizeDriveThumb(a.thumbnail_url, 2048) ?? driveThumb(a.drive_file_id, 2048)
+}
+
+/**
+ * The same still, for a caller that must hand an <img> a string. Only ever
+ * called where the asset is known to be an image; a video answers null above.
+ */
+export function imagePosterOf(a: MediaAsset, size: 600 | 2048 = 600): string {
+  return posterOf(a, size) ?? ''
 }
 
 /** What the TEAM is working on: the newest version. Null for a video still importing. */

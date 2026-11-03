@@ -44,8 +44,10 @@ export async function uploadRevisionFile(
   // A video needs its own still, or every tile and the frame behind the play
   // button keep showing Drive's poster of the cut this one replaces — which is
   // how a re-cut ad could sit there labelled "Edit 2" still reading 30% OFF.
-  // Best-effort: a capture or an upload that fails leaves the poster null and
-  // the fallback is the old behaviour, not a broken picture.
+  // Best-effort: a capture or an upload that fails leaves the poster null, and
+  // null now means "no still", drawn as a dark tile with a play badge. It no
+  // longer means "use Drive's", which was the original's frame all along.
+  // captureVideoPoster logs why it gave up.
   let posterPath: string | null = null
   if (video && signed.posterPath && signed.posterToken) {
     const still = await captureVideoPoster(file)

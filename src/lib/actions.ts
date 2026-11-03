@@ -4300,6 +4300,9 @@ export async function attachRevisionUpload(
 
   revalidatePath(`/brands/${brandId}/projects/${projectId}`)
   revalidatePath(`/preview/project/${projectId}`)
+  // The internal review screen reads the same rows and was the one surface this
+  // action left stale — it is where a replacement cut is actually judged.
+  revalidatePath(`/brands/${brandId}/projects/${projectId}/internal-review`)
   return { ok: true, revisionNumber }
 }
 

@@ -11,7 +11,7 @@ import { commentStamp } from '@/lib/stamp'
 import { useConfirm } from '@/components/ConfirmDialog'
 import BulkRevisionUpload from './BulkRevisionUpload'
 import { CreativePlayer, CreativeTile } from '@/components/CreativeMedia'
-import { drivePosterOf, isVideoAsset, posterOf } from '@/lib/creative-media'
+import { drivePosterOf, imagePosterOf, isVideoAsset, posterOf } from '@/lib/creative-media'
 import { startVideoImport } from '@/lib/video-import-client'
 import EditableNoteBody from './EditableNoteBody'
 import {
@@ -171,7 +171,7 @@ export default function ReviewWorkspace({
   // URL: a video's frames live in a separate file. Without it, clicking
   // "Original" showed the original's file behind the CURRENT cut's frame.
   const [viewOverride, setViewOverride] = useState<
-    { assetId: string; url: string; full: string; label: string; poster: string | null } | null
+    { assetId: string; url: string | null; full: string; label: string; poster: string | null } | null
   >(null)
   // Two columns once the PANEL is wide enough — measured on the panel itself,
   // not the window. The window says little about the room this element got: it
@@ -297,6 +297,10 @@ export default function ReviewWorkspace({
   }, [preparingVideos, projectId, router])
 
   const pickAsset = (id: string, scroll = false) => {
+    // Drop any pinned version. It is keyed to the asset so it cannot leak, but
+    // coming back to a creative half an hour later and finding its player still
+    // on "Original" reads as the ad itself having reverted.
+    setViewOverride(null)
     setSelected(id)
     if (scroll) requestAnimationFrame(() => detailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
   }
@@ -554,7 +558,9 @@ export default function ReviewWorkspace({
             setUploading(true); setErr('')
             try {
               const r = await uploadRevisionFile(f, a.id, projectId, brandId)
-              if (!r.ok) setErr(r.error); else router.refresh()
+              // Clear the pin: whatever version was being viewed, the new cut is
+              // what you just asked to see.
+              if (!r.ok) setErr(r.error); else { setViewOverride(null); router.refresh() }
             } catch (ex) { setErr(ex instanceof Error ? ex.message : 'Upload failed') }
             finally { setUploading(false); e.target.value = '' }
           }}
@@ -672,7 +678,7 @@ export default function ReviewWorkspace({
         key: r.id,
         label: `Edit ${r.revision_number}`,
         url: r.image_url,
-        thumb: video ? (r.poster_url ?? originalUrl) : r.image_url,
+        thumb: video ? r.poster_url : r.image_url,
         fullUrl: r.image_url,
         poster: video ? r.poster_url : null,
         at: r.created_at,
@@ -720,8 +726,12 @@ export default function ReviewWorkspace({
                   title={`View ${r.label}`}
                   style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0, padding: 0, border: 'none', background: 'none', cursor: 'pointer', textAlign: 'left' }}
                 >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={r.thumb} alt="" loading="lazy" style={{ width: 26, height: 33, objectFit: 'cover', borderRadius: 6, flexShrink: 0, border: '1px solid var(--border)' }} />
+                  {/* A video edit with no captured still gets a play badge, not
+                      the original's frame on a row labelled "Edit N". */}
+                  {r.thumb
+                    ? /* eslint-disable-next-line @next/next/no-img-element */
+                      <img src={r.thumb} alt="" loading="lazy" style={{ width: 26, height: 33, objectFit: 'cover', borderRadius: 6, flexShrink: 0, border: '1px solid var(--border)' }} />
+                    : <span style={{ width: 26, height: 33, borderRadius: 6, flexShrink: 0, border: '1px solid var(--border)', background: '#0b0b0b', display: 'grid', placeItems: 'center', fontSize: 9, color: '#fff' }}>▶</span>}
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div style={{ fontSize: 12, fontWeight: live ? 700 : 500 }}>
                       {r.label}{i === rows.length - 1 && rows.length > 1 ? ' · latest' : ''}
@@ -1105,7 +1115,7 @@ export default function ReviewWorkspace({
                 ) : (
                   <button onClick={() => setZoom(true)} title="Click to view full size" style={{ display: 'block', width: '100%', padding: 0, border: 'none', background: 'none', cursor: 'zoom-in', marginBottom: 8 }}>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={override?.url ?? thumb(active)} alt="" style={{ width: '100%', borderRadius: 10, display: 'block' }} />
+                    <img src={override?.url ?? imagePosterOf(active)} alt="" style={{ width: '100%', borderRadius: 10, display: 'block' }} />
                   </button>
                 )}
               </div>
@@ -1163,8 +1173,8 @@ export default function ReviewWorkspace({
             const done = !!c.resolved_at
             return (
               <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 8, opacity: done ? 0.5 : 1, background: done ? 'var(--surface-2)' : 'transparent' }}>
-                {a && /* eslint-disable-next-line @next/next/no-img-element */ (
-                  <img src={thumb(a)} alt="" loading="lazy" style={{ width: 34, height: 42, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }} />
+                {a && thumb(a) && /* eslint-disable-next-line @next/next/no-img-element */ (
+                  <img src={thumb(a)!} alt="" loading="lazy" style={{ width: 34, height: 42, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }} />
                 )}
                 <div style={{ minWidth: 0, flex: 1 }}>
                   {/* The filename, first. A thumbnail at 34px does not tell two

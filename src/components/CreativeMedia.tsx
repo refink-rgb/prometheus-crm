@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { clientPosterOf, clientSrc, internalSrc, isVideoAsset, posterOf, videoWaitingNote, type MediaAsset } from '@/lib/creative-media'
+import { clientPosterOf, clientSrc, imagePosterOf, internalSrc, isVideoAsset, posterOf, videoWaitingNote, type MediaAsset } from '@/lib/creative-media'
 
 // A creative, shown as what it is: a picture, or a video that plays.
 //
@@ -40,8 +40,10 @@ export function CreativeTile({ asset, src, alt = '', style, badge = 28 }: {
   const url = video ? posterOf(asset, 600) : (src ?? posterOf(asset, 600))
   return (
     <span style={{ position: 'relative', display: 'block', ...style, overflow: 'hidden', background: video ? '#0b0b0b' : undefined }}>
-      {/* A brand-new Drive video can have no poster yet: show a dark tile with the badge, not a broken image. */}
-      {!broken && (
+{/* No still — a brand-new Drive video, or a revised cut whose frame we
+          could not capture — shows a dark tile with the badge. Never the
+          original's frame: that is the picture of the ad this one replaced. */}
+      {!broken && url && (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={url} alt={alt} loading="lazy" onError={() => setBroken(true)}
           style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
@@ -81,7 +83,7 @@ export function CreativePlayer({ asset, src, poster, audience, style, alt = '' }
 
   if (!video) {
     // eslint-disable-next-line @next/next/no-img-element
-    return <img src={url ?? posterOf(asset, 2048)} alt={alt} decoding="async" style={style} draggable={false} />
+    return <img src={url ?? imagePosterOf(asset, 2048)} alt={alt} decoding="async" style={style} draggable={false} />
   }
   if (url) {
     return (
@@ -97,9 +99,11 @@ export function CreativePlayer({ asset, src, poster, audience, style, alt = '' }
     )
   }
   return (
-    <span style={{ position: 'relative', display: 'block', ...style }}>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={still ?? posterOf(asset, 2048)} alt={alt} style={{ width: '100%', display: 'block', opacity: 0.55 }} />
+    <span style={{ position: 'relative', display: 'block', background: '#0b0b0b', minHeight: 160, ...style }}>
+      {/* No still to show it behind: the note sits on the dark box on its own. */}
+      {still && /* eslint-disable-next-line @next/next/no-img-element */ (
+        <img src={still} alt={alt} style={{ width: '100%', display: 'block', opacity: 0.55 }} />
+      )}
       <span style={{
         position: 'absolute', left: 12, right: 12, bottom: 12, padding: '8px 10px', borderRadius: 8,
         background: 'rgba(0,0,0,0.72)', color: '#fff', fontSize: 12, lineHeight: 1.45,

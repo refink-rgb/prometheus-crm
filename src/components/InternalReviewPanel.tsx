@@ -80,6 +80,17 @@ export default function InternalReviewPanel({
     setComments(initialComments)
   }
 
+  // The SAME trap, on the assets. Seeded once, this list never learned anything
+  // the server wrote after the page loaded — including revision_poster_url,
+  // which is written by an upload made on another screen. The tile then kept
+  // the still it was born with for as long as the tab stayed open, and a
+  // router.refresh() could not shift it.
+  const [seededAssetsFrom, setSeededAssetsFrom] = useState(initialAssets)
+  if (seededAssetsFrom !== initialAssets) {
+    setSeededAssetsFrom(initialAssets)
+    setAssets(initialAssets.map(a => ({ ...a, internal_status: a.internal_status ?? 'pending' })))
+  }
+
   // Clamp active index when assets array changes.
   useEffect(() => {
     if (activeIdx >= assets.length) setActiveIdx(Math.max(0, assets.length - 1))
@@ -110,7 +121,11 @@ export default function InternalReviewPanel({
   }, [])
 
   const handleRevisionApplied = useCallback((assetId: string, revisionUrl: string) => {
-    setAssets(prev => prev.map(a => a.id === assetId ? { ...a, revision_url: revisionUrl } : a))
+    // revision_poster_url goes with it. It describes the cut being replaced, so
+    // keeping it would paint the old frame over the new file until a reload.
+    // Null is honest: no still yet, which posterOf now renders as a play badge
+    // rather than reaching for the original's frame.
+    setAssets(prev => prev.map(a => a.id === assetId ? { ...a, revision_url: revisionUrl, revision_poster_url: null } : a))
   }, [])
 
   const handlePublished = useCallback((assetId: string, publishedUrl: string | null) => {
@@ -324,7 +339,9 @@ export default function InternalReviewPanel({
             >
               {/* next/image: revision_url is a full-size (1-3 MB) Supabase PNG —
                   let Vercel's optimizer serve a 64px WebP instead. */}
-              <Image src={thumb} alt="" width={64} height={64} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+              {thumb
+                ? <Image src={thumb} alt="" width={64} height={64} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                : <span style={{ width: '100%', height: '100%', background: '#0b0b0b', display: 'grid', placeItems: 'center', color: '#fff', fontSize: 16 }}>▶</span>}
               {/* Client-visibility dot: filled green = live to client, hollow = internal only */}
               <div title={a.client_visible ? 'Live to client' : 'Internal only'} style={{
                 position: 'absolute', top: 3, right: 3, width: 10, height: 10, borderRadius: '50%',

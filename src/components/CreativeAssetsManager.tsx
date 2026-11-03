@@ -113,7 +113,13 @@ function InternalLightbox({
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px 24px 24px 24px', position: 'relative' }}>
           {/* Main image (revision or original) */}
           <div style={{ position: 'relative', maxWidth: '100%', maxHeight: '100%' }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
+            {/* A revised video with no captured still has no honest picture to
+                show here — the dark box and the play badge beat the frame of
+                the cut this one replaced. */}
+            {!mainImage && (
+              <div style={{ width: 360, aspectRatio: '4/5', background: '#0b0b0b', borderRadius: 8, display: 'grid', placeItems: 'center', color: '#fff', fontSize: 28 }}>▶</div>
+            )}
+            {mainImage && /* eslint-disable-next-line @next/next/no-img-element */ (
             <img
               src={mainImage}
               alt={asset.name ?? 'Creative'}
@@ -126,6 +132,7 @@ function InternalLightbox({
                 borderRadius: 8,
               }}
             />
+            )}
 
             {/* Pin overlays on original image (when no revision) */}
             {!hasRevision && pinnedComments.map(c => {
@@ -665,8 +672,13 @@ function AssetThumb({
         onClick={onClick}
         style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'block', width: '100%' }}
       >
+        {/* No still of the current cut: a dark tile, never the original's frame. */}
+        {!displayUrl && (
+          <div style={{ width: '100%', aspectRatio: '1', borderRadius: 8, background: '#0b0b0b', display: 'grid', placeItems: 'center', color: '#fff', fontSize: 22, border: '1px solid var(--border)' }}>▶</div>
+        )}
         {/* next/image: revision_url is a full-size (1-3 MB) Supabase PNG —
             let Vercel's optimizer serve a grid-sized WebP instead. */}
+        {displayUrl && (
         <Image
           src={displayUrl}
           alt={asset.name ?? `Image ${index + 1}`}
@@ -682,6 +694,7 @@ function AssetThumb({
             transition: 'opacity 0.2s',
           }}
         />
+        )}
       </button>
 
       {/* AI revised indicator */}

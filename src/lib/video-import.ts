@@ -111,11 +111,15 @@ async function importOne(supabase: SupabaseClient, row: Row, fetchVideo: VideoFe
     // A re-uploaded fix: the same rules as an image revision. published_url
     // follows it; a client approval of the OLD cut is reset, because they never
     // saw this one.
-    // The fix is its own file in Drive, so it has its own poster there. Without
-    // it every still stayed on the ORIGINAL's frame and a re-cut ad looked
-    // untouched (migration 20261103_video_revision_posters). Drive may not have
-    // rendered one yet for a just-uploaded file; a 404 falls back the same way
-    // a null does, to the original's.
+    // The fix is its own file in Drive, so it has its own poster there — a
+    // frame of the NEW cut, which is the point (migration
+    // 20261103_video_revision_posters).
+    //
+    // Drive may not have rendered one yet for a just-uploaded file. A 404 does
+    // NOT fall back to the original the way a null would — the URL is stored
+    // either way — it fails to load, and the tile shows its dark play badge
+    // until Drive catches up. That is the right outcome: a missing still beats
+    // a confident picture of the cut this one replaced.
     const posterUrl = driveThumb(fileId, 600, Number(stamp) || 0)
     const patch: Record<string, unknown> = {
       revision_url: publicUrl, published_url: publicUrl, revision_poster_url: posterUrl,
