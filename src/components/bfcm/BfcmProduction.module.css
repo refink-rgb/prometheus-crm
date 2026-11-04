@@ -25,6 +25,7 @@
 .s-in_progress { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); background: var(--accent-muted); }
 .s-waiting_client { color: var(--warning); border-color: color-mix(in srgb, var(--warning) 40%, transparent); background: color-mix(in srgb, var(--warning) 10%, transparent); }
 .s-done { color: var(--success); border-color: color-mix(in srgb, var(--success) 40%, transparent); background: color-mix(in srgb, var(--success) 10%, transparent); }
+.s-not_required { color: var(--text-secondary); border-style: dashed; background: transparent; }
 
 .people { position: relative; }
 .stack { display: flex; align-items: center; border: 0; background: none; padding: 2px; cursor: pointer; border-radius: 999px; }

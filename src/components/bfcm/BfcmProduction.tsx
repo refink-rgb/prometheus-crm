@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Avatar from '@/components/Avatar'
-import { DEFAULT_STEPS, KIND_CATEGORIES, STEP_STATUSES, effectiveStatus, planKeyCount, productionCounts, stepStatusLabel, type Person, type TaskNode } from '@/lib/bfcm/production'
+import { DEFAULT_STEPS, KIND_CATEGORIES, STEP_STATUSES, effectiveStatus, isClosed, planKeyCount, productionCounts, stepStatusLabel, type Person, type TaskNode } from '@/lib/bfcm/production'
 import type { Allocation } from '@/lib/bfcm/model'
 import type { BfcmComment, BrandContract, Calibration, CalibrationFeedback, CalibrationItem, CalibrationTrackState } from '@/lib/bfcm/production-server'
 import { addTask, deleteTask, setTaskAssignees, setupProductionSteps, splitTaskByPlan, updateTask } from '@/lib/bfcm/production-actions'
@@ -57,7 +57,7 @@ export default function BfcmProduction(props: Props) {
 
   const revisions = contracts?.find(c => c.revisions.trim())?.revisions ?? null
   const ctx: Ctx = { ...props, expanded, toggle, run, busy, revisions }
-  const done = tasks.filter(t => effectiveStatus(t) === 'done').length
+  const done = tasks.filter(t => isClosed(effectiveStatus(t))).length
   const missing = DEFAULT_STEPS.filter(d => !tasks.some(t => t.kind === d.kind))
   const teamComments = comments.filter(c => !c.step_id)
 
@@ -109,7 +109,7 @@ function TaskRow({ node, ctx, sub }: { node: TaskNode; ctx: Ctx; sub: boolean })
   const [menu, setMenu] = useState(false)
   const status = effectiveStatus(node)
   const derived = node.children.length > 0
-  const late = !!node.due_date && status !== 'done' && node.due_date < today
+  const late = !!node.due_date && !isClosed(status) && node.due_date < today
   const known = STEP_STATUSES.some(st => st.id === status)
   const counts = productionCounts(plan.allocation)
   const linked = planKeyCount(node.plan_key, plan)
@@ -117,11 +117,11 @@ function TaskRow({ node, ctx, sub }: { node: TaskNode; ctx: Ctx; sub: boolean })
     !sub && node.kind === 'statics' ? `${counts.statics.total} statics · ${counts.statics.detail}` : null,
     !sub && node.kind === 'motion' ? `${counts.motion.total} motion · ${counts.motion.detail}` : null,
     linked !== null ? `${linked} ads${linked === 0 ? ' (the plan has none here now)' : ''}` : null,
-    derived ? `${node.children.filter(c => effectiveStatus(c) === 'done').length}/${node.children.length} subtasks` : null,
+    derived ? `${node.children.filter(c => isClosed(effectiveStatus(c))).length}/${node.children.length} subtasks` : null,
   ].filter(Boolean).join(' · ')
   const canSplit = !sub && !!KIND_CATEGORIES[node.kind]
 
-  return <div id={`task-${node.id}`} role="listitem" className={`${s.row} ${sub ? s.sub : ''} ${status === 'done' ? s.done : ''}`}>
+  return <div id={`task-${node.id}`} role="listitem" className={`${s.row} ${sub ? s.sub : ''} ${isClosed(status) ? s.done : ''}`}>
     <button className={s.chev} aria-expanded={ctx.expanded.has(node.id)} aria-label={`Open ${node.title}`} onClick={() => ctx.toggle(node.id)}>▶</button>
     <div className={s.main}>
       <select className={`${s.status} ${s[`s-${status}`] ?? ''}`} value={status} disabled={busy || derived} title={derived ? 'Follows its subtasks' : undefined} aria-label={`Status: ${node.title}`}
