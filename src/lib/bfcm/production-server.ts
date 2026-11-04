@@ -125,7 +125,7 @@ export async function loadMyBfcmTasks(profileId: string): Promise<MyBfcmTask[]> 
   const db = createServiceClient()
   const mine = await db.from('bfcm_step_assignees').select('step_id').eq('profile_id', profileId)
   if (mine.error || !mine.data?.length) return []
-  const steps = await db.from('bfcm_production_steps').select('id,title,due_date,status,plan_slug,parent_id').in('id', mine.data.map(r => r.step_id)).neq('status', 'done')
+  const steps = await db.from('bfcm_production_steps').select('id,title,due_date,status,plan_slug,parent_id').in('id', mine.data.map(r => r.step_id)).not('status', 'in', '(done,not_required)')
   if (steps.error || !steps.data?.length) return []
   const slugs = [...new Set(steps.data.map(s => s.plan_slug as string))]
   const parentIds = [...new Set(steps.data.map(s => s.parent_id as string | null).filter((id): id is string => !!id))]

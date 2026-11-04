@@ -3,7 +3,7 @@ import { CATEGORIES, type Allocation, type Category, type PlanSnapshot } from '.
 import { phaseAllocation } from './phase-allocation'
 
 export type StepKind = 'review' | 'samples' | 'statics' | 'motion' | 'check' | 'task' | 'calibration_statics' | 'calibration_motion'
-export type StepStatus = 'todo' | 'in_progress' | 'waiting_client' | 'done'
+export type StepStatus = 'todo' | 'in_progress' | 'waiting_client' | 'done' | 'not_required'
 export type Phase = 'pre' | 'bf'
 export type ProductionStep = {
   id: string; plan_slug: string; parent_id: string | null; sort_order: number; kind: string
@@ -29,10 +29,13 @@ export const STEP_STATUSES: { id: StepStatus; label: string }[] = [
   { id: 'in_progress', label: 'In progress' },
   { id: 'waiting_client', label: 'Waiting on client' },
   { id: 'done', label: 'Done' },
+  { id: 'not_required', label: 'Not required' },
 ]
 /** Unknown values (a newer status from another branch) show as text instead of crashing. */
 export function stepStatusLabel(status: string): string { return STEP_STATUSES.find(s => s.id === status)?.label ?? status }
 export const isStepStatus = (value: unknown): value is StepStatus => STEP_STATUSES.some(s => s.id === value)
+/** Finished for progress: done, or not needed for this brand. */
+export const isClosed = (status: string) => status === 'done' || status === 'not_required'
 
 /** Which of the plan's categories a top-level step makes. */
 export const KIND_CATEGORIES: Partial<Record<string, Category[]>> = {
@@ -96,7 +99,10 @@ export function buildTaskTree(steps: ProductionStep[], assignees: { step_id: str
 /** A task with subtasks takes its status from them, so the two can never disagree. */
 export function effectiveStatus(node: Pick<TaskNode, 'status' | 'children'>): string {
   if (!node.children.length) return node.status
-  const statuses = node.children.map(effectiveStatus)
+  const all = node.children.map(effectiveStatus)
+  if (all.every(s => s === 'not_required')) return 'not_required'
+  // Subtasks marked not required drop out; the rest decide.
+  const statuses = all.filter(s => s !== 'not_required')
   if (statuses.every(s => s === 'done')) return 'done'
   if (statuses.every(s => s === 'todo')) return 'todo'
   if (statuses.every(s => s === 'done' || s === 'waiting_client')) return 'waiting_client'
@@ -105,8 +111,8 @@ export function effectiveStatus(node: Pick<TaskNode, 'status' | 'children'>): st
 
 /** First unfinished top-level task, for the brand card on the list page. */
 export function productionSummary(roots: TaskNode[]) {
-  const done = roots.filter(s => effectiveStatus(s) === 'done').length
-  const next = roots.find(s => effectiveStatus(s) !== 'done') ?? null
+  const done = roots.filter(s => isClosed(effectiveStatus(s))).length
+  const next = roots.find(s => !isClosed(effectiveStatus(s))) ?? null
   return { done, total: roots.length, next }
 }
 
