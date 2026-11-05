@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import BfcmMissing from '@/components/bfcm/BfcmMissing'
 import BfcmAddProject from '@/components/bfcm/BfcmAddProject'
 import { parsePlanConfig } from '@/lib/bfcm/content'
 import { listStaffPlans, listBfcmBrandOptions } from '@/lib/bfcm/server'
@@ -57,6 +58,7 @@ export default async function BfcmCreativesPage() {
             </div>
           })()}
           <span style={{ fontSize: 13, fontWeight: 600 }}>Open plan →</span>
+          <BfcmMissing value={(plan.state as { missing?: unknown } | null)?.missing} />
         </Link>
       })}
     </div>
