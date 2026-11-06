@@ -9,6 +9,10 @@ import {
 import EvergreenAdDetail from '@/components/evergreen/EvergreenAdDetail'
 import MigrationNotice from '@/components/evergreen/MigrationNotice'
 
+// Copying a large video in from Drive runs inside one Server Action on this
+// page. Page-level maxDuration covers them (same as the BFCM and project pages).
+export const maxDuration = 300
+
 export default async function EvergreenAdPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const supabase = await createClient()
@@ -33,9 +37,12 @@ export default async function EvergreenAdPage({ params }: { params: Promise<{ id
 
   const ad = adRaw as unknown as EvergreenAd & { brands: { id: string; name: string } | null }
 
-  const [{ data: videosRaw }, { data: commentsRaw }] = await Promise.all([
+  const [{ data: videosRaw }, { data: commentsRaw }, drive] = await Promise.all([
     supabase.from('evergreen_ad_videos').select(VIDEO_COLUMNS).eq('ad_id', id).order('sort_order').order('created_at'),
     supabase.from('evergreen_ad_comments').select(COMMENT_COLUMNS).eq('ad_id', id).order('created_at'),
+    // Read on its own: before the Drive migration runs this column is missing,
+    // and that must only switch off Drive sync, not break the page.
+    supabase.from('evergreen_ads').select('drive_folder_url').eq('id', id).maybeSingle(),
   ])
 
   return (
@@ -46,6 +53,8 @@ export default async function EvergreenAdPage({ params }: { params: Promise<{ id
         videos={(videosRaw ?? []) as unknown as EvergreenVideo[]}
         comments={(commentsRaw ?? []) as unknown as EvergreenComment[]}
         canEdit={isEditor}
+        driveFolderUrl={(drive.data?.drive_folder_url as string | null | undefined) ?? null}
+        driveReady={!drive.error}
       />
     </div>
   )

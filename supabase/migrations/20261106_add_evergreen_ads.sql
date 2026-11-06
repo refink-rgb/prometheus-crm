@@ -85,6 +85,16 @@ CREATE TABLE IF NOT EXISTS public.evergreen_ad_comments (
 
 CREATE INDEX IF NOT EXISTS evergreen_ad_comments_ad_idx ON public.evergreen_ad_comments (ad_id, created_at);
 
+-- Drive folder sync (also in 20261106b_evergreen_ads_drive.sql, for databases
+-- that ran this file before these columns existed).
+ALTER TABLE public.evergreen_ads
+  ADD COLUMN IF NOT EXISTS drive_folder_url TEXT CHECK (drive_folder_url IS NULL OR length(drive_folder_url) <= 500);
+ALTER TABLE public.evergreen_ad_videos
+  ADD COLUMN IF NOT EXISTS drive_file_id TEXT CHECK (drive_file_id IS NULL OR drive_file_id ~ '^[A-Za-z0-9_-]{10,200}$'),
+  ADD COLUMN IF NOT EXISTS drive_modified_at TEXT CHECK (drive_modified_at IS NULL OR length(drive_modified_at) <= 40);
+CREATE UNIQUE INDEX IF NOT EXISTS evergreen_ad_videos_drive_uniq
+  ON public.evergreen_ad_videos (ad_id, drive_file_id) WHERE drive_file_id IS NOT NULL;
+
 ALTER TABLE public.evergreen_ads ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.evergreen_ad_videos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.evergreen_ad_comments ENABLE ROW LEVEL SECURITY;

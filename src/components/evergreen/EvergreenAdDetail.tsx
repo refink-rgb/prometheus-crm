@@ -3,7 +3,7 @@
 import { useRef, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Archive, Check, Copy, ExternalLink, Eye, EyeOff, FileText, Pencil, RefreshCw, Trash2, Upload, X } from 'lucide-react'
+import { Archive, Check, Copy, ExternalLink, Eye, EyeOff, FileText, FolderOpen, Pencil, RefreshCw, Trash2, Upload, X } from 'lucide-react'
 import { CreativePlayer } from '@/components/CreativeMedia'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { useToast } from '@/components/Toast'
@@ -12,20 +12,22 @@ import {
   type EvergreenAd, type EvergreenComment, type EvergreenStage, type EvergreenVideo,
 } from '@/lib/evergreen'
 import {
-  addEvergreenTeamNote, deleteEvergreenAd, deleteEvergreenComment, deleteEvergreenVideo, moveEvergreenAd,
-  setEvergreenAdArchived, setEvergreenCommentResolved, updateEvergreenAd, updateEvergreenVideo,
+  addEvergreenTeamNote, copyEvergreenDriveVideo, deleteEvergreenAd, deleteEvergreenComment, deleteEvergreenVideo, moveEvergreenAd,
+  setEvergreenAdArchived, setEvergreenCommentResolved, syncEvergreenDriveFolder, updateEvergreenAd, updateEvergreenVideo,
 } from '@/lib/evergreen-actions'
 import { uploadEvergreenVideo } from '@/lib/evergreen-upload'
 import styles from './evergreen.module.css'
 
 const VIDEO_ACCEPT = 'video/mp4,video/quicktime,video/webm,video/x-m4v'
 
-export default function EvergreenAdDetail({ ad, brandName, videos, comments, canEdit }: {
+export default function EvergreenAdDetail({ ad, brandName, videos, comments, canEdit, driveFolderUrl, driveReady }: {
   ad: EvergreenAd
   brandName: string
   videos: EvergreenVideo[]
   comments: EvergreenComment[]
   canEdit: boolean
+  driveFolderUrl: string | null
+  driveReady: boolean
 }) {
   const router = useRouter()
   const toast = useToast()
@@ -151,9 +153,11 @@ export default function EvergreenAdDetail({ ad, brandName, videos, comments, can
             {canEdit && <UploadButton adId={ad.id} label="Upload videos" multiple />}
           </div>
 
+          {canEdit && <DriveSyncCard adId={ad.id} folderUrl={driveFolderUrl} ready={driveReady} />}
+
           {videos.length === 0 ? (
             <div className="card" style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: 14, padding: '40px 20px' }}>
-              No videos yet. Upload the motion cuts here — they go to the client on the review link.
+              No videos yet. Upload the motion cuts or sync them from a Drive folder — they go to the client on the review link.
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -385,6 +389,83 @@ function NotesCard({ adId, notes, canEdit }: { adId: string; notes: string | nul
 }
 
 // ── Videos ──────────────────────────────────────────────────────────────────
+
+// ── Videos from a Drive folder ─────────────────────────────────────────────
+// Same as BFCM calibration: paste the folder, the CRM copies what's in it.
+// One video per request, so a folder of large videos never times out.
+
+function DriveSyncCard({ adId, folderUrl, ready }: { adId: string; folderUrl: string | null; ready: boolean }) {
+  const [folder, setFolder] = useState(folderUrl ?? '')
+  const [seenUrl, setSeenUrl] = useState(folderUrl)
+  if (folderUrl !== seenUrl) { setSeenUrl(folderUrl); setFolder(folderUrl ?? '') }
+  const [busy, setBusy] = useState<string | null>(null)
+  const [summary, setSummary] = useState('')
+  const [errors, setErrors] = useState<string[]>([])
+  const router = useRouter()
+
+  async function sync(e: React.FormEvent) {
+    e.preventDefault()
+    if (!folder.trim() || busy) return
+    setBusy('Reading the Drive folder…'); setErrors([]); setSummary('')
+    try {
+      const plan = await syncEvergreenDriveFolder(adId, folder)
+      if (!plan.ok) { setErrors([plan.error]); return }
+      const failed: string[] = []
+      let added = 0, cuts = 0
+      for (const [i, file] of plan.files.entries()) {
+        setBusy(`Copying ${i + 1} of ${plan.files.length} from Drive: ${file.name}`)
+        try {
+          const r = await copyEvergreenDriveVideo(adId, file.id)
+          if (!r.ok) failed.push(r.error)
+          else if (r.outcome === 'added') added++
+          else if (r.outcome === 'new_cut') cuts++
+        } catch {
+          failed.push(`${file.name}: the copy stopped. Sync again to retry.`)
+        }
+      }
+      const total = plan.unchanged + added + cuts
+      setSummary([
+        plan.files.length === 0
+          ? `Up to date: ${plan.unchanged} video${plan.unchanged === 1 ? '' : 's'} already copied.`
+          : added + cuts === 0
+            ? 'Nothing new was copied.'
+            : [added && `${added} new video${added === 1 ? '' : 's'}`, cuts && `${cuts} new cut${cuts === 1 ? '' : 's'}`].filter(Boolean).join(' and ') + ` copied from Drive (${total} from this folder in all).`,
+        plan.skipped.length ? `Skipped ${plan.skipped.length} file${plan.skipped.length === 1 ? '' : 's'} that ${plan.skipped.length === 1 ? 'isn’t a video' : 'aren’t videos'}.` : '',
+      ].filter(Boolean).join(' '))
+      setErrors(failed)
+    } catch {
+      setErrors(['Could not reach the server. Please try again.'])
+    } finally {
+      setBusy(null)
+      router.refresh()
+    }
+  }
+
+  return (
+    <div className="card" style={{ padding: 14, marginBottom: 14 }}>
+      <form onSubmit={sync} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <FolderOpen size={15} aria-hidden style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+        <input type="text" inputMode="url" value={folder} onChange={e => setFolder(e.target.value)} disabled={!!busy || !ready}
+          placeholder="Paste the Google Drive folder with the videos" aria-label="Drive folder link"
+          style={{ flex: 1, minWidth: 220, fontSize: 13 }} />
+        <button type="submit" className="btn-secondary btn-sm" disabled={!!busy || !ready || !folder.trim()}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <RefreshCw size={12} aria-hidden /> {folderUrl ? 'Sync again' : 'Sync from Drive'}
+        </button>
+      </form>
+      <p role="status" style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--text-muted)' }}>
+        {!ready
+          ? 'Drive sync needs one more database change: run supabase/migrations/20261106b_evergreen_ads_drive.sql in the Supabase SQL editor.'
+          : busy ?? (summary || 'Copies the videos directly inside the folder. Share it with the CRM’s Drive account, like Moments folders. Sync again after editing a video in Drive to send the new cut.')}
+      </p>
+      {errors.length > 0 && (
+        <ul role="alert" style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 12, color: 'var(--danger)' }}>
+          {errors.map((er, i) => <li key={i}>{er}</li>)}
+        </ul>
+      )}
+    </div>
+  )
+}
 
 function UploadButton({ adId, label, multiple = false, replaceVideoId = null, small = false }: {
   adId: string

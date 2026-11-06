@@ -13,7 +13,9 @@ import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { canEdit } from '@/lib/permissions'
-import { VIDEO_TYPES } from '@/lib/creative-media'
+import { MAX_VIDEO_BYTES, VIDEO_TYPES } from '@/lib/creative-media'
+import { downloadDriveFile, extractDriveFolderId, listDriveFolder } from '@/lib/drive'
+import { DRIVE_MIGRATION_FILE, driveVideoName, fetchDriveVideoStill, isDriveFileId } from '@/lib/evergreen-drive'
 import {
   CLIENT_VIDEO_STATUSES,
   MIGRATION_FILE,
@@ -271,6 +273,159 @@ export async function deleteEvergreenVideo(videoId: string): Promise<Result> {
   await removeFiles([data.storage_path, data.poster_path])
   await revalidateAd(data.ad_id as string)
   return { ok: true }
+}
+
+// ── Videos from a Drive folder ──────────────────────────────────────────────
+//
+// Same flow as BFCM calibration (bfcm/calibration-actions.ts): the team pastes
+// a folder, syncEvergreenDriveFolder works out what is new or edited, and the
+// browser then copies ONE video per request with copyEvergreenDriveVideo, so a
+// folder of large videos never hits a single request's time limit.
+
+/** Postgres says 42703 for a missing column: the Drive migration has not run. */
+const driveColumnsMissing = (error: { code?: string } | null) => error?.code === '42703' || error?.code === 'PGRST204'
+const DRIVE_MIGRATION_ERROR = `Drive sync needs one more database change. Run ${DRIVE_MIGRATION_FILE} in the Supabase SQL editor first.`
+
+type DriveVideoFile = { id: string; name: string; mimeType: string; modifiedTime?: string }
+
+/** The videos directly inside the folder. Anything else comes back by name, to say it was skipped. */
+async function listFolderVideos(folderId: string) {
+  const files = (await listDriveFolder(folderId)) as DriveVideoFile[]
+  return {
+    videos: files.filter(f => f.mimeType in VIDEO_TYPES),
+    skipped: files.filter(f => !(f.mimeType in VIDEO_TYPES)).map(f => f.name),
+  }
+}
+
+export async function syncEvergreenDriveFolder(
+  adId: string,
+  folderUrl: string,
+): Promise<Result<{ files: { id: string; name: string }[]; unchanged: number; skipped: string[] }>> {
+  const s = await staff()
+  if (!s) return { ok: false, error: 'Not authorized.' }
+  const url = typeof folderUrl === 'string' ? folderUrl.trim() : ''
+  if (url.length > 500) return { ok: false, error: 'That link is too long.' }
+  let folderId: string
+  try { folderId = extractDriveFolderId(url) } catch { return { ok: false, error: 'Paste a Drive folder link (drive.google.com/drive/folders/…).' } }
+
+  const { data: ad, error: adErr } = await s.supabase.from('evergreen_ads').select('id').eq('id', adId).maybeSingle()
+  if (adErr || !ad) return { ok: false, error: dbError(adErr, 'That ad no longer exists') }
+
+  let listed: Awaited<ReturnType<typeof listFolderVideos>>
+  try { listed = await listFolderVideos(folderId) } catch (e) {
+    console.error('[evergreen drive] list', adId, e)
+    return { ok: false, error: 'Couldn’t open that folder. Check the link, and that the folder is shared with the CRM’s Drive account like Moments and BFCM folders are.' }
+  }
+
+  const { error: saveErr } = await s.supabase.from('evergreen_ads')
+    .update({ drive_folder_url: url, updated_at: new Date().toISOString() }).eq('id', adId)
+  if (driveColumnsMissing(saveErr)) return { ok: false, error: DRIVE_MIGRATION_ERROR }
+  if (saveErr) return { ok: false, error: dbError(saveErr, 'Could not save the folder') }
+
+  if (!listed.videos.length) {
+    await revalidateAd(adId)
+    return { ok: false, error: `No videos found in that folder${listed.skipped.length ? ` (${listed.skipped.length} other file${listed.skipped.length === 1 ? '' : 's'} skipped)` : ''}. Put the MP4 / MOV files directly in it, not in a subfolder.` }
+  }
+
+  const { data: existing, error: exErr } = await s.supabase.from('evergreen_ad_videos')
+    .select('drive_file_id, drive_modified_at').eq('ad_id', adId).not('drive_file_id', 'is', null)
+  if (driveColumnsMissing(exErr)) return { ok: false, error: DRIVE_MIGRATION_ERROR }
+  const known = new Map((existing ?? []).map(e => [e.drive_file_id as string, (e.drive_modified_at as string | null) ?? '']))
+
+  const files: { id: string; name: string }[] = []
+  let unchanged = 0
+  for (const f of listed.videos) {
+    if (known.has(f.id) && known.get(f.id) === (f.modifiedTime ?? '')) unchanged++
+    else files.push({ id: f.id, name: f.name })
+  }
+  await revalidateAd(adId)
+  return { ok: true, files, unchanged, skipped: listed.skipped }
+}
+
+/**
+ * Copies one video from the ad's saved folder. Re-listed here, so only files
+ * really in that folder can be copied. A file already copied but edited in
+ * Drive since becomes a new cut of the same video: version up, status back to
+ * pending, the old file removed.
+ */
+export async function copyEvergreenDriveVideo(adId: string, fileId: string): Promise<Result<{ outcome: 'added' | 'new_cut' | 'unchanged' }>> {
+  const s = await staff()
+  if (!s) return { ok: false, error: 'Not authorized.' }
+  if (!isDriveFileId(fileId)) return { ok: false, error: 'Invalid file.' }
+
+  const { data: ad, error: adErr } = await s.supabase.from('evergreen_ads').select('id, drive_folder_url').eq('id', adId).maybeSingle()
+  if (driveColumnsMissing(adErr)) return { ok: false, error: DRIVE_MIGRATION_ERROR }
+  if (adErr || !ad) return { ok: false, error: dbError(adErr, 'That ad no longer exists') }
+  if (!ad.drive_folder_url) return { ok: false, error: 'Sync the folder first.' }
+
+  let file: DriveVideoFile | undefined
+  try { file = (await listFolderVideos(extractDriveFolderId(ad.drive_folder_url as string))).videos.find(f => f.id === fileId) } catch (e) {
+    console.error('[evergreen drive] relist', adId, e)
+    return { ok: false, error: 'Couldn’t open the Drive folder.' }
+  }
+  if (!file) return { ok: false, error: 'That video is no longer in the folder.' }
+
+  const { data: prior } = await s.supabase.from('evergreen_ad_videos')
+    .select('id, version, storage_path, poster_path, drive_modified_at').eq('ad_id', adId).eq('drive_file_id', fileId).maybeSingle()
+  if (prior && (prior.drive_modified_at ?? '') === (file.modifiedTime ?? '')) return { ok: true, outcome: 'unchanged' }
+
+  const got = await downloadDriveFile(fileId, MAX_VIDEO_BYTES)
+  if (!got.ok) {
+    return { ok: false, error: got.reason === 'too_large' ? `${file.name}: over the ${MAX_VIDEO_BYTES / 1048576}MB limit. Export a lighter cut.` : `${file.name}: ${got.message}` }
+  }
+  // Trust the listing's type over the download's: Drive sometimes serves octet-stream.
+  const mime = got.mimeType in VIDEO_TYPES ? got.mimeType : file.mimeType
+  const service = createServiceClient()
+  const storage = service.storage.from(BUCKET)
+  const path = `evergreen/${adId}/${randomUUID()}.${VIDEO_TYPES[mime] ?? 'mp4'}`
+  const up = await storage.upload(path, got.bytes, { contentType: mime, upsert: false, cacheControl: '31536000' })
+  if (up.error) {
+    return { ok: false, error: /exceeded|maximum allowed size/i.test(up.error.message) ? `${file.name}: over the storage size limit.` : `${file.name}: storage: ${up.error.message}` }
+  }
+
+  let posterPath: string | null = null
+  const still = await fetchDriveVideoStill(fileId)
+  if (still) {
+    const put = await storage.upload(`${path}.poster.jpg`, still, { contentType: 'image/jpeg', upsert: true, cacheControl: '31536000' })
+    if (put.error) console.error('[evergreen drive] poster upload', adId, put.error.message)
+    else posterPath = `${path}.poster.jpg`
+  }
+
+  const videoUrl = storage.getPublicUrl(path).data.publicUrl
+  const posterUrl = posterPath ? storage.getPublicUrl(posterPath).data.publicUrl : null
+  const now = new Date().toISOString()
+  const drive = { drive_file_id: fileId, drive_modified_at: file.modifiedTime ?? null }
+  let outcome: 'added' | 'new_cut'
+
+  if (prior) {
+    // An edited file is a new cut: the client decides again (same rule as an uploaded new cut).
+    const { error } = await s.supabase.from('evergreen_ad_videos').update({
+      video_url: videoUrl, storage_path: path, poster_url: posterUrl, poster_path: posterPath, ...drive,
+      version: (prior.version ?? 1) + 1, status: 'pending', uploaded_by: s.user.email ?? null, updated_at: now,
+    }).eq('id', prior.id)
+    if (error) { await removeFiles([path, posterPath]); return { ok: false, error: dbError(error, `${file.name}: could not save the new cut`) } }
+    await removeFiles([prior.storage_path, prior.poster_path])
+    outcome = 'new_cut'
+  } else {
+    const { count } = await s.supabase.from('evergreen_ad_videos').select('id', { count: 'exact', head: true }).eq('ad_id', adId)
+    const { error } = await s.supabase.from('evergreen_ad_videos').insert({
+      ad_id: adId, name: driveVideoName(file.name), video_url: videoUrl, storage_path: path,
+      poster_url: posterUrl, poster_path: posterPath, sort_order: count ?? 0, uploaded_by: s.user.email ?? null, ...drive,
+    })
+    if (error) {
+      await removeFiles([path, posterPath])
+      // Unique (ad_id, drive_file_id): a second sync running at the same time already added it.
+      if (/duplicate|unique/i.test(error.message)) return { ok: true, outcome: 'unchanged' }
+      return { ok: false, error: driveColumnsMissing(error) ? DRIVE_MIGRATION_ERROR : dbError(error, `${file.name}: could not save the video`) }
+    }
+    outcome = 'added'
+  }
+
+  // Something new to review: a whole-ad approval no longer covers everything.
+  await s.supabase.from('evergreen_ads')
+    .update({ client_approved: false, client_approved_at: null, updated_at: now }).eq('id', adId)
+  await revalidateAd(adId)
+  return { ok: true, outcome }
 }
 
 // ── Comments ────────────────────────────────────────────────────────────────
