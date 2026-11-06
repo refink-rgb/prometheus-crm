@@ -61,6 +61,14 @@ const PipelineIcon = (
   </svg>
 )
 
+// A simple evergreen tree, in the same 1.8 stroke as its neighbours.
+const EvergreenIcon = (
+  <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 3l-5 6h3l-4 5h4l-4 5h12l-4-5h4l-4-5h3z" />
+    <line x1="12" y1="19" x2="12" y2="22" />
+  </svg>
+)
+
 const OffersIcon = (
   <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
     <path d="M20.6 13.4L11 3.8A2 2 0 009.6 3.2H5a2 2 0 00-2 2v4.6c0 .5.2 1 .6 1.4l9.6 9.6a2 2 0 002.8 0l4.6-4.6a2 2 0 000-2.8z" />
@@ -206,6 +214,12 @@ export default function Sidebar({ email, capacity = null, showCodes = false, sho
       label: 'Pipeline',
       matches: (p) => p.startsWith('/pipeline'),
       icon: PipelineIcon,
+    },
+    {
+      href: '/evergreen-ads',
+      label: 'Evergreen Ads',
+      matches: (p) => p.startsWith('/evergreen-ads'),
+      icon: EvergreenIcon,
     },
     {
       href: '/calendar',

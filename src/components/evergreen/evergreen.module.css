@@ -1,0 +1,10 @@
+/* Evergreen Ads — layout only; colours come from the app's CSS variables. */
+
+@media (max-width: 1100px) {
+  .detailGrid { grid-template-columns: minmax(0, 1fr) !important; }
+}
+
+@media (max-width: 900px) {
+  .videoRow { grid-template-columns: minmax(0, 1fr) !important; }
+  .videoRow > :last-child { border-left: none !important; border-top: 1px solid var(--border); max-height: none !important; }
+}
