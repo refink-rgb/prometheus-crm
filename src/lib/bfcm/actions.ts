@@ -75,7 +75,11 @@ async function persist(slug: string, input: Draft, expectedVersion: number, oper
   const state = { ...next, history: undefined }
   const { data: version, error } = await client.rpc('bfcm_save_plan', { p_slug: slug, p_state: state, p_expected_version: expectedVersion })
   if (error || typeof version !== 'number') {
-    return { ok: false, error: error?.message.includes('BFCM_CONFLICT') ? 'This plan was changed in another session. Reload to continue.' : 'Unable to save. Your plan has not been confirmed. Try again.' }
+    const message = error?.message ?? ''
+    if (message.includes('BFCM_CONFLICT')) return { ok: false, error: 'This plan was changed in another session. Reload to continue.' }
+    // The database still has the old rule until 20261107_bfcm_optional_copy_approval.sql runs.
+    if (message.includes('explicit copy approval required')) return { ok: false, error: 'The database still requires all 30 copy lines to be approved before confirming. Approve them on the Copy step, or run supabase/migrations/20261107_bfcm_optional_copy_approval.sql in Supabase to make it optional.' }
+    return { ok: false, error: 'Unable to save. Your plan has not been confirmed. Try again.' }
   }
   revalidatePath('/bfcm-creatives')
   if (operation !== 'save') {
