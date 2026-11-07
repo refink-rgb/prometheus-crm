@@ -72,8 +72,13 @@ export function validateOffers(offers: Draft['offers'], noPreBf = false): string
 export function validateCopies(copies: CopyLine[]): string[] {
   return copies.length === 30 && new Set(copies.map(c => c.id)).size === 30 && copies.every(c => c.text.trim() && ['BF anterior', 'Recente', 'Nova'].includes(c.source)) ? [] : ['Complete all 30 copy lines before approving.']
 }
+/** Blocking checks: a plan that fails these cannot be confirmed. */
 export function validateDraft(brand: Brand, draft: Draft): string[] {
-  return [...(draft.brandSlug !== brand.slug ? ['Brand mismatch.'] : []), ...validateOffers(draft.offers, draft.noPreBf), ...validateAllocation(brand, draft.allocation), ...(draft.useClientCopy ? [] : validateCopies(draft.copies)), ...(!Number.isInteger(draft.prePercent) || draft.prePercent < 0 || draft.prePercent > 100 ? ['Stage allocation must be between 0 and 100%.'] : []), ...(!draft.useClientCopy && (draft.approvedCopiesRevision !== draft.copyRevision || draft.copies.some(c => !isCopyApproved(draft, c.id))) ? ['Explicitly approve the current 30 copy lines.'] : [])]
+  return [...(draft.brandSlug !== brand.slug ? ['Brand mismatch.'] : []), ...validateAllocation(brand, draft.allocation), ...(!Number.isInteger(draft.prePercent) || draft.prePercent < 0 || draft.prePercent > 100 ? ['Stage allocation must be between 0 and 100%.'] : [])]
+}
+/** Optional completeness checks: shown as a heads-up, never block confirming. */
+export function draftWarnings(draft: Draft): string[] {
+  return [...validateOffers(draft.offers, draft.noPreBf), ...(draft.useClientCopy ? [] : validateCopies(draft.copies)), ...(!draft.useClientCopy && (draft.approvedCopiesRevision !== draft.copyRevision || draft.copies.some(c => !isCopyApproved(draft, c.id))) ? ['Explicitly approve the current 30 copy lines.'] : [])]
 }
 export type DraftPatch = Partial<Pick<Draft, 'offers' | 'prePercent' | 'allocation' | 'allocationLocks' | 'copies' | 'motionIds' | 'voiceover' | 'sfx' | 'notes' | 'useClientCopy' | 'noPreBf'>>
 export function updateDraft(draft: Draft, patch: DraftPatch): Draft {

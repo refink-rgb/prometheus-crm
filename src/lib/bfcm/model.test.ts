@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
-import { createDraft, updateDraft, approveCopies, lockDraft, reopenDraft, validateAllocation, validateOffers, stageQuantities, parseStoredDraft, allocationLimits, setCopyApproval, isCopyApproved, mergeUnapprovedCopies, effectivePrePercent, validateDraft, type Brand, type Draft } from './model'
+import { createDraft, updateDraft, approveCopies, lockDraft, reopenDraft, validateAllocation, validateOffers, stageQuantities, parseStoredDraft, allocationLimits, setCopyApproval, isCopyApproved, mergeUnapprovedCopies, effectivePrePercent, validateDraft, draftWarnings, type Brand, type Draft } from './model'
 const brand: Brand = { slug: 'example-brand', name: 'Example Brand', cap: 100, aliases: [], contract: { kind: 'exact', quantities: { textOffer: 20, refreshedStatic: 20, newStatic: 20, refreshedVideo: 20, motionGraphics: 20 } } }
 const groupedBrand: Brand = { slug: 'example-grouped', name: 'Example Grouped Brand', cap: 100, aliases: [], contract: { kind: 'grouped', static: 70, motion: 30 } }
 const flexibleBrand: Brand = { slug: 'example-flexible', name: 'Example Flexible Brand', cap: 100, aliases: [], contract: { kind: 'flexible' } }
@@ -151,10 +151,12 @@ for (const useClientCopy of [false, true]) for (const noPreBf of [false, true]) 
       motionIds: done.motionIds, useClientCopy, noPreBf,
     })
     if (!useClientCopy) {
-      assert.ok(validateDraft(brand, draft).some(e => e.includes('copy')))
+      assert.ok(draftWarnings(draft).some(e => e.includes('copy')))
+      assert.deepEqual(validateDraft(brand, draft), [])
       draft = approveCopies(updateDraft(draft, { copies: done.copies }))
     }
     assert.deepEqual(validateDraft(brand, draft), [])
+    assert.deepEqual(draftWarnings(draft), [])
     const locked = lockDraft(brand, draft, true)
     assert.equal(locked.status, 'locked')
     assert.equal(locked.history[0].snapshot.useClientCopy, useClientCopy)
@@ -183,8 +185,8 @@ test('client-copy toggle preserves every row and approval, without approving or 
   }
   const draft = completed()
   const bypass = updateDraft({ ...draft, approvedCopyIds: [], approvedCopiesRevision: null }, { useClientCopy: true })
-  assert.deepEqual(validateDraft(brand, bypass), [])
-  assert.ok(validateDraft(brand, updateDraft(bypass, { useClientCopy: false })).some(e => e.includes('approve')))
+  assert.deepEqual(draftWarnings(bypass), [])
+  assert.ok(draftWarnings(updateDraft(bypass, { useClientCopy: false })).some(e => e.includes('approve')))
 })
 test('no-pre-BF preserves disabled inputs and restores split on reenable', () => {
   const original = updateDraft(completed(), { prePercent: 43 })
@@ -229,8 +231,22 @@ test('motion references are optional across copy and promotion modes', () => {
     assert.deepEqual(locked.motionIds, [])
     assert.deepEqual(locked.history[0].snapshot.motionIds, [])
     const invalid = { ...draft, offers: { ...draft.offers, bf: createDraft(brand).offers.bf } }
-    assert.throws(() => lockDraft(brand, invalid, true), /Black Friday/)
+    assert.ok(draftWarnings(invalid).some(e => e.includes('Black Friday')))
+    assert.equal(lockDraft(brand, invalid, true).status, 'locked')
   }
   const selected = completed()
   assert.deepEqual(lockDraft(brand, selected, true).motionIds, selected.motionIds)
+})
+
+test('incomplete offers and copy are optional warnings; integrity checks still block confirming', () => {
+  const blank = createDraft(brand)
+  const warnings = draftWarnings(blank)
+  for (const expected of ['Black Friday: enter the planned offer.', 'Black Friday: enter valid start and end dates.', 'Complete all 30 copy lines before approving.', 'Explicitly approve the current 30 copy lines.']) assert.ok(warnings.includes(expected), expected)
+  assert.deepEqual(validateDraft(brand, blank), [])
+  const locked = lockDraft(brand, blank, true)
+  assert.equal(locked.status, 'locked')
+  assert.equal(locked.history.length, 1)
+  assert.throws(() => lockDraft(brand, blank, false), /confirmation/)
+  assert.throws(() => lockDraft(brand, { ...blank, allocation: { ...blank.allocation, newStatic: blank.allocation.newStatic + 1 } }, true), /Allocate exactly/)
+  assert.throws(() => lockDraft(brand, { ...blank, brandSlug: 'other' }, true), /Brand mismatch/)
 })
