@@ -147,9 +147,12 @@ async function listDriveChildren(folderId: string): Promise<DriveFile[]> {
 
   const params = new URLSearchParams({
     q: `'${folderId}' in parents and trashed=false`,
-    fields: 'files(id,name,mimeType,modifiedTime,size)',
+    fields: 'files(id,name,mimeType,modifiedTime,size,shortcutDetails(targetId,targetMimeType))',
     orderBy: 'name',
     pageSize: '200',
+    // Without these, anything living in a shared drive is left out of the listing.
+    supportsAllDrives: 'true',
+    includeItemsFromAllDrives: 'true',
   })
 
   const url = `https://www.googleapis.com/drive/v3/files?${params.toString()}${
@@ -171,9 +174,15 @@ async function listDriveChildren(folderId: string): Promise<DriveFile[]> {
       `Drive API error: ${err.error?.message ?? res.statusText}`
     )
   }
-  const data = (await res.json()) as { files?: DriveFile[] }
-  return data.files ?? []
+  const data = (await res.json()) as { files?: (DriveFile & { shortcutDetails?: { targetId?: string; targetMimeType?: string } })[] }
+  // A shortcut ("Motion" added to a folder from elsewhere) used to be dropped silently,
+  // so its whole folder never synced. Follow it to what it points at, keeping its name.
+  return (data.files ?? []).map(({ shortcutDetails, ...f }) =>
+    f.mimeType === DRIVE_SHORTCUT_MIME && shortcutDetails?.targetId && shortcutDetails.targetMimeType
+      ? { ...f, id: shortcutDetails.targetId, mimeType: shortcutDetails.targetMimeType }
+      : f)
 }
+const DRIVE_SHORTCUT_MIME = 'application/vnd.google-apps.shortcut'
 
 /**
  * Download one Drive file's bytes. Service account only — the API-key fallback
