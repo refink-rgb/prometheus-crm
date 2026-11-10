@@ -127,6 +127,22 @@ export async function removeCalibrationItem(slug: string, id: string): Promise<R
   })
 }
 
+/**
+ * Shows or hides samples on the client link, one file or a whole track's worth.
+ * Works on any track, submitted ones included: pulling an old creative off the
+ * link is never blocked. Nothing is deleted; the client's notes stay.
+ */
+export async function setCalibrationItemsVisible(slug: string, ids: string[], visible: boolean): Promise<Result> {
+  return staff(slug, async () => {
+    if (!Array.isArray(ids) || !ids.length || ids.length > 500 || !ids.every(validId)) return { ok: false, error: 'Invalid sample.' }
+    if (typeof visible !== 'boolean') return { ok: false, error: 'Invalid request.' }
+    const { error } = await createServiceClient().from('bfcm_calibration_items').update({ client_visible: visible }).eq('plan_slug', slug).in('id', ids)
+    if (error) return { ok: false, error: 'Unable to update the client link.' }
+    refresh(slug, (await calibrationOf(slug))?.share_token)
+    return { ok: true }
+  })
+}
+
 type SyncPlan = { ok: true; files: { id: string; name: string }[]; unchanged: number; unsupported: string[]; skippedFolders: string[]; closed: number }
 /**
  * Saves the team's Drive folder and works out what to copy. Point it at "01 Calibration":
@@ -191,8 +207,8 @@ export async function publishCalibrationTrack(slug: string, track: string): Prom
     const cal = await calibrationOf(slug)
     if (!cal) return { ok: false, error: 'Start calibration first.' }
     const db = createServiceClient()
-    const { count } = await db.from('bfcm_calibration_items').select('id', { count: 'exact', head: true }).eq('plan_slug', slug).eq('track', track)
-    if (!count) return { ok: false, error: 'Add at least one sample before publishing.' }
+    const { count } = await db.from('bfcm_calibration_items').select('id', { count: 'exact', head: true }).eq('plan_slug', slug).eq('track', track).eq('client_visible', true)
+    if (!count) return { ok: false, error: 'Tick at least one sample to show the client before publishing.' }
     const { error } = await db.from('bfcm_calibration_tracks').update({ status: 'sent', sent_at: new Date().toISOString() }).eq('plan_slug', slug).eq('track', track).eq('status', 'draft')
     if (error) return { ok: false, error: 'Unable to publish.' }
     await setTrackTaskStatus(slug, track, 'waiting_client')
@@ -228,8 +244,8 @@ async function planOfToken(token: string) {
 async function openItem(token: string, itemId: unknown) {
   const slug = await planOfToken(token)
   if (!slug || !validId(itemId)) return null
-  const { data: item } = await createServiceClient().from('bfcm_calibration_items').select('id,track').eq('id', itemId).eq('plan_slug', slug).maybeSingle()
-  if (!item || await trackStatus(slug, item.track as CalibrationTrack) !== 'sent') return null
+  const { data: item } = await createServiceClient().from('bfcm_calibration_items').select('id,track,client_visible').eq('id', itemId).eq('plan_slug', slug).maybeSingle()
+  if (!item || !item.client_visible || await trackStatus(slug, item.track as CalibrationTrack) !== 'sent') return null
   return { slug, id: item.id as string }
 }
 
