@@ -24,6 +24,14 @@ type Existing = { id: string; drive_file_id: string | null; drive_modified_at: s
 const folderTrack = (name: string): CalibrationTrack | null => /motion|video/i.test(name) ? 'motion' : /static|image/i.test(name) ? 'statics' : null
 /** Only folders named for a track are read, so pasting too high up can't pull in "00 Assets" or "03 Final". */
 export const isTrackFolder = (name: string) => folderTrack(name) !== null
+/**
+ * Editors park superseded cuts in a subfolder ("_old-versions", "Old", "Archive").
+ * Everything below a track folder used to count, so those came back as samples.
+ * Any folder starting with "_" or named old/archive/previous/superseded is skipped.
+ */
+export const isArchivedFolder = (name: string) => name.startsWith('_') || /(^|[^a-z0-9])(old|archived?|previous|superseded|outdated)([^a-z0-9]|$)/i.test(name)
+export const isArchivedPath = (path: string[] | undefined) => (path ?? []).some(isArchivedFolder)
+
 /** The Drive folder decides the track; a file directly in the pasted folder goes by its type. */
 export function sampleTrack(file: Pick<DriveListing, 'mimeType' | 'folderPath'>): CalibrationTrack {
   for (const name of file.folderPath ?? []) { const track = folderTrack(name); if (track) return track }

@@ -7,7 +7,7 @@ import { createNotifications } from '@/lib/notifications'
 import { downloadDriveFile, extractDriveFolderId, listDriveFolderTree } from '@/lib/drive'
 import { ensureCalibrationSubtasks, requireStaffProfile } from './production-server'
 import { CALIBRATION_TRACKS } from './production'
-import { CALIBRATION_BUCKET, MAX_SAMPLE_IMAGE_BYTES, MAX_SAMPLE_VIDEO_BYTES, copyDriveSample, isTrackFolder, planDriveSync, sampleExtension, sampleKind, sampleTrack, type CalibrationTrack } from './calibration-drive'
+import { CALIBRATION_BUCKET, MAX_SAMPLE_IMAGE_BYTES, MAX_SAMPLE_VIDEO_BYTES, copyDriveSample, isArchivedPath, isTrackFolder, planDriveSync, sampleExtension, sampleKind, sampleTrack, type CalibrationTrack } from './calibration-drive'
 
 type Result = { ok: true } | { ok: false; error: string }
 const validSlug = (slug: unknown): slug is string => typeof slug === 'string' && /^[a-z0-9][a-z0-9-]{0,99}$/.test(slug)
@@ -163,6 +163,9 @@ export async function syncCalibrationFolder(slug: string, folderUrl: string): Pr
       console.error('[bfcm calibration drive]', e)
       return { ok: false, error: 'Couldn’t open that folder. Check the link, and that the folder is shared with the CRM’s Drive account like Moments folders are.' }
     }
+    // Superseded cuts parked in "_old-versions" and the like never become samples.
+    const archived = new Set(tree.files.filter(f => isArchivedPath(f.folderPath)).map(f => (f.folderPath ?? []).join(' / ')))
+    tree = { ...tree, files: tree.files.filter(f => !isArchivedPath(f.folderPath)), skippedFolders: [...tree.skippedFolders, ...archived] }
     const db = createServiceClient()
     await db.from('bfcm_calibrations').update({ drive_folder_url: url }).eq('plan_slug', slug)
     if (!tree.files.length) {
@@ -188,7 +191,7 @@ export async function copyCalibrationDriveFile(slug: string, fileId: string): Pr
     const db = createServiceClient()
     const cal = await calibrationOf(slug)
     if (!cal?.drive_folder_url) return { ok: false, error: 'Sync the folder first.' }
-    const file = (await listDriveFolderTree(extractDriveFolderId(cal.drive_folder_url), isTrackFolder)).files.find(f => f.id === fileId)
+    const file = (await listDriveFolderTree(extractDriveFolderId(cal.drive_folder_url), isTrackFolder)).files.find(f => f.id === fileId && !isArchivedPath(f.folderPath))
     if (!file) return { ok: false, error: 'That file is no longer in the folder.' }
     if (await trackStatus(slug, sampleTrack(file)) === 'submitted') return { ok: false, error: `${file.name}: the client already submitted this track.` }
     const { data: existing } = await db.from('bfcm_calibration_items').select('id,drive_file_id,drive_modified_at').eq('plan_slug', slug).eq('drive_file_id', fileId).maybeSingle()

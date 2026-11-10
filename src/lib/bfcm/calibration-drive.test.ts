@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
-import { isTrackFolder, planDriveSync, sampleName, sampleTrack } from './calibration-drive'
+import { isArchivedFolder, isArchivedPath, isTrackFolder, planDriveSync, sampleName, sampleTrack } from './calibration-drive'
 
 const file = (id: string, mimeType = 'image/png', modifiedTime = '2026-10-30T10:00:00Z') => ({ id, name: `${id}.png`, mimeType, modifiedTime })
 
@@ -30,4 +30,10 @@ test('the folder decides the track, and a loose file goes by its type', () => {
 test('only folders named for a track are read', () => {
   assert.ok(isTrackFolder('Motion')); assert.ok(isTrackFolder('01 Statics'))
   assert.ok(!isTrackFolder('00 Assets')); assert.ok(!isTrackFolder('03 Final (ads team)')); assert.ok(!isTrackFolder('02 Production'))
+})
+
+test('old-version folders are skipped, real folders are not', () => {
+  for (const name of ['_old-versions', 'Old', 'old versions', 'Archive', 'archived', 'Previous cuts', 'v1 - superseded']) assert.ok(isArchivedFolder(name), name)
+  for (const name of ['Motion', 'Statics', 'Pre-BF', 'BF', 'Bold Offers', 'Golden hour']) assert.ok(!isArchivedFolder(name), name)
+  assert.ok(isArchivedPath(['Motion', '_old-versions'])); assert.ok(!isArchivedPath(['Motion'])); assert.ok(!isArchivedPath(undefined))
 })
