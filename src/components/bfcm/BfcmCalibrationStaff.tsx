@@ -170,7 +170,7 @@ export default function BfcmCalibrationStaff({ slug, brandName, data, revisions 
         <input className={s.linkField} value={folder} onChange={e => setFolder(e.target.value)} placeholder="Paste the client’s 01 Calibration folder" aria-label="Calibration Drive folder" disabled={!!busy} />
         <button className="btn-primary btn-sm" disabled={!!busy || !folder.trim()}>{calibration.drive_folder_url ? 'Sync again' : 'Sync from Drive'}</button>
       </form>
-      <p className={s.muted} style={{ margin: '6px 0 0' }}>{working ? busy : synced || 'Reads the Motion and Statics folders inside. Other folders are ignored.'}</p>
+      <p className={s.muted} style={{ margin: '6px 0 0' }}>{working ? busy : synced || 'Paste the 01 Calibration folder. Reads the files directly in Motion and Static; folders inside them (old versions) are ignored.'}</p>
     </div>
 
     {CALIBRATION_TRACKS.map(track => {
