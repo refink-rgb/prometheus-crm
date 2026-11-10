@@ -143,6 +143,11 @@ export async function setCalibrationItemsVisible(slug: string, ids: string[], vi
   })
 }
 
+// Only the creatives sitting directly in Static / Motion count. Any folder inside them
+// ("V1", "_old-versions", "Pre-BF") is never opened, so the parent "01 Calibration"
+// link works however editors file their old cuts.
+const TRACK_DEPTH = 1
+
 type SyncPlan = { ok: true; files: { id: string; name: string }[]; unchanged: number; unsupported: string[]; skippedFolders: string[]; closed: number }
 /**
  * Saves the team's Drive folder and works out what to copy. Point it at "01 Calibration":
@@ -159,7 +164,7 @@ export async function syncCalibrationFolder(slug: string, folderUrl: string): Pr
     try { folderId = extractDriveFolderId(url) } catch { return { ok: false, error: 'Paste a Drive folder link (drive.google.com/drive/folders/…).' } }
     if (url.length > 500) return { ok: false, error: 'That link is too long.' }
     let tree
-    try { tree = await listDriveFolderTree(folderId, isTrackFolder) } catch (e) {
+    try { tree = await listDriveFolderTree(folderId, isTrackFolder, TRACK_DEPTH) } catch (e) {
       console.error('[bfcm calibration drive]', e)
       return { ok: false, error: 'Couldn’t open that folder. Check the link, and that the folder is shared with the CRM’s Drive account like Moments folders are.' }
     }
@@ -191,7 +196,7 @@ export async function copyCalibrationDriveFile(slug: string, fileId: string): Pr
     const db = createServiceClient()
     const cal = await calibrationOf(slug)
     if (!cal?.drive_folder_url) return { ok: false, error: 'Sync the folder first.' }
-    const file = (await listDriveFolderTree(extractDriveFolderId(cal.drive_folder_url), isTrackFolder)).files.find(f => f.id === fileId && !isArchivedPath(f.folderPath))
+    const file = (await listDriveFolderTree(extractDriveFolderId(cal.drive_folder_url), isTrackFolder, TRACK_DEPTH)).files.find(f => f.id === fileId && !isArchivedPath(f.folderPath))
     if (!file) return { ok: false, error: 'That file is no longer in the folder.' }
     if (await trackStatus(slug, sampleTrack(file)) === 'submitted') return { ok: false, error: `${file.name}: the client already submitted this track.` }
     const { data: existing } = await db.from('bfcm_calibration_items').select('id,drive_file_id,drive_modified_at').eq('plan_slug', slug).eq('drive_file_id', fileId).maybeSingle()
