@@ -87,6 +87,8 @@ export default function BfcmCalibrationStaff({ slug, brandName, data, revisions 
     const notes = [
       plan.files.length === 0 ? `Up to date: ${plan.unchanged} sample${plan.unchanged === 1 ? '' : 's'} already copied.` : `Copied ${copiedCount} of ${plan.files.length} from Drive.${plan.unchanged ? ` ${plan.unchanged} already up to date.` : ''}`,
       plan.closed ? `${plan.closed} in a track the client already submitted, left alone.` : '',
+      `Files found per folder: ${plan.found}.`,
+      plan.ignored.length ? `Not images or videos, so not read: ${plan.ignored.join(', ')}.` : '',
       plan.skippedFolders.length ? `Skipped folders: ${plan.skippedFolders.join(', ')} (only Motion and Statics folders are read).` : '',
     ]
     setSynced(notes.filter(Boolean).join(' '))
