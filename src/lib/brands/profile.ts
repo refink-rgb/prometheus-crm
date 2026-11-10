@@ -10,7 +10,7 @@
 export type RuleArea = 'general' | 'offers' | 'copy' | 'design' | 'landing_pages' | 'ads' | 'video'
 export type RuleSource = 'review' | 'offer' | 'call' | 'email' | 'chat' | 'other'
 export type Channel = 'email' | 'whatsapp' | 'slack' | 'phone' | 'sms' | 'other'
-export type DocKind = 'guidelines' | 'contract' | 'intake' | 'other'
+export type DocKind = 'guidelines' | 'logo' | 'product_images' | 'fonts' | 'contract' | 'intake' | 'other'
 
 export interface ClientRule {
   id: string
@@ -98,6 +98,9 @@ export const CHANNELS: Record<Channel, string> = {
 
 export const DOC_KINDS: Record<DocKind, string> = {
   guidelines: 'Brand guidelines',
+  logo: 'Logos',
+  product_images: 'Product images',
+  fonts: 'Fonts',
   contract: 'Contracts',
   intake: 'Intake',
   other: 'Other files',

@@ -1,5 +1,6 @@
 'use server'
 
+import { DOC_KINDS, type DocKind } from '@/lib/brands/profile'
 import { revalidatePath } from 'next/cache'
 
 // Revalidation rule of thumb: only invalidate '/' (the dashboard) when the
@@ -3643,7 +3644,7 @@ export async function createBrandDocumentUploadUrl(
 
   const spec = BRAND_DOC_TYPES[contentType]
   if (!spec) {
-    return { ok: false, error: 'Only PDF, Word (.docx), PowerPoint (.pptx), Excel (.xlsx) and .txt files can be attached.' }
+    return { ok: false, error: 'Only documents (PDF, Word, PowerPoint, Excel, .txt), images, fonts and .zip files can be attached.' }
   }
   if (!Number.isFinite(byteSize) || byteSize <= 0) return { ok: false, error: 'That file is empty.' }
   if (byteSize > MAX_BRAND_DOC_BYTES) {
@@ -3670,7 +3671,7 @@ export async function createBrandDocumentUploadUrl(
 // megabyte starts failing again.
 export async function attachBrandDocument(
   brandId: string,
-  input: { path: string; fileName: string; contentType: string; byteSize: number; kind?: 'guidelines' | 'contract' | 'intake' | 'other' },
+  input: { path: string; fileName: string; contentType: string; byteSize: number; kind?: DocKind },
   revalidateProjectId?: string,
 ): Promise<{ ok: true; documentId: string } | { ok: false; error: string }> {
   const supabase = await createClient()
@@ -3711,7 +3712,7 @@ export async function attachBrandDocument(
       uploaded_by: user.id,
       uploaded_by_name: uploadedByName,
       // Project pages only have the guidelines panel, so their uploads are guidelines.
-      ...(kind && ['guidelines', 'contract', 'intake', 'other'].includes(kind) ? { kind } : {}),
+      ...(kind && kind in DOC_KINDS ? { kind } : {}),
     })
     .select('id')
     .single()

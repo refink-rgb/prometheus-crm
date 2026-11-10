@@ -79,7 +79,7 @@ export default function BrandDocuments({
       setBusy({ done: i, total: files.length, name: file.name })
 
       const type = resolveDocType(file)
-      if (!type) { errs.push(`${file.name}: not an accepted file type — PDF, .docx, .pptx, .xlsx or .txt.`); continue }
+      if (!type) { errs.push(`${file.name}: not an accepted file type — documents, images, fonts or a .zip.`); continue }
       if (file.size === 0) { errs.push(`${file.name}: the file is empty.`); continue }
       if (file.size > MAX_BRAND_DOC_BYTES) {
         errs.push(`${file.name}: ${(file.size / MB).toFixed(1)}MB — the limit is ${MAX_BRAND_DOC_BYTES / MB}MB.`)
@@ -202,7 +202,7 @@ export default function BrandDocuments({
             {busy ? `Uploading ${busy.name} — ${busy.done + 1} of ${busy.total}…` : uploadLabel ?? 'Upload brand guidelines'}
           </div>
           <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
-            {uploadHint ?? 'Brand book, style guide, logo or font rules'} · drop files or click · PDF, .docx, .pptx, .xlsx, .txt · up to {MAX_BRAND_DOC_BYTES / MB}MB
+            {uploadHint ?? 'Brand book, style guide, logo or font rules'} · drop files or click · documents, images, fonts, .zip · up to {MAX_BRAND_DOC_BYTES / MB}MB
           </div>
         </div>
       </label>

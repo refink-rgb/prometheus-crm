@@ -8,7 +8,7 @@ import type { NextRequest } from 'next/server'
 // validated at the route level; /api/cron checks CRON_SECRET in-route;
 // /api/results checks RESULTS_INGEST_SECRET in-route (the scheduled Meta-MCP
 // agent posts daily campaign results and has no session cookie).
-const PUBLIC_PREFIXES = ['/login', '/review', '/portal', '/showcase', '/offer-preview-qa', '/approvals', '/offer-approval', '/auth', '/api/preview', '/api/review', '/api/creative', '/api/cron', '/api/results']
+const PUBLIC_PREFIXES = ['/login', '/review', '/portal', '/intake', '/showcase', '/offer-preview-qa', '/approvals', '/offer-approval', '/auth', '/api/preview', '/api/review', '/api/creative', '/api/cron', '/api/results']
 
 function b64Decode(s: string): string {
   const normalized = s.replace(/-/g, '+').replace(/_/g, '/')
