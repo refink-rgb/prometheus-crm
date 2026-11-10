@@ -133,6 +133,10 @@ export interface Brand {
   channel_details?: string | null
   intake_answers?: string | null
   onboarding_call_url?: string | null
+  intake_token?: string | null
+  intake_form?: Record<string, unknown> | null
+  intake_updated_at?: string | null
+  intake_submitted_at?: string | null
 }
 
 /** A file the client sent us, kept on the brand. Bytes live in the PRIVATE
@@ -149,7 +153,9 @@ export interface BrandDocument {
   uploaded_by_name: string | null
   created_at: string
   /** guidelines | intake | other. Absent before 20261029_brand_profile.sql. */
-  kind?: 'guidelines' | 'contract' | 'intake' | 'other'
+  kind?: string
+  /** Uploaded by the client through the intake link. */
+  from_client?: boolean
 }
 
 /** A creative brief on a project. Bytes live in the PRIVATE project-briefs

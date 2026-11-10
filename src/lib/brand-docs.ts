@@ -26,12 +26,29 @@ export const BRAND_DOC_TYPES: Record<string, BrandDocType> = {
     { ext: 'pptx', label: 'PPTX', inline: false, opensIn: 'PowerPoint' },
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
     { ext: 'xlsx', label: 'XLSX', inline: false, opensIn: 'Excel' },
+  // Client assets from the intake link (20261104_brand_intake_link.sql).
+  'image/png': { ext: 'png', label: 'PNG', inline: true, opensIn: null },
+  'image/jpeg': { ext: 'jpg', label: 'JPG', inline: true, opensIn: null },
+  'image/webp': { ext: 'webp', label: 'WEBP', inline: true, opensIn: null },
+  'image/gif': { ext: 'gif', label: 'GIF', inline: true, opensIn: null },
+  'image/heic': { ext: 'heic', label: 'HEIC', inline: false, opensIn: 'Photos' },
+  'image/tiff': { ext: 'tif', label: 'TIFF', inline: false, opensIn: 'an image app' },
+  // Not inline: an SVG can carry script, and the viewer frame allows scripts.
+  'image/svg+xml': { ext: 'svg', label: 'SVG', inline: false, opensIn: 'a browser or Illustrator' },
+  'image/vnd.adobe.photoshop': { ext: 'psd', label: 'PSD', inline: false, opensIn: 'Photoshop' },
+  'application/postscript': { ext: 'eps', label: 'EPS/AI', inline: false, opensIn: 'Illustrator' },
+  'font/ttf': { ext: 'ttf', label: 'TTF', inline: false, opensIn: 'Font Book' },
+  'font/otf': { ext: 'otf', label: 'OTF', inline: false, opensIn: 'Font Book' },
+  'font/woff': { ext: 'woff', label: 'WOFF', inline: false, opensIn: 'Font Book' },
+  'font/woff2': { ext: 'woff2', label: 'WOFF2', inline: false, opensIn: 'Font Book' },
+  'application/zip': { ext: 'zip', label: 'ZIP', inline: false, opensIn: 'Finder' },
 }
 
 // Both extensions and MIME types: Safari matches on type, Windows Chrome often
 // only has the extension to go on.
 export const BRAND_DOC_ACCEPT = [
-  '.pdf', '.txt', '.docx', '.pptx', '.xlsx',
+  ...Object.values(BRAND_DOC_TYPES).map(t => `.${t.ext}`),
+  '.jpeg', '.tiff', '.ai',
   ...Object.keys(BRAND_DOC_TYPES),
 ].join(',')
 
@@ -45,9 +62,20 @@ export const BRAND_DOC_ACCEPT = [
 // the browser say so before an upload starts.
 export const MAX_BRAND_DOC_BYTES = 250 * 1024 * 1024
 
-const BY_EXT: Record<string, string> = Object.fromEntries(
-  Object.entries(BRAND_DOC_TYPES).map(([mime, spec]) => [spec.ext, mime]),
-)
+const BY_EXT: Record<string, string> = {
+  ...Object.fromEntries(Object.entries(BRAND_DOC_TYPES).map(([mime, spec]) => [spec.ext, mime])),
+  jpeg: 'image/jpeg', tiff: 'image/tiff', ai: 'application/postscript',
+}
+
+// What browsers report for the same files under other names.
+const MIME_ALIASES: Record<string, string> = {
+  'image/jpg': 'image/jpeg',
+  'image/x-png': 'image/png',
+  'application/x-zip-compressed': 'application/zip',
+  'application/x-font-ttf': 'font/ttf', 'application/x-font-otf': 'font/otf',
+  'application/font-woff': 'font/woff', 'application/font-woff2': 'font/woff2',
+  'application/illustrator': 'application/postscript',
+}
 
 /**
  * The file's own type when the browser reports one we accept, else its
@@ -57,6 +85,7 @@ const BY_EXT: Record<string, string> = Object.fromEntries(
  */
 export function resolveDocType(file: { name: string; type: string }): string | null {
   if (file.type && BRAND_DOC_TYPES[file.type]) return file.type
+  if (file.type && MIME_ALIASES[file.type]) return MIME_ALIASES[file.type]
   const ext = (file.name.split('.').pop() || '').toLowerCase()
   return BY_EXT[ext] ?? null
 }

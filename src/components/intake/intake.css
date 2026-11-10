@@ -1,0 +1,85 @@
+/* Client intake link. Standalone page, phone first. */
+.ik-page { min-height: 100vh; background: var(--background); color: var(--text-primary); }
+.ik-top { position: sticky; top: 0; z-index: 20; background: var(--surface); border-bottom: 1px solid var(--border); }
+.ik-top-inner { max-width: 720px; margin: 0 auto; padding: 0 16px; height: 56px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.ik-brand { font-weight: 700; font-size: 16px; letter-spacing: -0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ik-save { font-size: 13px; color: var(--text-muted); white-space: nowrap; }
+.ik-save-saved { color: var(--success); }
+.ik-save-error { color: var(--danger); font-weight: 600; }
+.ik-progress { height: 3px; background: var(--border); }
+.ik-progress > div { height: 100%; background: var(--accent); transition: width .3s ease; }
+
+.ik-main { max-width: 720px; margin: 0 auto; padding: 28px 16px 96px; display: flex; flex-direction: column; gap: 18px; }
+.ik-intro h1 { font-size: 28px; line-height: 1.2; font-weight: 800; letter-spacing: -0.02em; margin: 0 0 10px; }
+.ik-intro p { font-size: 16px; line-height: 1.6; color: var(--text-secondary); margin: 0 0 8px; }
+.ik-count { font-size: 14px !important; }
+.ik-count b { color: var(--text-primary); }
+
+.ik-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 22px 20px; display: flex; flex-direction: column; gap: 14px; }
+.ik-card h2 { font-size: 19px; font-weight: 700; margin: 0; display: flex; align-items: center; gap: 10px; }
+.ik-step { width: 26px; height: 26px; border-radius: 50%; background: var(--accent-muted); color: var(--accent); font-size: 14px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.ik-help { font-size: 15px; line-height: 1.55; color: var(--text-secondary); margin: -4px 0 0; }
+.ik-alert { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); border-radius: 10px; padding: 12px 14px; font-size: 14px; }
+
+.ik-field { display: flex; flex-direction: column; gap: 6px; }
+.ik-field > span { font-size: 15px; font-weight: 600; }
+.ik-field small { font-size: 13px; color: var(--text-muted); }
+.ik-field input, .ik-field textarea, .ik-grid input {
+  width: 100%; font: inherit; font-size: 16px; /* 16px stops iOS zooming in */
+  padding: 11px 12px; border-radius: 10px; border: 1px solid var(--border-strong);
+  background: var(--background); color: var(--text-primary); box-sizing: border-box;
+}
+.ik-field textarea { resize: vertical; line-height: 1.5; }
+.ik-field input:focus, .ik-field textarea:focus, .ik-grid input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+
+.ik-slots { display: flex; flex-direction: column; gap: 10px; }
+.ik-slot { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.ik-slot.has { border-color: color-mix(in srgb, var(--success) 45%, var(--border)); }
+.ik-drop { display: flex; gap: 14px; align-items: center; padding: 14px; cursor: pointer; border: 2px dashed transparent; border-radius: 12px; }
+.ik-drop:hover, .ik-drop.drag { background: var(--accent-muted); border-color: var(--accent); }
+.ik-drop.busy { cursor: wait; }
+.ik-drop-icon { width: 40px; height: 40px; border-radius: 10px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: 600; background: var(--surface-raised); color: var(--accent); }
+.ik-slot.has .ik-drop-icon { background: color-mix(in srgb, var(--success) 16%, transparent); color: var(--success); }
+.ik-drop-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.ik-drop-text b { font-size: 15px; }
+.ik-drop-text span { font-size: 13.5px; line-height: 1.45; color: var(--text-secondary); }
+.ik-files { list-style: none; margin: 0; padding: 0 14px 10px; display: flex; flex-direction: column; }
+.ik-files li { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-top: 1px solid var(--border); font-size: 14px; }
+.ik-file-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ik-file-size { font-size: 12.5px; color: var(--text-muted); flex-shrink: 0; }
+.ik-err { font-size: 13px; color: var(--danger); margin: 0; padding: 0 14px 10px; }
+
+.ik-swatches { display: flex; gap: 6px; flex-wrap: wrap; }
+.ik-swatches span { width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--border-strong); }
+
+.ik-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 520px) { .ik-choices { grid-template-columns: 1fr; } }
+.ik-choice { text-align: left; font: inherit; color: inherit; background: var(--background); border: 1.5px solid var(--border-strong); border-radius: 12px; padding: 14px; cursor: pointer; display: flex; flex-direction: column; gap: 4px; }
+.ik-choice b { font-size: 15px; }
+.ik-choice span { font-size: 13.5px; color: var(--text-secondary); line-height: 1.45; }
+.ik-choice.on { border-color: var(--accent); background: var(--accent-muted); box-shadow: 0 0 0 1px var(--accent); }
+
+.ik-contact { display: flex; flex-direction: column; gap: 8px; padding-bottom: 6px; }
+.ik-contact-head { display: flex; justify-content: space-between; align-items: center; font-size: 14px; }
+.ik-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+@media (max-width: 520px) { .ik-grid { grid-template-columns: 1fr; } }
+.ik-pills { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }
+.ik-pill { font: inherit; font-size: 14px; padding: 8px 14px; border-radius: 999px; border: 1.5px solid var(--border-strong); background: var(--background); color: var(--text-primary); cursor: pointer; }
+.ik-pill.on { border-color: var(--accent); background: var(--accent-muted); color: var(--accent); font-weight: 600; }
+
+.ik-link { font: inherit; font-size: 14px; background: none; border: 0; padding: 0; color: var(--accent); font-weight: 600; cursor: pointer; align-self: flex-start; }
+.ik-submit { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; padding-top: 6px; }
+.ik-submit p { font-size: 13.5px; color: var(--text-muted); margin: 0; }
+.ik-btn { font: inherit; font-size: 17px; font-weight: 700; padding: 15px 34px; border-radius: 12px; border: 0; background: var(--accent); color: #fff; cursor: pointer; width: 100%; max-width: 360px; }
+.ik-btn:disabled { opacity: .6; cursor: wait; }
+.ik-btn-secondary { font: inherit; font-size: 14px; padding: 9px 16px; border-radius: 10px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text-primary); cursor: pointer; align-self: flex-start; }
+.ik-thanks { border-color: color-mix(in srgb, var(--success) 45%, var(--border)); }
+.ik-thanks h2 { font-size: 22px; }
+.ik-thanks p { font-size: 15px; line-height: 1.6; color: var(--text-secondary); margin: 0; }
+.ik-slot.key:not(.has) { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.ik-badge { font-style: normal; font-size: 11.5px; font-weight: 700; margin-left: 8px; padding: 2px 8px; border-radius: 999px; background: var(--accent-muted); color: var(--accent); vertical-align: 1px; }
+.ik-sub { display: flex; flex-direction: column; gap: 12px; border-top: 1px solid var(--border); padding-top: 14px; }
+
+/* The app's global label style (small caps, tracked) is for staff forms. */
+.ik-page label { display: flex; text-transform: none; letter-spacing: normal; font-size: inherit; font-weight: inherit; color: inherit; margin-bottom: 0; }
+.ik-page label.ik-drop { display: flex; }
