@@ -148,7 +148,7 @@ export async function setCalibrationItemsVisible(slug: string, ids: string[], vi
 // link works however editors file their old cuts.
 const TRACK_DEPTH = 1
 
-type SyncPlan = { ok: true; files: { id: string; name: string }[]; unchanged: number; unsupported: string[]; skippedFolders: string[]; closed: number }
+type SyncPlan = { ok: true; files: { id: string; name: string }[]; unchanged: number; unsupported: string[]; skippedFolders: string[]; closed: number; found: string; ignored: string[] }
 /**
  * Saves the team's Drive folder and works out what to copy. Point it at "01 Calibration":
  * it reads the Motion and Statics folders inside, and a folder of loose files works too.
@@ -175,14 +175,14 @@ export async function syncCalibrationFolder(slug: string, folderUrl: string): Pr
     await db.from('bfcm_calibrations').update({ drive_folder_url: url }).eq('plan_slug', slug)
     if (!tree.files.length) {
       refresh(slug)
-      return { ok: false, error: `No images or videos found${tree.skippedFolders.length ? ` (skipped ${tree.skippedFolders.join(', ')})` : ''}. Paste the Calibration folder with Motion and Statics folders inside, and check it’s shared with the CRM.` }
+      return { ok: false, error: `No images or videos found (read ${tree.opened.map(o => `${o.path}: ${o.creatives}`).join(' · ')}${tree.ignored.length ? `; not images or videos: ${tree.ignored.slice(0, 10).join(', ')}` : ''})${tree.skippedFolders.length ? ` (skipped ${tree.skippedFolders.join(', ')})` : ''}. Paste the Calibration folder with Motion and Statics folders inside, and check it’s shared with the CRM.` }
     }
     const { data: tracks } = await db.from('bfcm_calibration_tracks').select('track,status').eq('plan_slug', slug)
     const submitted = new Set((tracks ?? []).filter(t => t.status === 'submitted').map(t => t.track as string))
     const open = tree.files.filter(f => !submitted.has(sampleTrack(f)))
     const { data: existing } = await db.from('bfcm_calibration_items').select('id,drive_file_id,drive_modified_at').eq('plan_slug', slug)
     const plan = planDriveSync(open, existing ?? [])
-    out = { ok: true, files: [...plan.add, ...plan.refresh.map(r => r.file)].map(f => ({ id: f.id, name: f.name })), unchanged: plan.unchanged, unsupported: plan.unsupported, skippedFolders: tree.skippedFolders, closed: tree.files.length - open.length }
+    out = { ok: true, files: [...plan.add, ...plan.refresh.map(r => r.file)].map(f => ({ id: f.id, name: f.name })), unchanged: plan.unchanged, unsupported: plan.unsupported, skippedFolders: tree.skippedFolders, closed: tree.files.length - open.length, found: tree.opened.map(o => `${o.path}: ${o.creatives}`).join(' · '), ignored: tree.ignored.slice(0, 20) }
     refresh(slug)
     return { ok: true }
   })

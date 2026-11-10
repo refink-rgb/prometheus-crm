@@ -118,13 +118,19 @@ export async function listDriveFolderTree(
   folderId: string,
   includeFolder: (name: string) => boolean,
   depth = 3,
-): Promise<{ files: (DriveFile & { folderPath: string[] })[]; skippedFolders: string[] }> {
+): Promise<{ files: (DriveFile & { folderPath: string[] })[]; skippedFolders: string[]; opened: { path: string; creatives: number }[]; ignored: string[] }> {
   const files: (DriveFile & { folderPath: string[] })[] = []
   const skippedFolders: string[] = []
+  // What the walk actually saw, so a sync that copies nothing can say why.
+  const opened: { path: string; creatives: number }[] = []
+  const ignored: string[] = []
   const walk = async (id: string, path: string[]) => {
+    const here = { path: path.join(' / ') || '(pasted folder)', creatives: 0 }
+    opened.push(here)
     for (const child of await listDriveChildren(id)) {
-      if (isCreativeFile(child)) files.push({ ...child, folderPath: path })
-      else if (child.mimeType === DRIVE_FOLDER_MIME) {
+      if (isCreativeFile(child)) { files.push({ ...child, folderPath: path }); here.creatives++ }
+      else if (child.mimeType !== DRIVE_FOLDER_MIME) ignored.push(`${[...path, child.name].join(' / ')} (${child.mimeType})`)
+      else {
         // Below an accepted folder everything counts ("Statics/Pre-BF").
         if (path.length > 0 || includeFolder(child.name)) { if (path.length < depth) await walk(child.id, [...path, child.name]) }
         else skippedFolders.push(child.name)
@@ -132,7 +138,7 @@ export async function listDriveFolderTree(
     }
   }
   await walk(folderId, [])
-  return { files, skippedFolders }
+  return { files, skippedFolders, opened, ignored }
 }
 
 async function listDriveChildren(folderId: string): Promise<DriveFile[]> {
@@ -147,9 +153,12 @@ async function listDriveChildren(folderId: string): Promise<DriveFile[]> {
 
   const params = new URLSearchParams({
     q: `'${folderId}' in parents and trashed=false`,
-    fields: 'files(id,name,mimeType,modifiedTime,size)',
+    fields: 'files(id,name,mimeType,modifiedTime,size,shortcutDetails(targetId,targetMimeType))',
     orderBy: 'name',
     pageSize: '200',
+    // Without these, anything living in a shared drive is left out of the listing.
+    supportsAllDrives: 'true',
+    includeItemsFromAllDrives: 'true',
   })
 
   const url = `https://www.googleapis.com/drive/v3/files?${params.toString()}${
@@ -171,9 +180,20 @@ async function listDriveChildren(folderId: string): Promise<DriveFile[]> {
       `Drive API error: ${err.error?.message ?? res.statusText}`
     )
   }
-  const data = (await res.json()) as { files?: DriveFile[] }
-  return data.files ?? []
+  const data = (await res.json()) as { files?: (DriveFile & { shortcutDetails?: { targetId?: string; targetMimeType?: string } })[] }
+  return (data.files ?? []).map(({ shortcutDetails, ...f }) => {
+    // A shortcut was dropped silently. Follow it to what it points at, keeping its name.
+    if (f.mimeType === DRIVE_SHORTCUT_MIME && shortcutDetails?.targetId && shortcutDetails.targetMimeType) return { ...f, id: shortcutDetails.targetId, mimeType: shortcutDetails.targetMimeType }
+    // Uploads Drive couldn't type (octet-stream) still count when the extension says image or video.
+    if (!isCreativeFile(f) && f.mimeType !== DRIVE_FOLDER_MIME) {
+      const byExt = MIME_BY_EXT[(f.name.split('.').pop() ?? '').toLowerCase()]
+      if (byExt) return { ...f, mimeType: byExt }
+    }
+    return f
+  })
 }
+const DRIVE_SHORTCUT_MIME = 'application/vnd.google-apps.shortcut'
+const MIME_BY_EXT: Record<string, string> = { mp4: 'video/mp4', mov: 'video/quicktime', m4v: 'video/x-m4v', webm: 'video/webm', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' }
 
 /**
  * Download one Drive file's bytes. Service account only — the API-key fallback
