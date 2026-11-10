@@ -9,7 +9,7 @@ import { CALIBRATION_BUCKET } from './calibration-drive'
 const STEP_COLUMNS = 'id,plan_slug,parent_id,sort_order,kind,title,plan_key,due_date,status'
 
 export type BfcmComment = { id: string; step_id: string | null; author_id: string | null; author_name: string; body: string; created_at: string }
-export type CalibrationItem = { id: string; track: string; name: string; media_type: 'image' | 'video'; url: string; sort_order: number; client_status: string; created_at: string }
+export type CalibrationItem = { id: string; track: string; name: string; media_type: 'image' | 'video'; url: string; sort_order: number; client_status: string; client_visible: boolean; created_at: string }
 export type CalibrationFeedback = { id: string; item_id: string; author_name: string; body: string; pin_x: number | null; pin_y: number | null; created_at: string }
 export type Calibration = { plan_slug: string; share_token: string; drive_folder_url: string | null }
 export type CalibrationTrackState = { track: string; status: string; sent_at: string | null; submitted_at: string | null; submitted_by_name: string | null; client_note: string | null }
@@ -80,14 +80,16 @@ export async function loadClientCalibration(token: string) {
   if (!cal) return null
   const { data } = await db.from('bfcm_calibration_tracks').select(TRACK_COLUMNS).eq('plan_slug', cal.plan_slug).in('status', ['sent', 'submitted'])
   const tracks = (data ?? []) as CalibrationTrackState[]
-  const content = tracks.length ? await loadCalibrationItems(cal.plan_slug, tracks.map(t => t.track)) : { items: [], feedback: [] }
+  // Hidden samples never leave the server: the client page can't show what it never received.
+  const content = tracks.length ? await loadCalibrationItems(cal.plan_slug, tracks.map(t => t.track), true) : { items: [], feedback: [] }
   return { slug: cal.plan_slug as string, tracks, ...content }
 }
 
-export async function loadCalibrationItems(slug: string, onlyTracks?: string[]): Promise<{ items: CalibrationItem[]; feedback: CalibrationFeedback[] }> {
+export async function loadCalibrationItems(slug: string, onlyTracks?: string[], onlyVisible = false): Promise<{ items: CalibrationItem[]; feedback: CalibrationFeedback[] }> {
   const db = createServiceClient()
-  let query = db.from('bfcm_calibration_items').select('id,track,name,media_type,storage_path,sort_order,client_status,created_at').eq('plan_slug', slug)
+  let query = db.from('bfcm_calibration_items').select('id,track,name,media_type,storage_path,sort_order,client_status,client_visible,created_at').eq('plan_slug', slug)
   if (onlyTracks) query = query.in('track', onlyTracks)
+  if (onlyVisible) query = query.eq('client_visible', true)
   const { data } = await query.order('sort_order').order('created_at')
   const items = ((data ?? []) as (Omit<CalibrationItem, 'url'> & { storage_path: string })[]).map(({ storage_path, ...item }) => ({ ...item, url: calibrationUrl(storage_path) }))
   const feedback = items.length
