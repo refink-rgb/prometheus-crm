@@ -133,3 +133,20 @@
 .ik-linkbox code { font-size: 12.5px; background: var(--surface-2, var(--surface-raised)); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; word-break: break-all; color: var(--text-secondary); }
 .ik-missing { font-size: 14px; line-height: 1.5; padding: 10px 14px; border-radius: 10px; background: color-mix(in srgb, var(--warning) 13%, transparent); border: 1px solid color-mix(in srgb, var(--warning) 35%, transparent); color: var(--text-primary); }
 .ik-missing a { color: var(--accent); font-weight: 600; text-decoration: none; white-space: nowrap; }
+
+/* Intake answers, for the team to review */
+.ir-body { display: flex; flex-direction: column; gap: 4px; padding-top: 6px; }
+.ir-group { border-top: 1px solid var(--border); padding: 10px 0 6px; }
+.ir-group:first-child { border-top: none; }
+.ir-group > summary { display: flex; align-items: baseline; gap: 8px; cursor: pointer; list-style: none; font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; padding: 4px 0; }
+.ir-group > summary::-webkit-details-marker { display: none; }
+.ir-group > summary::before { content: '▸'; font-size: 11px; transition: transform .15s ease; }
+.ir-group[open] > summary::before { transform: rotate(90deg); }
+.ir-group > summary em { font-style: normal; font-weight: 500; letter-spacing: 0; text-transform: none; }
+.ir-qa { margin: 6px 0 4px; display: flex; flex-direction: column; gap: 12px; }
+.ir-qa > div { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 4px 16px; }
+@media (max-width: 720px) { .ir-qa > div { grid-template-columns: 1fr; } }
+.ir-qa dt { font-size: 13.5px; color: var(--text-muted); line-height: 1.5; }
+.ir-qa dd { margin: 0; font-size: 14.5px; line-height: 1.55; color: var(--text-primary); white-space: pre-wrap; overflow-wrap: anywhere; }
+.ir-qa dd a { color: var(--accent); }
+.ir-qa .ir-skipped dd { color: var(--text-muted); font-style: italic; }
