@@ -15,6 +15,7 @@ import BrandDocuments from '@/components/preview/BrandDocuments'
 import BrandBrief from '@/components/preview/BrandBrief'
 import BrandThread from '@/components/preview/BrandThread'
 import BrandContracts from '@/components/brand/BrandContracts'
+import ContractFill from '@/components/brand/ContractFill'
 import BrandProjects from '@/components/brand/BrandProjects'
 import ClientRulesBoard from '@/components/brand/ClientRulesBoard'
 import ContactsCard from '@/components/brand/ContactsCard'
@@ -227,11 +228,15 @@ export default async function BrandPage({
                 {contracts.map(c => (
                   <div key={c.id} className="bp-contract">
                     <span><b>{c.title}</b>{c.signed_on && <span className="mo-muted"> · {fmtDate(c.signed_on)}</span>}</span>
+                    {!c.deliverables && !c.revisions && !c.special_terms && c.document_id && isAuthorized ? (
+                      <ContractFill brandId={brandId} documentId={c.document_id} />
+                    ) : (
                     <dl className="bp-dl bp-dl-wide">
                       <dt>Deliverables</dt><dd className="bp-pre">{c.deliverables || '—'}</dd>
                       <dt>Revisions</dt><dd className="bp-pre">{c.revisions || '—'}</dd>
                       <dt>Special terms</dt><dd className="bp-pre">{c.special_terms || '—'}</dd>
                     </dl>
+                    )}
                   </div>
                 ))}
               </div>
@@ -359,15 +364,6 @@ export default async function BrandPage({
                   brandId={brandId}
                   contracts={contracts}
                   documents={docsOf('contract').map(d => ({ id: d.id, file_name: d.file_name }))}
-                />
-                <BrandDocuments
-                  brandId={brandId}
-                  documents={docsOf('contract')}
-                  kind="contract"
-                  title="Contract files"
-                  uploadLabel="Upload a contract"
-                  uploadHint="The signed SOW or agreement"
-                  emptyText="No contract files."
                 />
               </div>
               {([

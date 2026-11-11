@@ -2,6 +2,8 @@
 
 import { DOC_KINDS, type DocKind } from '@/lib/brands/profile'
 import { revalidatePath } from 'next/cache'
+import { after } from 'next/server'
+import { autofillContract } from '@/lib/bfcm/contract-autofill'
 
 // Revalidation rule of thumb: only invalidate '/' (the dashboard) when the
 // mutation changes something the dashboard actually renders — the pipeline
@@ -3671,7 +3673,7 @@ export async function createBrandDocumentUploadUrl(
 // megabyte starts failing again.
 export async function attachBrandDocument(
   brandId: string,
-  input: { path: string; fileName: string; contentType: string; byteSize: number; kind?: DocKind },
+  input: { path: string; fileName: string; contentType: string; byteSize: number; kind?: DocKind; autofill?: boolean },
   revalidateProjectId?: string,
 ): Promise<{ ok: true; documentId: string } | { ok: false; error: string }> {
   const supabase = await createClient()
@@ -3730,6 +3732,16 @@ export async function attachBrandDocument(
   if (revalidateProjectId) {
     revalidatePath(`/preview/project/${revalidateProjectId}`)
     revalidatePath(`/brands/${brandId}/projects/${revalidateProjectId}`)
+  }
+  // A contract file gets its record from the database (see
+  // 20261111b_contract_file_makes_contract.sql); read the terms in once this
+  // response is sent. The contract form reads them itself, so it opts out.
+  if (kind === 'contract' && input.autofill !== false) {
+    const documentId = (data as { id: string }).id
+    after(async () => {
+      try { await autofillContract(brandId, documentId); revalidatePath(`/brands/${brandId}`) }
+      catch (e) { console.error('[contract autofill]', e) }
+    })
   }
   return { ok: true, documentId: (data as { id: string }).id }
 }
