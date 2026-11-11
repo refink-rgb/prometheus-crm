@@ -38,7 +38,7 @@ export default function BrandContracts({ brandId, contracts, documents }: { bran
       const body = file.type === type ? file : new File([file], file.name, { type })
       const { error: upErr } = await createClient().storage.from(BRAND_DOC_BUCKET).uploadToSignedUrl(signed.path, signed.token, body, { contentType: type, cacheControl: '3600' })
       if (upErr) { setError(upErr.message); return }
-      const attached = await attachBrandDocument(brandId, { path: signed.path, fileName: file.name, contentType: type, byteSize: file.size, kind: 'contract' })
+      const attached = await attachBrandDocument(brandId, { path: signed.path, fileName: file.name, contentType: type, byteSize: file.size, kind: 'contract', autofill: false })
       if (!attached.ok) { setError(attached.error); return }
       setDocs(d => [{ id: attached.documentId, file_name: file.name }, ...d])
       set({ document_id: attached.documentId, title: form?.title || file.name.replace(/\.[^.]+$/, '') })

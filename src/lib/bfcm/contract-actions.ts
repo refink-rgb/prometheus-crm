@@ -5,6 +5,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { BRAND_DOC_BUCKET } from '@/lib/brand-docs'
 import { MAX_CONTRACT_AI_BYTES, readContractWithGemini, type ContractRead } from '@/lib/ai/contract-reader'
 import { requireStaffProfile } from './production-server'
+import { autofillContract } from './contract-autofill'
 
 // A contract belongs to the brand, not to BFCM: one SOW often covers Moments and BFCM.
 // The signed file is a brand document (uploaded with the brand-docs flow), so it also
@@ -59,6 +60,12 @@ export async function saveContract(brandId: string, contractId: string | null, d
     if (typeof fields === 'string') return { ok: false, error: fields }
     if (documentId !== null && (!validId(documentId) || !await documentOf(brandId, documentId))) return { ok: false, error: 'That document is no longer on this brand.' }
     const db = createServiceClient()
+    // A contract file already has its record (the database makes one on upload),
+    // so "new contract" for that file means filling in that record.
+    if (contractId === null && documentId !== null) {
+      const { data: existing } = await db.from('brand_contracts').select('id').eq('brand_id', brandId).eq('document_id', documentId).maybeSingle()
+      if (existing) contractId = existing.id
+    }
     const row = { ...fields, document_id: documentId, updated_by: me.id, updated_by_name: me.name, updated_at: new Date().toISOString() }
     const query = contractId === null
       ? db.from('brand_contracts').insert({ ...row, brand_id: brandId }).select('id').single()
@@ -84,4 +91,19 @@ export async function deleteContract(brandId: string, contractId: string): Promi
     await revalidateBrand(brandId)
     return { ok: true }
   } catch { return { ok: false, error: 'Unable to remove the contract.' } }
+}
+
+/** Reads the contract's file with AI and saves the terms, if nobody has filled them in yet. */
+export async function fillContractFromFile(brandId: string, documentId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    await requireStaffProfile()
+    if (!validId(brandId) || !validId(documentId)) return { ok: false, error: 'Invalid document.' }
+    const r = await autofillContract(brandId, documentId)
+    if (r.ok) await revalidateBrand(brandId)
+    return r
+  } catch (error) {
+    console.error('[contract fill]', error)
+    const message = error instanceof Error ? error.message : ''
+    return { ok: false, error: /GEMINI_API_KEY/.test(message) ? 'The AI isn’t set up on this server. Fill the terms in by hand.' : message === 'Unauthorized access.' ? 'You need CRM access to do that.' : 'The AI read failed. Try again, or fill the terms in by hand.' }
+  }
 }
