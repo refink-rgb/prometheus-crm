@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { CALIBRATION_TRACKS } from '@/lib/bfcm/production'
 import type { Calibration, CalibrationFeedback, CalibrationItem, CalibrationTrackState } from '@/lib/bfcm/production-server'
-import { attachCalibrationItem, copyCalibrationDriveFile, createCalibrationUploadUrl, publishCalibrationTrack, removeCalibrationItem, reopenCalibrationTrack, startCalibration, syncCalibrationFolder } from '@/lib/bfcm/calibration-actions'
+import { attachCalibrationItem, copyCalibrationDriveFile, createCalibrationUploadUrl, publishCalibrationTrack, removeCalibrationItem, reopenCalibrationTrack, setCalibrationItemsVisible, startCalibration, syncCalibrationFolder } from '@/lib/bfcm/calibration-actions'
 import s from './BfcmProduction.module.css'
 
 const BUCKET = 'project-images'
@@ -21,15 +21,45 @@ const CLIENT_STATUS: Record<string, { label: string; color: string }> = {
 const useOrigin = () => useSyncExternalStore(() => () => {}, () => window.location.origin, () => '')
 const clientStatus = (status: string) => CLIENT_STATUS[status] ?? { label: status, color: 'var(--text-secondary)' }
 
-type Props = { slug: string; data: { calibration: Calibration | null; tracks: CalibrationTrackState[]; items: CalibrationItem[]; feedback: CalibrationFeedback[] } | null; revisions: string | null }
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
+const longDay = (ymd: string) => new Date(`${ymd}T12:00:00`).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+
+/** The email the team sends with the link. Counts are what the client will actually see. */
+export function clientMessage({ brandName, link, statics, motion, due }: { brandName: string; link: string; statics: number; motion: number; due: string }) {
+  const batch = [statics ? plural(statics, 'static', 'statics') : '', motion ? plural(motion, 'video', 'videos') : ''].filter(Boolean).join(' and ') || 'a few ads'
+  return `Subject: Your Black Friday ads: first look, we need your feedback
+
+Hi ${brandName} team,
+
+Before we make your full Black Friday set, we've made a small first batch so you can shape the direction: ${batch}.
+
+Why this matters: this is the most important review of the campaign. Whatever you tell us here (the look, the copy, how the offer is framed, anything to avoid) gets applied to every ad that follows. Clear feedback now means the full set comes back right the first time, instead of being reworked later when there's far more of it.
+
+Review them here: ${link}
+
+How it works:
+1. Open the link and enter your name.
+2. For each ad, click "Looks good" or "Needs changes".
+3. Leave a note on anything you'd change. On images you can pin a note to an exact spot.
+4. Add any overall thoughts at the bottom, then click Submit. Statics and videos are submitted separately, and each locks once it's submitted.
+
+Once you submit, we use your notes to build the rest of your set. ${due ? `Please send your feedback by ${longDay(due)} so we stay on schedule.` : 'Please send your feedback as soon as you can so we stay on schedule.'}
+
+Thanks!`
+}
+
+type Props = { slug: string; brandName: string; data: { calibration: Calibration | null; tracks: CalibrationTrackState[]; items: CalibrationItem[]; feedback: CalibrationFeedback[] } | null; revisions: string | null }
 
 /** Staff view of client calibration, inside the samples task: one client link, two tracks. */
-export default function BfcmCalibrationStaff({ slug, data, revisions }: Props) {
+export default function BfcmCalibrationStaff({ slug, brandName, data, revisions }: Props) {
   const router = useRouter()
   const [busy, setBusy] = useState<string | null>(null)
   const [errors, setErrors] = useState<string[]>([])
   const [over, setOver] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [copiedMsg, setCopiedMsg] = useState(false)
+  const [showMsg, setShowMsg] = useState(false)
+  const [due, setDue] = useState('')
   const [synced, setSynced] = useState('')
   const [folder, setFolder] = useState(data?.calibration?.drive_folder_url ?? '')
   const origin = useOrigin()
@@ -57,6 +87,8 @@ export default function BfcmCalibrationStaff({ slug, data, revisions }: Props) {
     const notes = [
       plan.files.length === 0 ? `Up to date: ${plan.unchanged} sample${plan.unchanged === 1 ? '' : 's'} already copied.` : `Copied ${copiedCount} of ${plan.files.length} from Drive.${plan.unchanged ? ` ${plan.unchanged} already up to date.` : ''}`,
       plan.closed ? `${plan.closed} in a track the client already submitted, left alone.` : '',
+      `Files found per folder: ${plan.found}.`,
+      plan.ignored.length ? `Not images or videos, so not read: ${plan.ignored.join(', ')}.` : '',
       plan.skippedFolders.length ? `Skipped folders: ${plan.skippedFolders.join(', ')} (only Motion and Statics folders are read).` : '',
     ]
     setSynced(notes.filter(Boolean).join(' '))
@@ -100,6 +132,10 @@ export default function BfcmCalibrationStaff({ slug, data, revisions }: Props) {
   const stateOf = (id: string) => tracks.find(t => t.track === id) ?? { track: id, status: 'draft', sent_at: null, submitted_at: null, submitted_by_name: null, client_note: null }
   const live = CALIBRATION_TRACKS.filter(t => stateOf(t.id).status !== 'draft')
   const working = busy?.startsWith('Copying') || busy?.startsWith('Reading')
+  // The message counts only what the client can act on now: shown files in tracks still open for review.
+  const openTracks: string[] = CALIBRATION_TRACKS.filter(t => stateOf(t.id).status === 'sent').map(t => t.id)
+  const countFor = (track: string) => openTracks.includes(track) ? items.filter(i => i.track === track && i.client_visible).length : 0
+  const message = clientMessage({ brandName, link, statics: countFor('statics'), motion: countFor('motion'), due })
 
   return <div className={s.box} id="calibration">
     <strong>Client calibration</strong>
@@ -115,6 +151,19 @@ export default function BfcmCalibrationStaff({ slug, data, revisions }: Props) {
         ? <p className={s.notice} data-tone="warn">Nothing is published yet. Anyone opening this link sees “Your samples are being prepared.”</p>
         : <p className={s.notice} data-tone="ok">Live on this link: {live.map(t => t.label).join(' and ')}.</p>}
       <p className={s.muted} style={{ margin: '6px 0 0' }}>Publishing doesn’t notify anyone. Share this link with the client yourself when you’re ready.</p>
+      <div className={s.inline} style={{ marginTop: 10 }}>
+        <button className="btn-secondary btn-sm" onClick={() => setShowMsg(v => !v)} aria-expanded={showMsg}>{showMsg ? 'Hide client message' : 'Client message'}</button>
+        {showMsg && <>
+          <label className={s.muted} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, margin: 0, textTransform: 'none', letterSpacing: 'normal', fontSize: 12 }}>
+            Feedback by <input type="date" value={due} onChange={e => setDue(e.target.value)} style={{ width: 'auto', padding: '4px 6px', fontSize: 12 }} />
+          </label>
+          <button className="btn-primary btn-sm" onClick={() => { void navigator.clipboard.writeText(message).then(() => { setCopiedMsg(true); setTimeout(() => setCopiedMsg(false), 1500) }) }}>{copiedMsg ? 'Copied' : 'Copy message'}</button>
+        </>}
+      </div>
+      {showMsg && <>
+        {openTracks.length === 0 && <p className={s.notice} data-tone="warn">No track is open for review. Publish one first, or the client has nothing to look at.</p>}
+        <textarea readOnly value={message} rows={18} aria-label="Message to send the client" onFocus={e => e.target.select()} style={{ width: '100%', marginTop: 8, padding: '10px 12px', fontSize: 12.5, lineHeight: 1.5, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--background)', color: 'var(--text-primary)', resize: 'vertical' }} />
+      </>}
     </div>
 
     <div>
@@ -123,19 +172,20 @@ export default function BfcmCalibrationStaff({ slug, data, revisions }: Props) {
         <input className={s.linkField} value={folder} onChange={e => setFolder(e.target.value)} placeholder="Paste the client’s 01 Calibration folder" aria-label="Calibration Drive folder" disabled={!!busy} />
         <button className="btn-primary btn-sm" disabled={!!busy || !folder.trim()}>{calibration.drive_folder_url ? 'Sync again' : 'Sync from Drive'}</button>
       </form>
-      <p className={s.muted} style={{ margin: '6px 0 0' }}>{working ? busy : synced || 'Reads the Motion and Statics folders inside. Other folders are ignored.'}</p>
+      <p className={s.muted} style={{ margin: '6px 0 0' }}>{working ? busy : synced || 'Paste the 01 Calibration folder. Reads the files directly in Motion and Static; folders inside them (old versions) are ignored.'}</p>
     </div>
 
     {CALIBRATION_TRACKS.map(track => {
       const state = stateOf(track.id)
       const trackItems = items.filter(i => i.track === track.id)
       const locked = state.status === 'submitted'
-      const approved = trackItems.filter(i => i.client_status === 'approved').length
-      const changes = trackItems.filter(i => i.client_status === 'needs_changes').length
+      const shown = trackItems.filter(i => i.client_visible)
+      const approved = shown.filter(i => i.client_status === 'approved').length
+      const changes = shown.filter(i => i.client_status === 'needs_changes').length
       return <section key={track.id} className={s.track} aria-label={track.label}>
         <div className={s.inline} style={{ justifyContent: 'space-between' }}>
           <div>
-            <strong>{track.label}</strong> <span className={s.muted}>{trackItems.length} sample{trackItems.length === 1 ? '' : 's'}</span>
+            <strong>{track.label}</strong> <span className={s.muted}>{trackItems.length} sample{trackItems.length === 1 ? '' : 's'}{trackItems.length > 0 && ` · ${shown.length} shown to client`}</span>
             <div className={s.chip} data-state={state.status}>
               {state.status === 'draft' ? 'Internal only: the client can’t see these'
                 : state.status === 'sent' ? `✓ Live to client since ${day(state.sent_at)}`
@@ -143,25 +193,33 @@ export default function BfcmCalibrationStaff({ slug, data, revisions }: Props) {
             </div>
           </div>
           <div className={s.inline}>
-            {state.status === 'draft' && <button className="btn-primary btn-sm" disabled={!!busy || !trackItems.length} title={trackItems.length ? undefined : 'Add samples first'} onClick={() => { if (window.confirm(`Publish ${trackItems.length} ${track.label.toLowerCase()} sample${trackItems.length === 1 ? '' : 's'} to the client link?\n\nThis doesn’t notify anyone. The client sees them when you share the link.`)) void act('publish', () => publishCalibrationTrack(slug, track.id)) }}>↗ Publish to client</button>}
+            {trackItems.length > 1 && <>
+              <button className={s.linkBtn} disabled={!!busy || shown.length === trackItems.length} onClick={() => void act('show', () => setCalibrationItemsVisible(slug, trackItems.map(i => i.id), true))}>Show all</button>
+              <button className={s.linkBtn} disabled={!!busy || shown.length === 0} onClick={() => { if (state.status === 'draft' || window.confirm(`Hide all ${trackItems.length} ${track.label.toLowerCase()} from the client link? Then tick the ones to show.`)) void act('hide', () => setCalibrationItemsVisible(slug, trackItems.map(i => i.id), false)) }}>Hide all</button>
+            </>}
+            {state.status === 'draft' && <button className="btn-primary btn-sm" disabled={!!busy || !shown.length} title={shown.length ? undefined : 'Tick at least one sample to show'} onClick={() => { if (window.confirm(`Publish ${shown.length} ${track.label.toLowerCase()} sample${shown.length === 1 ? '' : 's'} to the client link?\n\nThis doesn’t notify anyone. The client sees them when you share the link.`)) void act('publish', () => publishCalibrationTrack(slug, track.id)) }}>↗ Publish to client</button>}
             {state.status === 'sent' && <button className="btn-secondary btn-sm" disabled={!!busy} onClick={() => { if (window.confirm(`Take the ${track.label.toLowerCase()} samples off the client link?`)) void act('unpublish', () => reopenCalibrationTrack(slug, track.id, 'draft')) }}>Unpublish</button>}
             {locked && <button className="btn-secondary btn-sm" disabled={!!busy} onClick={() => { if (window.confirm(`Reopen ${track.label.toLowerCase()} so the client can change their feedback?`)) void act('reopen', () => reopenCalibrationTrack(slug, track.id, 'sent')) }}>Reopen for the client</button>}
           </div>
         </div>
-        {state.status !== 'draft' && trackItems.length > 0 && <p className={s.muted} style={{ margin: 0 }}>{approved} look good · {changes} need changes · {trackItems.length - approved - changes} not reviewed</p>}
+        {state.status !== 'draft' && shown.length > 0 && <p className={s.muted} style={{ margin: 0 }}>{approved} look good · {changes} need changes · {shown.length - approved - changes} not reviewed</p>}
         {state.client_note && <div><p className={s.panelTitle}>Client’s overall note</p><p className={s.commentBody} style={{ margin: 0 }}>{state.client_note}</p></div>}
         {trackItems.length > 0 && <div className={s.grid}>{trackItems.map(item => {
           const notes = feedback.filter(f => f.item_id === item.id)
           const pins = notes.filter(f => f.pin_x != null && f.pin_y != null)
           const st = clientStatus(item.client_status)
-          return <div key={item.id} className={s.tile}>
+          return <div key={item.id} className={s.tile} style={item.client_visible ? undefined : { opacity: .55 }}>
             <div className={s.thumb}>
               {item.media_type === 'video' ? <video src={item.url} controls muted playsInline preload="metadata" /> : <img src={item.url} alt={item.name} loading="lazy" />}
               {item.media_type === 'image' && pins.map((p, i) => <span key={p.id} className={s.pin} style={{ left: `${p.pin_x}%`, top: `${p.pin_y}%` }} title={p.body}>{i + 1}</span>)}
             </div>
             <div className={s.tileBody}>
+              <label title={item.client_visible ? 'Untick to take this file off the client link' : 'Tick to show this file on the client link'} style={{ display: 'flex', alignItems: 'center', gap: 6, margin: 0, fontSize: 12, fontWeight: 600, textTransform: 'none', letterSpacing: 'normal', cursor: busy ? 'wait' : 'pointer', color: item.client_visible ? 'var(--success)' : 'var(--text-secondary)' }}>
+                <input type="checkbox" checked={item.client_visible} disabled={!!busy} onChange={e => void act('visible', () => setCalibrationItemsVisible(slug, [item.id], e.target.checked))} style={{ width: 'auto', margin: 0 }} />
+                {item.client_visible ? 'Shown to client' : 'Hidden from client'}
+              </label>
               <strong style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item.name}>{item.name}</strong>
-              {state.status !== 'draft' && <span style={{ color: st.color, fontWeight: 600 }}>{st.label}</span>}
+              {state.status !== 'draft' && item.client_visible && <span style={{ color: st.color, fontWeight: 600 }}>{st.label}</span>}
               {notes.map(n => <span key={n.id}><strong>{n.pin_x != null ? `${pins.indexOf(n) + 1}. ` : ''}{n.author_name}:</strong> {n.body}</span>)}
               {!locked && <button className={s.linkBtn} style={{ alignSelf: 'flex-start' }} disabled={!!busy} onClick={() => { if (window.confirm(`Remove “${item.name}”?${notes.length ? ' Its client comments go with it.' : ''}`)) void act('remove', () => removeCalibrationItem(slug, item.id)) }}>Remove</button>}
             </div>

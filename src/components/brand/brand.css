@@ -119,3 +119,17 @@
 .bp-dl-wide { grid-template-columns: 110px minmax(0, 1fr); }
 .bp-pre { white-space: pre-wrap; line-height: 1.55; }
 .bp-transcript { white-space: pre-wrap; font-size: 14px; line-height: 1.6; color: var(--text-secondary); margin: 0 0 6px; }
+
+/* Client intake checklist (IntakePanel) */
+.ik-check { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 6px 16px; }
+.ik-check li { display: flex; align-items: baseline; gap: 8px; font-size: 14px; flex-wrap: wrap; }
+.ik-check li > span { width: 16px; flex-shrink: 0; font-weight: 700; }
+.ik-check li.ok > span { color: var(--success); }
+.ik-check li.miss > span { color: var(--warning); }
+.ik-check li.miss b { color: var(--text-primary); }
+.ik-check li.ok b { font-weight: 500; color: var(--text-secondary); }
+.ik-check em { font-style: normal; font-size: 12.5px; color: var(--text-muted); }
+.ik-linkbox { display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--border); padding-top: 14px; }
+.ik-linkbox code { font-size: 12.5px; background: var(--surface-2, var(--surface-raised)); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; word-break: break-all; color: var(--text-secondary); }
+.ik-missing { font-size: 14px; line-height: 1.5; padding: 10px 14px; border-radius: 10px; background: color-mix(in srgb, var(--warning) 13%, transparent); border: 1px solid color-mix(in srgb, var(--warning) 35%, transparent); color: var(--text-primary); }
+.ik-missing a { color: var(--accent); font-weight: 600; text-decoration: none; white-space: nowrap; }

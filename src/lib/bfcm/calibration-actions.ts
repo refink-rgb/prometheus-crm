@@ -7,7 +7,7 @@ import { createNotifications } from '@/lib/notifications'
 import { downloadDriveFile, extractDriveFolderId, listDriveFolderTree } from '@/lib/drive'
 import { ensureCalibrationSubtasks, requireStaffProfile } from './production-server'
 import { CALIBRATION_TRACKS } from './production'
-import { CALIBRATION_BUCKET, MAX_SAMPLE_IMAGE_BYTES, MAX_SAMPLE_VIDEO_BYTES, copyDriveSample, isTrackFolder, planDriveSync, sampleExtension, sampleKind, sampleTrack, type CalibrationTrack } from './calibration-drive'
+import { CALIBRATION_BUCKET, MAX_SAMPLE_IMAGE_BYTES, MAX_SAMPLE_VIDEO_BYTES, copyDriveSample, isArchivedPath, isTrackFolder, planDriveSync, sampleExtension, sampleKind, sampleTrack, type CalibrationTrack } from './calibration-drive'
 
 type Result = { ok: true } | { ok: false; error: string }
 const validSlug = (slug: unknown): slug is string => typeof slug === 'string' && /^[a-z0-9][a-z0-9-]{0,99}$/.test(slug)
@@ -127,7 +127,28 @@ export async function removeCalibrationItem(slug: string, id: string): Promise<R
   })
 }
 
-type SyncPlan = { ok: true; files: { id: string; name: string }[]; unchanged: number; unsupported: string[]; skippedFolders: string[]; closed: number }
+/**
+ * Shows or hides samples on the client link, one file or a whole track's worth.
+ * Works on any track, submitted ones included: pulling an old creative off the
+ * link is never blocked. Nothing is deleted; the client's notes stay.
+ */
+export async function setCalibrationItemsVisible(slug: string, ids: string[], visible: boolean): Promise<Result> {
+  return staff(slug, async () => {
+    if (!Array.isArray(ids) || !ids.length || ids.length > 500 || !ids.every(validId)) return { ok: false, error: 'Invalid sample.' }
+    if (typeof visible !== 'boolean') return { ok: false, error: 'Invalid request.' }
+    const { error } = await createServiceClient().from('bfcm_calibration_items').update({ client_visible: visible }).eq('plan_slug', slug).in('id', ids)
+    if (error) return { ok: false, error: 'Unable to update the client link.' }
+    refresh(slug, (await calibrationOf(slug))?.share_token)
+    return { ok: true }
+  })
+}
+
+// Only the creatives sitting directly in Static / Motion count. Any folder inside them
+// ("V1", "_old-versions", "Pre-BF") is never opened, so the parent "01 Calibration"
+// link works however editors file their old cuts.
+const TRACK_DEPTH = 1
+
+type SyncPlan = { ok: true; files: { id: string; name: string }[]; unchanged: number; unsupported: string[]; skippedFolders: string[]; closed: number; found: string; ignored: string[] }
 /**
  * Saves the team's Drive folder and works out what to copy. Point it at "01 Calibration":
  * it reads the Motion and Statics folders inside, and a folder of loose files works too.
@@ -143,22 +164,25 @@ export async function syncCalibrationFolder(slug: string, folderUrl: string): Pr
     try { folderId = extractDriveFolderId(url) } catch { return { ok: false, error: 'Paste a Drive folder link (drive.google.com/drive/folders/…).' } }
     if (url.length > 500) return { ok: false, error: 'That link is too long.' }
     let tree
-    try { tree = await listDriveFolderTree(folderId, isTrackFolder) } catch (e) {
+    try { tree = await listDriveFolderTree(folderId, isTrackFolder, TRACK_DEPTH) } catch (e) {
       console.error('[bfcm calibration drive]', e)
       return { ok: false, error: 'Couldn’t open that folder. Check the link, and that the folder is shared with the CRM’s Drive account like Moments folders are.' }
     }
+    // Superseded cuts parked in "_old-versions" and the like never become samples.
+    const archived = new Set(tree.files.filter(f => isArchivedPath(f.folderPath)).map(f => (f.folderPath ?? []).join(' / ')))
+    tree = { ...tree, files: tree.files.filter(f => !isArchivedPath(f.folderPath)), skippedFolders: [...tree.skippedFolders, ...archived] }
     const db = createServiceClient()
     await db.from('bfcm_calibrations').update({ drive_folder_url: url }).eq('plan_slug', slug)
     if (!tree.files.length) {
       refresh(slug)
-      return { ok: false, error: `No images or videos found${tree.skippedFolders.length ? ` (skipped ${tree.skippedFolders.join(', ')})` : ''}. Paste the Calibration folder with Motion and Statics folders inside, and check it’s shared with the CRM.` }
+      return { ok: false, error: `No images or videos found (read ${tree.opened.map(o => `${o.path}: ${o.creatives}`).join(' · ')}${tree.ignored.length ? `; not images or videos: ${tree.ignored.slice(0, 10).join(', ')}` : ''})${tree.skippedFolders.length ? ` (skipped ${tree.skippedFolders.join(', ')})` : ''}. Paste the Calibration folder with Motion and Statics folders inside, and check it’s shared with the CRM.` }
     }
     const { data: tracks } = await db.from('bfcm_calibration_tracks').select('track,status').eq('plan_slug', slug)
     const submitted = new Set((tracks ?? []).filter(t => t.status === 'submitted').map(t => t.track as string))
     const open = tree.files.filter(f => !submitted.has(sampleTrack(f)))
     const { data: existing } = await db.from('bfcm_calibration_items').select('id,drive_file_id,drive_modified_at').eq('plan_slug', slug)
     const plan = planDriveSync(open, existing ?? [])
-    out = { ok: true, files: [...plan.add, ...plan.refresh.map(r => r.file)].map(f => ({ id: f.id, name: f.name })), unchanged: plan.unchanged, unsupported: plan.unsupported, skippedFolders: tree.skippedFolders, closed: tree.files.length - open.length }
+    out = { ok: true, files: [...plan.add, ...plan.refresh.map(r => r.file)].map(f => ({ id: f.id, name: f.name })), unchanged: plan.unchanged, unsupported: plan.unsupported, skippedFolders: tree.skippedFolders, closed: tree.files.length - open.length, found: tree.opened.map(o => `${o.path}: ${o.creatives}`).join(' · '), ignored: tree.ignored.slice(0, 20) }
     refresh(slug)
     return { ok: true }
   })
@@ -172,7 +196,7 @@ export async function copyCalibrationDriveFile(slug: string, fileId: string): Pr
     const db = createServiceClient()
     const cal = await calibrationOf(slug)
     if (!cal?.drive_folder_url) return { ok: false, error: 'Sync the folder first.' }
-    const file = (await listDriveFolderTree(extractDriveFolderId(cal.drive_folder_url), isTrackFolder)).files.find(f => f.id === fileId)
+    const file = (await listDriveFolderTree(extractDriveFolderId(cal.drive_folder_url), isTrackFolder, TRACK_DEPTH)).files.find(f => f.id === fileId && !isArchivedPath(f.folderPath))
     if (!file) return { ok: false, error: 'That file is no longer in the folder.' }
     if (await trackStatus(slug, sampleTrack(file)) === 'submitted') return { ok: false, error: `${file.name}: the client already submitted this track.` }
     const { data: existing } = await db.from('bfcm_calibration_items').select('id,drive_file_id,drive_modified_at').eq('plan_slug', slug).eq('drive_file_id', fileId).maybeSingle()
@@ -191,8 +215,8 @@ export async function publishCalibrationTrack(slug: string, track: string): Prom
     const cal = await calibrationOf(slug)
     if (!cal) return { ok: false, error: 'Start calibration first.' }
     const db = createServiceClient()
-    const { count } = await db.from('bfcm_calibration_items').select('id', { count: 'exact', head: true }).eq('plan_slug', slug).eq('track', track)
-    if (!count) return { ok: false, error: 'Add at least one sample before publishing.' }
+    const { count } = await db.from('bfcm_calibration_items').select('id', { count: 'exact', head: true }).eq('plan_slug', slug).eq('track', track).eq('client_visible', true)
+    if (!count) return { ok: false, error: 'Tick at least one sample to show the client before publishing.' }
     const { error } = await db.from('bfcm_calibration_tracks').update({ status: 'sent', sent_at: new Date().toISOString() }).eq('plan_slug', slug).eq('track', track).eq('status', 'draft')
     if (error) return { ok: false, error: 'Unable to publish.' }
     await setTrackTaskStatus(slug, track, 'waiting_client')
@@ -228,8 +252,8 @@ async function planOfToken(token: string) {
 async function openItem(token: string, itemId: unknown) {
   const slug = await planOfToken(token)
   if (!slug || !validId(itemId)) return null
-  const { data: item } = await createServiceClient().from('bfcm_calibration_items').select('id,track').eq('id', itemId).eq('plan_slug', slug).maybeSingle()
-  if (!item || await trackStatus(slug, item.track as CalibrationTrack) !== 'sent') return null
+  const { data: item } = await createServiceClient().from('bfcm_calibration_items').select('id,track,client_visible').eq('id', itemId).eq('plan_slug', slug).maybeSingle()
+  if (!item || !item.client_visible || await trackStatus(slug, item.track as CalibrationTrack) !== 'sent') return null
   return { slug, id: item.id as string }
 }
 

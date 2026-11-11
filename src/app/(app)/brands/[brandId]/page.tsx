@@ -19,6 +19,8 @@ import BrandProjects from '@/components/brand/BrandProjects'
 import ClientRulesBoard from '@/components/brand/ClientRulesBoard'
 import ContactsCard from '@/components/brand/ContactsCard'
 import IntakeAnswers from '@/components/brand/IntakeAnswers'
+import IntakePanel from '@/components/brand/IntakePanel'
+import { intakeCompleteness, normalizeIntake } from '@/lib/brands/intake'
 import OnboardingCall from '@/components/brand/OnboardingCall'
 import { loadContracts, type BrandContract } from '@/lib/bfcm/production-server'
 import { dnaSources } from '@/lib/brands/dna-sources'
@@ -105,9 +107,17 @@ export default async function BrandPage({
 
   // A file linked to a contract is a contract, even if it was uploaded elsewhere.
   const contractDocIds = new Set(contracts.map(c => c.document_id).filter(Boolean))
-  const kindOf = (d: BrandDocument): DocKind => contractDocIds.has(d.id) ? 'contract' : d.kind ?? 'other'
+  const kindOf = (d: BrandDocument): DocKind => contractDocIds.has(d.id) ? 'contract' : (d.kind ?? 'other') as DocKind
   const docsOf = (k: DocKind) => documents.filter(d => kindOf(d) === k)
   const hasGuidelines = docsOf('guidelines').length > 0 || !!b.brand_guidelines
+  const intakeItems = intakeCompleteness({
+    form: b.intake_form ? normalizeIntake(b.intake_form) : null,
+    docKinds: documents.map(d => kindOf(d)),
+    hasGuidelineText: !!b.brand_guidelines?.trim(),
+    aiSensitivity: b.ai_sensitivity ?? null,
+    contactCount: contacts.length,
+    dna,
+  })
 
   // Who works on this account: the named leads, then whoever is on live work.
   const nameOf = (id: string | null | undefined) => (id ? people[id] : null)
@@ -192,6 +202,16 @@ export default async function BrandPage({
       {tab === 'overview' && (
         <div className="bp-layout">
           <div className="bp-col">
+            <IntakePanel
+              brandId={brandId}
+              brandName={b.name}
+              token={b.intake_token ?? null}
+              items={intakeItems}
+              submittedAt={b.intake_submitted_at ?? null}
+              updatedAt={b.intake_updated_at ?? null}
+              canEdit={isAuthorized}
+            />
+
             {/* What was agreed, readable by the whole team */}
             <section className="mo-panel" aria-label="Contract">
               <div className="bp-card-head">
@@ -350,6 +370,24 @@ export default async function BrandPage({
                   emptyText="No contract files."
                 />
               </div>
+              {([
+                ['logo', 'Logos', 'Upload logo files', 'Vector (SVG, AI, EPS, PDF) and PNG versions'],
+                ['product_images', 'Product images', 'Upload product images', 'High-quality packshots and lifestyle shots'],
+                ['fonts', 'Fonts', 'Upload font files', 'OTF, TTF, WOFF or a .zip'],
+              ] as const).map(([k, label, up, hint]) => (
+                <div key={k}>
+                  <p className="bp-label">{label}</p>
+                  <BrandDocuments
+                    brandId={brandId}
+                    documents={docsOf(k)}
+                    kind={k}
+                    title={label}
+                    uploadLabel={up}
+                    uploadHint={hint}
+                    emptyText={`No ${label.toLowerCase()} yet. The client can add them on the intake link.`}
+                  />
+                </div>
+              ))}
               <div>
                 <p className="bp-label">Onboarding call</p>
                 <OnboardingCall brandId={brandId} url={b.onboarding_call_url ?? null} transcript={b.onboarding_transcript ?? null} canEdit={isAuthorized} />
@@ -361,7 +399,7 @@ export default async function BrandPage({
                   brandId={brandId}
                   documents={docsOf('intake')}
                   kind="intake"
-                  title="Intake files"
+                  title="Intake files & marketing calendar"
                   uploadLabel="Upload intake form"
                   uploadHint="The filled-in intake form or questionnaire"
                   emptyText="No intake files."

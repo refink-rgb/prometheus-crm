@@ -14,7 +14,7 @@ import s from './BfcmProduction.module.css'
 type Plan = { allocation: Allocation; prePercent: number; noPreBf: boolean; locked: boolean }
 type CalibrationData = { calibration: Calibration | null; tracks: CalibrationTrackState[]; items: CalibrationItem[]; feedback: CalibrationFeedback[] } | null
 type Props = {
-  slug: string; tasks: TaskNode[] | null; comments: BfcmComment[]; people: Person[]; meId: string | null; plan: Plan; today: string
+  slug: string; brandName: string; tasks: TaskNode[] | null; comments: BfcmComment[]; people: Person[]; meId: string | null; plan: Plan; today: string
   calibration: CalibrationData; brandId: string | null; contracts: BrandContract[] | null; documents: { id: string; file_name: string }[]
 }
 type Ctx = Omit<Props, 'tasks' | 'brandId' | 'contracts' | 'documents'> & {
@@ -168,7 +168,7 @@ function TaskPanel({ node, ctx, sub }: { node: TaskNode; ctx: Ctx; sub: boolean 
         {canSplit && <button type="button" className="btn-secondary btn-sm" disabled={busy} title="One subtask per category and phase, with counts read from the plan" onClick={() => void run(() => splitTaskByPlan(slug, node.id))}>{split ? 'Add missing from plan' : 'Split by plan'}</button>}
       </form>
     </div>}
-    {node.kind === 'samples' && !sub && <BfcmCalibrationStaff slug={slug} data={ctx.calibration} revisions={ctx.revisions} />}
+    {node.kind === 'samples' && !sub && <BfcmCalibrationStaff slug={slug} brandName={ctx.brandName} data={ctx.calibration} revisions={ctx.revisions} />}
     <div>
       <p className={s.panelTitle}>Comments</p>
       <BfcmComments slug={slug} stepId={node.id} comments={ctx.comments.filter(c => c.step_id === node.id)} people={ctx.people} meId={ctx.meId} placeholder="Comment for the team. Type @ to mention someone." />
