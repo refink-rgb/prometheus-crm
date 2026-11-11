@@ -1,7 +1,7 @@
 'use client'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import Avatar from '@/components/Avatar'
+import AssigneePicker from '@/components/AssigneePicker'
 import { DEFAULT_STEPS, KIND_CATEGORIES, STEP_STATUSES, effectiveStatus, isClosed, planKeyCount, productionCounts, stepStatusLabel, type Person, type TaskNode } from '@/lib/bfcm/production'
 import type { Allocation } from '@/lib/bfcm/model'
 import type { BfcmComment, BrandContract, Calibration, CalibrationFeedback, CalibrationItem, CalibrationTrackState } from '@/lib/bfcm/production-server'
@@ -136,7 +136,7 @@ function TaskRow({ node, ctx, sub }: { node: TaskNode; ctx: Ctx; sub: boolean })
         {meta && <span className={s.meta}>{meta}</span>}
       </div>
     </div>
-    <AssigneePicker people={people} selected={node.assignees} disabled={busy} title={node.title} onChange={ids => void run(() => setTaskAssignees(slug, node.id, ids))} />
+    <AssigneePicker className={s.people} people={people} selected={node.assignees} disabled={busy} title={node.title} onChange={ids => void run(() => setTaskAssignees(slug, node.id, ids))} />
     <span className={s.dueCell}>
       <input type="date" className={`${s.due} ${late ? s.late : ''}`} value={node.due_date ?? ''} disabled={busy} aria-label={`Due: ${node.title}`} title={late ? 'Late' : 'Due date'}
         onChange={e => void run(() => updateTask(slug, node.id, { due_date: e.target.value || null }))} />
@@ -180,37 +180,4 @@ function RenameInput({ initial, onDone }: { initial: string; onDone: (title: str
   const [value, setValue] = useState(initial)
   return <input className={s.nameInput} autoFocus value={value} maxLength={120} aria-label="Task name" onChange={e => setValue(e.target.value)}
     onBlur={() => onDone(value.trim())} onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') onDone(initial) }} />
-}
-
-/** Avatars of everyone on the task; click to add or remove people. */
-function AssigneePicker({ people, selected, disabled, title, onChange }: { people: Person[]; selected: string[]; disabled: boolean; title: string; onChange: (ids: string[]) => void }) {
-  const [open, setOpen] = useState(false)
-  const [query, setQuery] = useState('')
-  const ref = useRef<HTMLDivElement>(null)
-  const byId = useMemo(() => new Map(people.map(p => [p.id, p])), [people])
-  const chosen = selected.map(id => byId.get(id)).filter((p): p is Person => !!p)
-  const options = people.filter(p => p.name.toLowerCase().includes(query.toLowerCase()))
-  useEffect(() => {
-    if (!open) return
-    const close = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false) }
-    document.addEventListener('mousedown', close)
-    return () => document.removeEventListener('mousedown', close)
-  }, [open])
-  return <div className={s.people} ref={ref}>
-    <button className={s.stack} disabled={disabled} aria-haspopup="listbox" aria-expanded={open} aria-label={`People on ${title}: ${chosen.map(p => p.name).join(', ') || 'nobody'}`} onClick={() => setOpen(o => !o)}>
-      {chosen.slice(0, 4).map(p => <Avatar key={p.id} name={p.name} size={24} title={p.name} />)}
-      {chosen.length > 4 && <span className={s.meta} style={{ marginLeft: 4 }}>+{chosen.length - 4}</span>}
-      {chosen.length === 0 && <span className={s.addPerson}>+</span>}
-    </button>
-    {open && <div className={s.popover} role="listbox" aria-multiselectable>
-      <input className={s.search} autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder="Find a teammate" aria-label="Find a teammate" />
-      {options.map(p => {
-        const on = selected.includes(p.id)
-        return <button key={p.id} role="option" aria-selected={on} className={s.option} disabled={disabled} onClick={() => onChange(on ? selected.filter(id => id !== p.id) : [...selected, p.id])}>
-          <Avatar name={p.name} size={22} />{p.name}{on && <span className={s.check}>✓</span>}
-        </button>
-      })}
-      {options.length === 0 && <p className={s.muted} style={{ margin: 8 }}>No one matches.</p>}
-    </div>}
-  </div>
 }

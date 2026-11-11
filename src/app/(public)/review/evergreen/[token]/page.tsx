@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { createServiceClient } from '@/lib/supabase/service'
-import { COMMENT_COLUMNS, VIDEO_COLUMNS, isReviewToken, type EvergreenComment, type EvergreenVideo } from '@/lib/evergreen'
+import { isReviewToken, toComment, toCreative } from '@/lib/evergreen'
 import EvergreenReviewPanel from '@/components/evergreen/EvergreenReviewPanel'
 import BrandMark from '@/components/BrandMark'
 import ThemeToggle from '@/components/ThemeToggle'
@@ -22,21 +22,23 @@ export default async function EvergreenReviewPage({ params }: { params: Promise<
     .eq('share_token', token).maybeSingle()
   if (!ad || ad.is_archived) notFound()
 
-  const [{ data: videosRaw }, { data: commentsRaw }] = await Promise.all([
-    service.from('evergreen_ad_videos').select(VIDEO_COLUMNS)
+  // select('*') so the link keeps working before the 20261110 migration adds
+  // media_type and pins; only the fields below reach the page.
+  const [{ data: creativeRows }, { data: commentRows }] = await Promise.all([
+    service.from('evergreen_ad_videos').select('*')
       .eq('ad_id', ad.id).eq('client_visible', true).order('sort_order').order('created_at'),
     // Never team notes, never feedback the team has checked off, never a
     // staff-authored row whatever its audience says.
-    service.from('evergreen_ad_comments').select(COMMENT_COLUMNS)
+    service.from('evergreen_ad_comments').select('*')
       .eq('ad_id', ad.id).eq('audience', 'client').is('author_id', null).is('resolved_at', null).order('created_at'),
   ])
 
   // Only what the client view needs: no storage paths or uploader emails in the page payload.
-  const videos = ((videosRaw ?? []) as unknown as EvergreenVideo[]).map(v => ({
-    id: v.id, name: v.name, video_url: v.video_url, poster_url: v.poster_url, status: v.status, version: v.version,
+  const creatives = (creativeRows ?? []).map(toCreative).map(c => ({
+    id: c.id, name: c.name, media_type: c.media_type, url: c.video_url, poster_url: c.poster_url, status: c.status, version: c.version,
   }))
-  const comments = ((commentsRaw ?? []) as unknown as EvergreenComment[]).map(c => ({
-    id: c.id, video_id: c.video_id, author_name: c.author_name, content: c.content, created_at: c.created_at,
+  const comments = (commentRows ?? []).map(toComment).map(c => ({
+    id: c.id, creative_id: c.video_id, author_name: c.author_name, content: c.content, pin_x: c.pin_x, pin_y: c.pin_y, created_at: c.created_at,
   }))
   const brandName = (ad.brands as unknown as { name?: string } | null)?.name ?? ''
 
@@ -79,13 +81,13 @@ export default async function EvergreenReviewPage({ params }: { params: Promise<
               background: 'var(--accent-muted)', border: '1px solid color-mix(in srgb, var(--accent) 20%, transparent)',
             }}>
               <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
-                ⏳ Watch each video below. Approve it, or leave a comment saying what to change.
+                ⏳ Look through each static and video below. Approve it, or leave a note saying what to change.
               </span>
             </div>
           )}
         </div>
 
-        <EvergreenReviewPanel token={token} videos={videos} comments={comments} approved={ad.client_approved} />
+        <EvergreenReviewPanel token={token} creatives={creatives} comments={comments} approved={ad.client_approved} />
       </main>
     </div>
   )

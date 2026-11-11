@@ -3,6 +3,8 @@ import type { Project } from '@/lib/types'
 import { isProjectOverdue, parseAndDaysUntil } from '@/lib/stageColors'
 import { easternToday } from '@/lib/eastern'
 import type { MyBfcmTask } from '@/lib/bfcm/production-server'
+import type { MyEvergreenAd } from '@/lib/evergreen-server'
+import { EVERGREEN_STAGE_LABELS } from '@/lib/evergreen'
 
 type PipelineProject = Project & { brands: { id: string; name: string } }
 
@@ -12,11 +14,14 @@ export default function MyAssignmentsPanel({
   projects,
   profileId,
   bfcmTasks = [],
+  evergreenAds = [],
 }: {
   projects: PipelineProject[]
   profileId: string
   /** Open BFCM production tasks this person is on (see loadMyBfcmTasks). */
   bfcmTasks?: MyBfcmTask[]
+  /** Evergreen ads this person is building that are not live yet (see loadMyEvergreenAds). */
+  evergreenAds?: MyEvergreenAd[]
 }) {
   const today = easternToday()
   const mine = projects
@@ -30,11 +35,11 @@ export default function MyAssignmentsPanel({
           My Work
         </h3>
         <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-          {mine.length} project{mine.length === 1 ? '' : 's'}{bfcmTasks.length > 0 ? ` · ${bfcmTasks.length} BFCM` : ''}
+          {mine.length} project{mine.length === 1 ? '' : 's'}{bfcmTasks.length > 0 ? ` · ${bfcmTasks.length} BFCM` : ''}{evergreenAds.length > 0 ? ` · ${evergreenAds.length} evergreen` : ''}
         </span>
       </div>
 
-      {mine.length === 0 && bfcmTasks.length === 0 ? (
+      {mine.length === 0 && bfcmTasks.length === 0 && evergreenAds.length === 0 ? (
         <p style={{ fontSize: 'var(--text-base)', color: 'var(--text-muted)', padding: 'var(--space-4) 0' }}>
           Nothing assigned to you right now.
         </p>
@@ -117,6 +122,35 @@ export default function MyAssignmentsPanel({
                   }}>
                     {t.due_date
                       ? new Date(`${t.due_date}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                      : '—'}
+                  </span>
+                </div>
+              </Link>
+            )
+          })}
+          {evergreenAds.map(a => {
+            const late = !!a.due_date && a.due_date < today
+            return (
+              <Link key={a.id} href={`/evergreen-ads/${a.id}`} style={{ textDecoration: 'none', display: 'block' }}>
+                <div className="pipeline-row" style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  gap: 'var(--space-3)', padding: 'var(--space-2) var(--space-1)',
+                }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 'var(--text-2xs)', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                      {a.brand ? `${a.brand} · ` : ''}Evergreen · {EVERGREEN_STAGE_LABELS[a.stage] ?? a.stage}
+                    </div>
+                    <div style={{ fontSize: 'var(--text-base)', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {a.name}
+                    </div>
+                  </div>
+                  <span style={{
+                    fontSize: 'var(--text-xs)', whiteSpace: 'nowrap', flexShrink: 0,
+                    color: late ? 'var(--urgent-overdue)' : 'var(--text-muted)',
+                    fontWeight: late ? 600 : 400,
+                  }}>
+                    {a.due_date
+                      ? new Date(`${a.due_date}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
                       : '—'}
                   </span>
                 </div>

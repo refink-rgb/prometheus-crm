@@ -10,9 +10,11 @@ import {
   type DragEndEvent, type DragOverEvent, type DragStartEvent,
 } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
-import { ChevronLeft, ChevronRight, ExternalLink, FileText, GripVertical, Plus, Search, Star, Video, X } from 'lucide-react'
+import { CalendarDays, ChevronLeft, ChevronRight, ExternalLink, FileText, GripVertical, Image as ImageIcon, Plus, Search, Star, Video, X } from 'lucide-react'
+import Avatar from '@/components/Avatar'
+import AssigneePicker, { type Person } from '@/components/AssigneePicker'
 import {
-  EVERGREEN_STAGES, EVERGREEN_STAGE_COLORS, EVERGREEN_STAGE_LABELS, briefLinkLabel,
+  EVERGREEN_STAGES, EVERGREEN_STAGE_COLORS, EVERGREEN_STAGE_LABELS, briefLinkLabel, countLabel, shortDate,
   type EvergreenCard, type EvergreenStage,
 } from '@/lib/evergreen'
 import { createEvergreenAd, moveEvergreenAd } from '@/lib/evergreen-actions'
@@ -24,9 +26,18 @@ import { createEvergreenAd, moveEvergreenAd } from '@/lib/evergreen-actions'
 
 type BrandOption = { id: string; name: string }
 
-export default function EvergreenBoard({ cards, brands, canEdit }: {
+// "Who's on it" filter: everyone, me, nobody yet, or one teammate's id.
+const ME = '__me'
+const NOBODY = '__nobody'
+
+export default function EvergreenBoard({ cards, brands, people, meId, teamReady, today, canEdit }: {
   cards: EvergreenCard[]
   brands: BrandOption[]
+  people: Person[]
+  meId: string | null
+  /** False until the 20261110 migration: no people or due dates yet. */
+  teamReady: boolean
+  today: string
   canEdit: boolean
 }) {
   const router = useRouter()
@@ -39,6 +50,7 @@ export default function EvergreenBoard({ cards, brands, canEdit }: {
 
   const [search, setSearch] = useState('')
   const [brand, setBrand] = useState('all')
+  const [person, setPerson] = useState('all')
   const deferredSearch = useDeferredValue(search)
 
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -59,6 +71,9 @@ export default function EvergreenBoard({ cards, brands, canEdit }: {
     const shown = local.filter(c => {
       if (brand !== 'all' && c.brand_id !== brand) return false
       if (q && !(c.name.toLowerCase().includes(q) || (c.brands?.name ?? '').toLowerCase().includes(q))) return false
+      if (person === ME && !(meId && c.assignees.includes(meId))) return false
+      if (person === NOBODY && c.assignees.length) return false
+      if (person !== 'all' && person !== ME && person !== NOBODY && !c.assignees.includes(person)) return false
       return true
     })
     return EVERGREEN_STAGES.map(stage => ({
@@ -67,12 +82,12 @@ export default function EvergreenBoard({ cards, brands, canEdit }: {
         .filter(c => c.stage === stage)
         .sort((a, b) => Number(!!b.brands?.is_priority) - Number(!!a.brands?.is_priority)),
     }))
-  }, [local, deferredSearch, brand])
+  }, [local, deferredSearch, brand, person, meId])
 
   const move = useCallback((card: EvergreenCard, stage: EvergreenStage) => {
     if (!canEdit || card.stage === stage) return
-    if (stage === 'client_review' && card.videoCount === 0) {
-      setErr(`“${card.name}” has no videos yet. Upload one before sending it to Client Review.`)
+    if (stage === 'client_review' && card.staticCount + card.videoCount === 0) {
+      setErr(`“${card.name}” has nothing to review yet. Upload a static or a video before sending it to Client Review.`)
       return
     }
     const snapshot = local
@@ -123,13 +138,22 @@ export default function EvergreenBoard({ cards, brands, canEdit }: {
           <option value="all">All brands</option>
           {brandOptions.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
         </select>
-        {(search || brand !== 'all') && (
-          <button type="button" className="btn-secondary btn-sm" onClick={() => { setSearch(''); setBrand('all') }}>
+        {teamReady && (
+          <select value={person} onChange={e => setPerson(e.target.value)} aria-label="Filter by person"
+            style={{ width: 'auto', minWidth: 150, padding: '7px 12px', borderRadius: 20, fontSize: 'var(--text-sm)' }}>
+            <option value="all">Everyone</option>
+            {meId && <option value={ME}>Assigned to me</option>}
+            <option value={NOBODY}>Nobody yet</option>
+            {people.filter(p => p.id !== meId).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        )}
+        {(search || brand !== 'all' || person !== 'all') && (
+          <button type="button" className="btn-secondary btn-sm" onClick={() => { setSearch(''); setBrand('all'); setPerson('all') }}>
             <X size={12} aria-hidden /> Clear
           </button>
         )}
         <span style={{ flex: 1 }} />
-        {canEdit && <NewAdButton brands={brands} />}
+        {canEdit && <NewAdButton brands={brands} people={people} teamReady={teamReady} />}
       </div>
 
       {err && (
@@ -165,13 +189,15 @@ export default function EvergreenBoard({ cards, brands, canEdit }: {
                 isDragging={activeId !== null}
                 draggedId={activeId}
                 onMove={canEdit ? move : undefined}
+                people={people}
+                today={today}
               />
             ))}
           </div>
           <DragOverlay dropAnimation={null}>
             {activeCard ? (
               <div style={{ transform: 'rotate(1.5deg)', filter: 'drop-shadow(0 8px 24px rgba(0,0,0,0.5))' }}>
-                <Card card={activeCard} isGhost />
+                <Card card={activeCard} isGhost people={people} today={today} />
               </div>
             ) : null}
           </DragOverlay>
@@ -183,13 +209,15 @@ export default function EvergreenBoard({ cards, brands, canEdit }: {
 
 // ── Column ──────────────────────────────────────────────────────────────────
 
-const Column = memo(function Column({ stage, cards, isOver, isDragging, draggedId, onMove }: {
+const Column = memo(function Column({ stage, cards, isOver, isDragging, draggedId, onMove, people, today }: {
   stage: EvergreenStage
   cards: EvergreenCard[]
   isOver: boolean
   isDragging: boolean
   draggedId: string | null
   onMove?: (card: EvergreenCard, stage: EvergreenStage) => void
+  people: Person[]
+  today: string
 }) {
   const color = EVERGREEN_STAGE_COLORS[stage]
   const { setNodeRef } = useDroppable({ id: stage })
@@ -228,7 +256,7 @@ const Column = memo(function Column({ stage, cards, isOver, isDragging, draggedI
         ) : (
           cards.filter(c => c.id !== draggedId).map(c => (
             <div key={c.id} style={{ flexShrink: 0 }}>
-              <Card card={c} onMove={onMove} />
+              <Card card={c} onMove={onMove} people={people} today={today} />
             </div>
           ))
         )}
@@ -245,10 +273,12 @@ const ctrlStyle: React.CSSProperties = {
   color: 'var(--text-muted)', padding: 0, cursor: 'pointer',
 }
 
-function Card({ card, isGhost = false, onMove }: {
+function Card({ card, isGhost = false, onMove, people, today }: {
   card: EvergreenCard
   isGhost?: boolean
   onMove?: (card: EvergreenCard, stage: EvergreenStage) => void
+  people: Person[]
+  today: string
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: card.id, disabled: isGhost || !onMove })
   const idx = EVERGREEN_STAGES.indexOf(card.stage)
@@ -257,6 +287,8 @@ function Card({ card, isGhost = false, onMove }: {
   const color = EVERGREEN_STAGE_COLORS[card.stage]
   const brandName = card.brands?.name ?? 'Unknown brand'
   const isPriority = !!card.brands?.is_priority
+  const late = !!card.due_date && card.stage !== 'live' && card.due_date < today
+  const team = card.assignees.map(id => people.find(p => p.id === id)).filter((p): p is Person => !!p)
 
   return (
     <div
@@ -338,9 +370,22 @@ function Card({ card, isGhost = false, onMove }: {
             </span>
           )
         )}
-        <span style={{ ...chip, color: card.videoCount ? 'var(--text-secondary)' : 'var(--text-muted)' }} title={`${card.videoCount} video${card.videoCount === 1 ? '' : 's'}`}>
-          <Video size={11} aria-hidden /> {card.videoCount}
-        </span>
+        {card.staticCount > 0 && (
+          <span style={{ ...chip, color: 'var(--text-secondary)' }} title={countLabel(card.staticCount, 'image')}>
+            <ImageIcon size={11} aria-hidden /> {card.staticCount}
+          </span>
+        )}
+        {(card.videoCount > 0 || card.staticCount === 0) && (
+          <span style={{ ...chip, color: card.videoCount ? 'var(--text-secondary)' : 'var(--text-muted)' }} title={countLabel(card.videoCount, 'video')}>
+            <Video size={11} aria-hidden /> {card.videoCount}
+          </span>
+        )}
+        {card.due_date && (
+          <span style={{ ...chip, ...(late ? { color: 'var(--danger)', borderColor: 'color-mix(in srgb, var(--danger) 35%, transparent)' } : { color: 'var(--text-secondary)' }) }}
+            title={late ? 'Late' : 'Due date'}>
+            <CalendarDays size={11} aria-hidden /> {late ? 'Late · ' : ''}{shortDate(card.due_date)}
+          </span>
+        )}
         {card.client_approved ? (
           <span style={{ ...chip, color: 'var(--success)', borderColor: 'color-mix(in srgb, var(--success) 35%, transparent)', background: 'color-mix(in srgb, var(--success) 10%, transparent)' }}>
             ✓ Client approved
@@ -354,6 +399,12 @@ function Card({ card, isGhost = false, onMove }: {
             Waiting on client
           </span>
         ) : null}
+        {team.length > 0 && (
+          <span style={{ marginLeft: 'auto', display: 'inline-flex' }} title={team.map(p => p.name).join(', ')} aria-label={`People: ${team.map(p => p.name).join(', ')}`}>
+            {team.slice(0, 3).map((p, i) => <span key={p.id} style={{ marginLeft: i ? -6 : 0, display: 'inline-flex' }}><Avatar name={p.name} size={20} /></span>)}
+            {team.length > 3 && <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 3 }}>+{team.length - 3}</span>}
+          </span>
+        )}
       </div>
     </div>
   )
@@ -385,12 +436,14 @@ function BriefChip({ url }: { url: string }) {
 
 // ── New ad ──────────────────────────────────────────────────────────────────
 
-function NewAdButton({ brands }: { brands: BrandOption[] }) {
+function NewAdButton({ brands, people, teamReady }: { brands: BrandOption[]; people: Person[]; teamReady: boolean }) {
   const dialog = useRef<HTMLDialogElement>(null)
   const router = useRouter()
   const [brandId, setBrandId] = useState('')
   const [name, setName] = useState('')
   const [briefUrl, setBriefUrl] = useState('')
+  const [dueDate, setDueDate] = useState('')
+  const [assigneeIds, setAssigneeIds] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
@@ -408,11 +461,14 @@ function NewAdButton({ brands }: { brands: BrandOption[] }) {
     setBusy(true)
     setError('')
     try {
-      const r = await createEvergreenAd({ brandId, name, briefUrl })
+      const r = await createEvergreenAd({ brandId, name, briefUrl, ...(teamReady ? { dueDate: dueDate || null, assigneeIds } : {}) })
       if (!r.ok) { setError(r.error); return }
+      if (r.warning) window.alert(r.warning)
       dialog.current?.close()
       setName('')
       setBriefUrl('')
+      setDueDate('')
+      setAssigneeIds([])
       router.refresh()
     } catch {
       setError('Could not create the ad. Please try again.')
@@ -432,7 +488,8 @@ function NewAdButton({ brands }: { brands: BrandOption[] }) {
         aria-labelledby="evergreen-new-title"
         onCancel={e => { if (busy) e.preventDefault() }}
         style={{
-          width: 'min(500px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 40px)', margin: 'auto', position: 'fixed', inset: 0,
+          // overflow visible: the people list opens below the dialog instead of being cut off inside it.
+          width: 'min(500px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 40px)', overflow: 'visible', margin: 'auto', position: 'fixed', inset: 0,
           padding: 24, border: '1px solid var(--border)', borderRadius: 16, background: 'var(--surface)', color: 'var(--text-primary)',
         }}
       >
@@ -458,6 +515,19 @@ function NewAdButton({ brands }: { brands: BrandOption[] }) {
             Brief link <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(optional — Google Doc, Drive…)</span>
             <input type="text" inputMode="url" value={briefUrl} onChange={e => setBriefUrl(e.target.value)} disabled={busy} placeholder="https://docs.google.com/…" />
           </label>
+          {teamReady && (
+            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <div style={{ ...field, gap: 0 }}>
+                {/* Not a <label>: a label would re-click the picker's button when an option inside it is chosen. */}
+                <span style={{ fontSize: 12, fontWeight: 500, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>Who’s building it</span>
+                <AssigneePicker people={people} selected={assigneeIds} disabled={busy} title="the new ad" align="left" showNames onChange={setAssigneeIds} />
+              </div>
+              <label style={field}>
+                Due date <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(optional)</span>
+                <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} disabled={busy} style={{ width: 'auto' }} />
+              </label>
+            </div>
+          )}
           {error && <p role="alert" style={{ margin: 0, color: 'var(--danger)', fontSize: 13 }}>{error}</p>}
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button type="button" className="btn-secondary" disabled={busy} onClick={close}>Cancel</button>

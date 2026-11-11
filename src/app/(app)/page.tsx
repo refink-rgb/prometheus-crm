@@ -6,6 +6,7 @@ import { easternToday } from '@/lib/eastern'
 import { loadDashboard } from '@/lib/dashboard/load'
 import { computeInsights } from '@/lib/insights'
 import { loadMyBfcmTasks } from '@/lib/bfcm/production-server'
+import { loadMyEvergreenAds } from '@/lib/evergreen-server'
 import MyAssignmentsPanel from '@/components/MyAssignmentsPanel'
 import InsightsCharts from '@/components/InsightsCharts'
 import DashboardTabs, { type DashboardTab } from '@/components/dashboard/DashboardTabs'
@@ -75,13 +76,14 @@ export default async function DashboardPage({
 
 async function EditorHome({ profileId }: { profileId: string }) {
   const supabase = await createClient()
-  const [{ data: pipelineRaw }, bfcmTasks] = await Promise.all([
+  const [{ data: pipelineRaw }, bfcmTasks, evergreenAds] = await Promise.all([
     supabase
       .from('projects')
       .select('id, name, brand_id, due_date, is_complete, lp_stage, creatives_stage, lp_approved, creatives_approved, lp_editor_id, creative_editor_id, brands(id, name), moment_code')
       .eq('is_complete', false)
       .order('due_date', { ascending: true }),
     loadMyBfcmTasks(profileId),
+    loadMyEvergreenAds(profileId),
   ])
   const pipeline = (pipelineRaw ?? []) as unknown as PipelineProject[]
   return (
@@ -89,7 +91,7 @@ async function EditorHome({ profileId }: { profileId: string }) {
       <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.02em', marginBottom: 'var(--space-5)' }}>
         Dashboard
       </h1>
-      <MyAssignmentsPanel projects={pipeline} profileId={profileId} bfcmTasks={bfcmTasks} />
+      <MyAssignmentsPanel projects={pipeline} profileId={profileId} bfcmTasks={bfcmTasks} evergreenAds={evergreenAds} />
     </div>
   )
 }

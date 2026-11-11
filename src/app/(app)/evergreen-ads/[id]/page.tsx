@@ -2,10 +2,10 @@ import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { createClient, getCachedUser } from '@/lib/supabase/server'
 import { canEdit } from '@/lib/permissions'
-import {
-  AD_COLUMNS, COMMENT_COLUMNS, MIGRATION_FILE, MISSING_TABLE, VIDEO_COLUMNS,
-  type EvergreenAd, type EvergreenComment, type EvergreenVideo,
-} from '@/lib/evergreen'
+import { easternToday } from '@/lib/eastern'
+import { loadPeople } from '@/lib/bfcm/production-server'
+import { MIGRATION_FILE, MISSING_TABLE, isUuid, toAd, toComment, toCreative } from '@/lib/evergreen'
+import { loadAdAssignees } from '@/lib/evergreen-server'
 import EvergreenAdDetail from '@/components/evergreen/EvergreenAdDetail'
 import MigrationNotice from '@/components/evergreen/MigrationNotice'
 
@@ -18,12 +18,14 @@ export default async function EvergreenAdPage({ params }: { params: Promise<{ id
   const supabase = await createClient()
   const user = await getCachedUser()
   if (!user) redirect('/login')
-  const isEditor = await canEdit(user.email)
+  if (!isUuid(id)) notFound()
 
-  if (!/^[0-9a-f-]{36}$/i.test(id)) notFound()
-
-  const { data: adRaw, error: adErr } = await supabase
-    .from('evergreen_ads').select(`${AD_COLUMNS}, brands(id, name)`).eq('id', id).maybeSingle()
+  // select('*') everywhere: before the 20261110 migration the newer columns are
+  // missing, and that must only switch those features off, not break the page.
+  const [isEditor, { data: adRow, error: adErr }] = await Promise.all([
+    canEdit(user.email),
+    supabase.from('evergreen_ads').select('*, brands(id, name)').eq('id', id).maybeSingle(),
+  ])
 
   if (MISSING_TABLE.has(adErr?.code ?? '')) {
     return (
@@ -33,28 +35,28 @@ export default async function EvergreenAdPage({ params }: { params: Promise<{ id
       </div>
     )
   }
-  if (!adRaw) notFound()
+  if (!adRow) notFound()
 
-  const ad = adRaw as unknown as EvergreenAd & { brands: { id: string; name: string } | null }
-
-  const [{ data: videosRaw }, { data: commentsRaw }, drive] = await Promise.all([
-    supabase.from('evergreen_ad_videos').select(VIDEO_COLUMNS).eq('ad_id', id).order('sort_order').order('created_at'),
-    supabase.from('evergreen_ad_comments').select(COMMENT_COLUMNS).eq('ad_id', id).order('created_at'),
-    // Read on its own: before the Drive migration runs this column is missing,
-    // and that must only switch off Drive sync, not break the page.
-    supabase.from('evergreen_ads').select('drive_folder_url').eq('id', id).maybeSingle(),
+  const [{ data: creativeRows }, { data: commentRows }, team, people] = await Promise.all([
+    supabase.from('evergreen_ad_videos').select('*').eq('ad_id', id).order('sort_order').order('created_at'),
+    supabase.from('evergreen_ad_comments').select('*').eq('ad_id', id).order('created_at'),
+    loadAdAssignees(supabase, [id]),
+    loadPeople(),
   ])
 
   return (
     <div className="page-contrast" style={{ padding: '20px 32px 48px', maxWidth: 1320 }}>
       <EvergreenAdDetail
-        ad={ad}
-        brandName={ad.brands?.name ?? 'Unknown brand'}
-        videos={(videosRaw ?? []) as unknown as EvergreenVideo[]}
-        comments={(commentsRaw ?? []) as unknown as EvergreenComment[]}
+        ad={toAd(adRow)}
+        brandName={(adRow.brands as { name?: string } | null)?.name ?? 'Unknown brand'}
+        creatives={(creativeRows ?? []).map(toCreative)}
+        comments={(commentRows ?? []).map(toComment)}
         canEdit={isEditor}
-        driveFolderUrl={(drive.data?.drive_folder_url as string | null | undefined) ?? null}
-        driveReady={!drive.error}
+        people={people}
+        assignees={team.byAd.get(id) ?? []}
+        teamReady={team.ready}
+        driveFolderUrl={(adRow.drive_folder_url as string | null | undefined) ?? null}
+        today={easternToday()}
       />
     </div>
   )
