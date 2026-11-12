@@ -24,34 +24,37 @@ const clientStatus = (status: string) => CLIENT_STATUS[status] ?? { label: statu
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
 const longDay = (ymd: string) => new Date(`${ymd}T12:00:00`).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
 
-/** The email the team sends with the link. Counts are what the client will actually see. */
-export function clientMessage({ brandName, link, statics, motion, due }: { brandName: string; link: string; statics: number; motion: number; due: string }) {
+const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+
+/**
+ * The Slack message the team sends with the link. Counts are what the client will actually see.
+ * `text` is the plain fallback (link written out); `html` pastes into Slack with "HERE" as a link and the why in italics.
+ */
+export function clientMessage({ to, link, statics, motion, due }: { to: string; link: string; statics: number; motion: number; due: string }) {
+  const set = statics && !motion ? 'static set' : motion && !statics ? 'motion set' : 'set'
   const batch = [statics ? plural(statics, 'static', 'statics') : '', motion ? plural(motion, 'video', 'videos') : ''].filter(Boolean).join(' and ') || 'a few ads'
-  return `Subject: Your Black Friday ads: first look, we need your feedback
-
-Hi ${brandName} team,
-
-Before we make your full Black Friday set, we've made a small first batch so you can shape the direction: ${batch}.
-
-Why this matters: this is the most important review of the campaign. Whatever you tell us here (the look, the copy, how the offer is framed, anything to avoid) gets applied to every ad that follows. Clear feedback now means the full set comes back right the first time, instead of being reworked later when there's far more of it.
-
-Review them here: ${link}
-
-How it works:
-1. Open the link and enter your name.
-2. For each ad, click "Looks good" or "Needs changes".
-3. Leave a note on anything you'd change. On images you can pin a note to an exact spot.
-4. Add any overall thoughts at the bottom, then click Submit. Statics and videos are submitted separately, and each locks once it's submitted.
-
-Once you submit, we use your notes to build the rest of your set. ${due ? `Please send your feedback by ${longDay(due)} so we stay on schedule.` : 'Please send your feedback as soon as you can so we stay on schedule.'}
-
-Thanks!`
+  const name = to.trim() ? `@${to.trim().replace(/^@/, '')}` : 'team'
+  const lines = {
+    hey: `Hey ${name}`,
+    intro: `Before we make your full Black Friday ${set}, we've made a small first batch so you can shape the direction: ${batch}.`,
+    why: `Why this matters: this is the most important review of the campaign. Whatever you tell us here (the look, the copy, how the offer is framed, anything to avoid) gets applied to every ad that follows. Clear feedback now means the full set comes back right the first time, instead of being reworked later when there's far more of it.`,
+    steps: ['Open the link and enter your name.', 'For each ad, click "Looks good" or "Needs changes".', "Leave a note on anything you'd change.", 'Add any overall thoughts at the bottom, then click Submit.'],
+    close: `Once you submit, we use your notes to build the rest of your set. ${due ? `Please send your feedback by ${longDay(due)} so we stay on schedule.` : 'Please send your feedback as soon as you can so we stay on schedule.'}`,
+  }
+  const text = [lines.hey, lines.intro, `_${lines.why}_`, `You can review them here: ${link}`, ['How it works:', ...lines.steps.map((t, i) => `${i + 1}. ${t}`)].join('\n'), lines.close, 'Thanks!'].join('\n\n')
+  const html = [
+    `<p>${esc(lines.hey)}</p>`, `<p>${esc(lines.intro)}</p>`, `<p><i>${esc(lines.why)}</i></p>`,
+    `<p>You can review them <a href="${esc(link)}"><b>HERE</b></a>.</p>`,
+    `<p>How it works:</p><ol>${lines.steps.map(t => `<li>${esc(t)}</li>`).join('')}</ol>`,
+    `<p>${esc(lines.close)}</p>`, '<p>Thanks!</p>',
+  ].join('')
+  return { text, html }
 }
 
 type Props = { slug: string; brandName: string; data: { calibration: Calibration | null; tracks: CalibrationTrackState[]; items: CalibrationItem[]; feedback: CalibrationFeedback[] } | null; revisions: string | null }
 
 /** Staff view of client calibration, inside the samples task: one client link, two tracks. */
-export default function BfcmCalibrationStaff({ slug, brandName, data, revisions }: Props) {
+export default function BfcmCalibrationStaff({ slug, data, revisions }: Props) {
   const router = useRouter()
   const [busy, setBusy] = useState<string | null>(null)
   const [errors, setErrors] = useState<string[]>([])
@@ -60,6 +63,8 @@ export default function BfcmCalibrationStaff({ slug, brandName, data, revisions 
   const [copiedMsg, setCopiedMsg] = useState(false)
   const [showMsg, setShowMsg] = useState(false)
   const [due, setDue] = useState('')
+  const [to, setTo] = useState('')
+  const [include, setInclude] = useState<Record<string, boolean>>({})
   const [synced, setSynced] = useState('')
   const [folder, setFolder] = useState(data?.calibration?.drive_folder_url ?? '')
   const origin = useOrigin()
@@ -134,8 +139,18 @@ export default function BfcmCalibrationStaff({ slug, brandName, data, revisions 
   const working = busy?.startsWith('Copying') || busy?.startsWith('Reading')
   // The message counts only what the client can act on now: shown files in tracks still open for review.
   const openTracks: string[] = CALIBRATION_TRACKS.filter(t => stateOf(t.id).status === 'sent').map(t => t.id)
-  const countFor = (track: string) => openTracks.includes(track) ? items.filter(i => i.track === track && i.client_visible).length : 0
-  const message = clientMessage({ brandName, link, statics: countFor('statics'), motion: countFor('motion'), due })
+  // Each open track is in the message unless unticked (e.g. statics already went out, this message is motion only).
+  const included = (track: string) => openTracks.includes(track) && include[track] !== false
+  const countFor = (track: string) => included(track) ? items.filter(i => i.track === track && i.client_visible).length : 0
+  const message = clientMessage({ to, link, statics: countFor('statics'), motion: countFor('motion'), due })
+  async function copyMessage() {
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([message.html], { type: 'text/html' }), 'text/plain': new Blob([message.text], { type: 'text/plain' }) })])
+    } catch {
+      await navigator.clipboard.writeText(message.text)
+    }
+    setCopiedMsg(true); setTimeout(() => setCopiedMsg(false), 1500)
+  }
 
   return <div className={s.box} id="calibration">
     <strong>Client calibration</strong>
@@ -152,17 +167,19 @@ export default function BfcmCalibrationStaff({ slug, brandName, data, revisions 
         : <p className={s.notice} data-tone="ok">Live on this link: {live.map(t => t.label).join(' and ')}.</p>}
       <p className={s.muted} style={{ margin: '6px 0 0' }}>Publishing doesn’t notify anyone. Share this link with the client yourself when you’re ready.</p>
       <div className={s.inline} style={{ marginTop: 10 }}>
-        <button className="btn-secondary btn-sm" onClick={() => setShowMsg(v => !v)} aria-expanded={showMsg}>{showMsg ? 'Hide client message' : 'Client message'}</button>
-        {showMsg && <>
-          <label className={s.muted} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, margin: 0, textTransform: 'none', letterSpacing: 'normal', fontSize: 12 }}>
-            Feedback by <input type="date" value={due} onChange={e => setDue(e.target.value)} style={{ width: 'auto', padding: '4px 6px', fontSize: 12 }} />
-          </label>
-          <button className="btn-primary btn-sm" onClick={() => { void navigator.clipboard.writeText(message).then(() => { setCopiedMsg(true); setTimeout(() => setCopiedMsg(false), 1500) }) }}>{copiedMsg ? 'Copied' : 'Copy message'}</button>
-        </>}
+        <button className="btn-secondary btn-sm" onClick={() => setShowMsg(v => !v)} aria-expanded={showMsg}>{showMsg ? 'Hide client message' : 'Client message (Slack)'}</button>
+        {showMsg && <button className="btn-primary btn-sm" onClick={() => { void copyMessage() }}>{copiedMsg ? 'Copied' : 'Copy for Slack'}</button>}
       </div>
       {showMsg && <>
+        <div className={s.inline} style={{ marginTop: 8, flexWrap: 'wrap', gap: 12 }}>
+          <label className={s.msgLabel}>To <input value={to} onChange={e => setTo(e.target.value)} placeholder="Maddie" style={{ width: 120, padding: '4px 6px', fontSize: 12 }} /></label>
+          <label className={s.msgLabel}>Feedback by <input type="date" value={due} onChange={e => setDue(e.target.value)} style={{ width: 'auto', padding: '4px 6px', fontSize: 12 }} /></label>
+          {openTracks.length > 1 && CALIBRATION_TRACKS.filter(t => openTracks.includes(t.id)).map(t =>
+            <label key={t.id} className={s.msgLabel}><input type="checkbox" checked={include[t.id] !== false} onChange={e => setInclude(v => ({ ...v, [t.id]: e.target.checked }))} /> {t.label}</label>)}
+        </div>
         {openTracks.length === 0 && <p className={s.notice} data-tone="warn">No track is open for review. Publish one first, or the client has nothing to look at.</p>}
-        <textarea readOnly value={message} rows={18} aria-label="Message to send the client" onFocus={e => e.target.select()} style={{ width: '100%', marginTop: 8, padding: '10px 12px', fontSize: 12.5, lineHeight: 1.5, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--background)', color: 'var(--text-primary)', resize: 'vertical' }} />
+        <p className={s.muted} style={{ margin: '6px 0 0' }}>Copies with “HERE” as a link. Type the @mention again in Slack so it tags them.</p>
+        <textarea readOnly value={message.text} rows={18} aria-label="Message to send the client" onFocus={e => e.target.select()} style={{ width: '100%', marginTop: 8, padding: '10px 12px', fontSize: 12.5, lineHeight: 1.5, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--background)', color: 'var(--text-primary)', resize: 'vertical' }} />
       </>}
     </div>
 
