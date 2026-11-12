@@ -81,6 +81,8 @@ export interface IntakeForm {
   tech_notes: string
   // Other
   asset_links: string
+  /** What the client says is in asset_links: guidelines, logo, product_images, fonts. */
+  asset_covers: string[]
   anything_else: string
 }
 
@@ -99,7 +101,16 @@ export const EMPTY_INTAKE: IntakeForm = {
   ai: null,
   platform: '', store_access: '', discounts_by: '', ads_by: '',
   ...(Object.fromEntries(TEXT_FIELDS.map(k => [k, ''])) as Record<typeof TEXT_FIELDS[number], string>),
+  asset_covers: [],
 }
+
+/** File items a shared link can hold instead of an upload. */
+export const LINKABLE = [
+  { k: 'guidelines', label: 'Brand guidelines' },
+  { k: 'logo', label: 'Logo files' },
+  { k: 'product_images', label: 'Product images' },
+  { k: 'fonts', label: 'Fonts' },
+] as const
 
 // Client-facing wording for brands.ai_sensitivity. Same scale as BrandBrief.
 export const AI_CHOICES = [
@@ -135,6 +146,9 @@ export function normalizeIntake(raw: unknown): IntakeForm {
     store_access: pick(r.store_access, STORE_ACCESS),
     discounts_by: pick(r.discounts_by, DISCOUNTS_BY),
     ads_by: pick(r.ads_by, ADS_BY),
+    asset_covers: Array.isArray(r.asset_covers)
+      ? LINKABLE.map(l => l.k).filter(k => (r.asset_covers as unknown[]).includes(k))
+      : [],
   }
 }
 
@@ -202,6 +216,7 @@ export function intakeSections(f: IntakeForm): IntakeSection[] {
     ['People & files', [
       ['Points of contact', filledContacts(f).map(c => [c.name, c.role, c.email, c.phone].filter(Boolean).join(' · ')).join('\n')],
       ['Asset links (Drive, Dropbox, …)', f.asset_links],
+      ['What the link holds', f.asset_links.trim() ? LINKABLE.filter(l => f.asset_covers.includes(l.k)).map(l => l.label).join(', ') : ''],
       ['Anything else', f.anything_else],
     ]],
   ]
@@ -231,6 +246,9 @@ export interface IntakeItem {
   done: boolean
   /** Why it counts as done, or what to do about it. */
   note?: string
+  /** Done only through a shared link: the client is not asked again, but the
+   *  team still has to file it in Prometheus. */
+  linked?: boolean
 }
 
 export interface IntakeInputs {
@@ -241,6 +259,8 @@ export interface IntakeInputs {
   aiSensitivity: number | null
   contactCount: number
   dna?: { primary_font?: string | null; primary_color?: string | null } | null
+  /** Kinds covered by brand_asset_links rows the team added. */
+  linkedKinds?: string[]
 }
 
 /** What makers need before they start, and whether the brand has it. */
@@ -248,26 +268,35 @@ export function intakeCompleteness(i: IntakeInputs): IntakeItem[] {
   const f = i.form
   const count = (k: string) => i.docKinds.filter(d => d === k).length
   const has = (...v: Array<string | undefined>) => v.some(x => !!x?.trim())
-  const linkNote = f?.asset_links.trim() ? 'Client shared a link instead; check it.' : undefined
+  const clientLink = !!f?.asset_links.trim()
+  const linked = new Set([...(i.linkedKinds ?? []), ...(clientLink ? f!.asset_covers : [])])
+  // Client pasted a link but didn't say what's in it: a hint, not done.
+  const linkNote = clientLink && f!.asset_covers.length === 0 ? 'Client shared a link; check what is in it.' : undefined
+  const LINKED_NOTE = 'In a shared link, not filed yet'
   const files = (k: IntakeItemKey, label: string): IntakeItem => {
     const n = count(k)
-    return { key: k, label, done: n > 0, note: n ? `${n} file${n === 1 ? '' : 's'}` : linkNote }
+    if (n) return { key: k, label, done: true, note: `${n} file${n === 1 ? '' : 's'}` }
+    if (linked.has(k)) return { key: k, label, done: true, linked: true, note: LINKED_NOTE }
+    return { key: k, label, done: false, note: linkNote }
   }
   const guidelineFiles = count('guidelines')
   const fontFiles = count('fonts')
   const techAnswered = f ? [f.platform, f.store_access, f.discounts_by].filter(Boolean).length : 0
   return [
-    { key: 'guidelines', label: 'Brand guidelines', done: guidelineFiles > 0 || i.hasGuidelineText, note: guidelineFiles ? `${guidelineFiles} file${guidelineFiles === 1 ? '' : 's'}` : i.hasGuidelineText ? 'Written, no file' : linkNote },
+    guidelineFiles || !i.hasGuidelineText || linked.has('guidelines')
+      ? files('guidelines', 'Brand guidelines')
+      : { key: 'guidelines', label: 'Brand guidelines', done: true, note: 'Written, no file' },
     files('logo', 'Logo files'),
     files('product_images', 'Product images'),
     {
       key: 'fonts', label: 'Fonts',
-      done: fontFiles > 0 || has(f?.fonts) || !!i.dna?.primary_font,
-      note: fontFiles ? `${fontFiles} font file${fontFiles === 1 ? '' : 's'}` : has(f?.fonts) ? 'Named, no files' : i.dna?.primary_font ? 'From Brand DNA' : undefined,
+      done: fontFiles > 0 || linked.has('fonts') || has(f?.fonts) || !!i.dna?.primary_font,
+      linked: !fontFiles && linked.has('fonts') ? true : undefined,
+      note: fontFiles ? `${fontFiles} font file${fontFiles === 1 ? '' : 's'}` : linked.has('fonts') ? LINKED_NOTE : has(f?.fonts) ? 'Named, no files' : i.dna?.primary_font ? 'From Brand DNA' : undefined,
     },
     {
       key: 'colours', label: 'Brand colours',
-      done: has(f?.colours) || !!i.dna?.primary_color || guidelineFiles > 0,
+      done: has(f?.colours) || !!i.dna?.primary_color || guidelineFiles > 0 || linked.has('guidelines'),
       note: has(f?.colours) ? undefined : i.dna?.primary_color ? 'From Brand DNA' : guidelineFiles ? 'In the guidelines' : undefined,
     },
     { key: 'ai', label: 'OK with AI?', done: i.aiSensitivity != null, note: i.aiSensitivity != null ? AI_CHOICES.find(c => c.v === i.aiSensitivity)?.label : undefined },
@@ -295,6 +324,7 @@ export async function loadIntakeStatus(supabase: Db, brandId: string) {
     supabase.from('brand_contacts').select('id').eq('brand_id', brandId),
     supabase.from('brand_dna').select('primary_font, primary_color').eq('brand_id', brandId).eq('is_active', true).maybeSingle(),
   ])
+  const linkedKinds = await loadLinkedKinds(supabase, brandId)
   if (!brand) return null
   const b = brand as { name: string; intake_form: unknown; intake_submitted_at: string | null; ai_sensitivity: number | null; brand_guidelines: string | null }
   const items = intakeCompleteness({
@@ -304,8 +334,16 @@ export async function loadIntakeStatus(supabase: Db, brandId: string) {
     aiSensitivity: b.ai_sensitivity,
     contactCount: (contacts ?? []).length,
     dna: dna as IntakeInputs['dna'],
+    linkedKinds,
   })
   return { brandName: b.name, submittedAt: b.intake_submitted_at, items }
+}
+
+/** Every kind the brand's shared links cover. Empty if the table isn't there yet. */
+export async function loadLinkedKinds(supabase: Db, brandId: string): Promise<string[]> {
+  const { data, error } = await supabase.from('brand_asset_links').select('covers').eq('brand_id', brandId)
+  if (error || !data) return []
+  return (data as Array<{ covers: string[] | null }>).flatMap(r => r.covers ?? [])
 }
 
 /** Token shape check before any query: 32 url-safe characters. */

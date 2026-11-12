@@ -150,3 +150,36 @@
 .ir-qa dd { margin: 0; font-size: 14.5px; line-height: 1.55; color: var(--text-primary); white-space: pre-wrap; overflow-wrap: anywhere; }
 .ir-qa dd a { color: var(--accent); }
 .ir-qa .ir-skipped dd { color: var(--text-muted); font-style: italic; }
+
+/* Client check-in */
+.ci-flag { justify-content: space-between; flex-wrap: wrap; }
+.ci-goal { background: var(--accent-muted); border-radius: 10px; padding: 12px 14px; }
+.ci-goal .bp-label { margin-bottom: 4px; }
+.ci-goal p:last-child { margin: 0; font-size: 15px; line-height: 1.5; color: var(--text-primary); }
+.ci-score { display: inline-block; font-weight: 700; border-radius: 6px; padding: 1px 7px; font-size: 13px; }
+.ci-promoter { background: color-mix(in srgb, var(--success) 16%, transparent); color: var(--success); }
+.ci-passive { background: var(--surface-2); color: var(--text-secondary); }
+.ci-detractor { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
+.ci-history { list-style: none; margin: 0; padding: 0; display: flex; gap: 10px; flex-wrap: wrap; }
+.ci-history li { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.ci-history small { font-size: 11.5px; color: var(--text-muted); }
+
+/* Client portal prep */
+.pp-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.pp-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 8px 0; border-top: 1px solid var(--border); font-size: 14px; }
+.pp-name { color: var(--text-primary); font-weight: 600; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pp-due { font-size: 12.5px; color: var(--text-muted); white-space: nowrap; }
+.pp-due.late { color: var(--danger); }
+.pp-list input[type=date] { font: inherit; font-size: 13px; padding: 4px 6px; border-radius: 8px; border: 1px solid var(--border-strong); background: var(--background); color: var(--text-primary); }
+@media (max-width: 560px) { .pp-list li { grid-template-columns: 1fr auto; } .pp-due { grid-column: 1 / -1; } }
+
+/* Shared asset links */
+.al-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.al-list li { display: flex; gap: 8px; align-items: baseline; font-size: 13.5px; flex-wrap: wrap; }
+.al-list a { color: var(--accent); overflow-wrap: anywhere; }
+.al-list em { color: var(--text-muted); font-style: normal; }
+.al-form { display: flex; flex-direction: column; gap: 8px; }
+.al-form input[type=url], .al-form input[type=text] { font: inherit; font-size: 14px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border-strong); background: var(--background); color: var(--text-primary); }
+.al-kinds { display: flex; gap: 12px; flex-wrap: wrap; font-size: 13.5px; }
+.al-kinds label { display: flex; gap: 5px; align-items: center; }
+.ik-check li.linked span { color: var(--accent); }

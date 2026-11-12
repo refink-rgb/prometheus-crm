@@ -137,6 +137,10 @@ export interface Brand {
   intake_form?: Record<string, unknown> | null
   intake_updated_at?: string | null
   intake_submitted_at?: string | null
+  /** Team checked the client portal; until then it shows a holding message. */
+  portal_ready_at?: string | null
+  /** Team asked for a check-in; the portal card shows until answered or 14 days. */
+  checkin_requested_at?: string | null
 }
 
 /** A file the client sent us, kept on the brand. Bytes live in the PRIVATE
@@ -198,6 +202,8 @@ export interface Journey {
 }
 
 export interface Project {
+  /** The only date a client sees on their portal. due_date stays internal. */
+  promised_date?: string | null
   id: string
   brand_id: string
   name: string
