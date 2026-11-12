@@ -3,7 +3,7 @@ import JourneyHeader from '@/components/JourneyHeader'
 import ProjectCard from '@/components/ProjectCard'
 import type { Journey, Project } from '@/lib/types'
 
-// All of a brand's projects: active ones first, grouped by journey and moment.
+// All of a brand's projects: active ones first, grouped by journey.
 
 export default function BrandProjects({ brandId, projects, journeys, isAuthorized }: { brandId: string; projects: Project[]; journeys: Journey[]; isAuthorized: boolean }) {
   const active = projects.filter(p => !p.is_complete)
@@ -46,22 +46,11 @@ export default function BrandProjects({ brandId, projects, journeys, isAuthorize
                 {journey
                   ? <JourneyHeader journey={journey} brandId={brandId} projectCount={jProjects.length} isAuthorized={isAuthorized} />
                   : groups.length > 1 && <p className="bp-label">No journey</p>}
-                {/* Moment 1 then Moment 2 then unassigned */}
-                {[1, 2, null].map(moment => {
-                  const momentProjects = jProjects.filter(p => p.marketing_moment === moment)
-                  if (momentProjects.length === 0) return null
-                  const label = moment === null ? 'No moment assigned' : `Moment ${moment} · ${moment === 1 ? '1st half of month' : '2nd half of month'}`
-                  return (
-                    <div key={String(moment)} style={{ marginBottom: 12 }}>
-                      <p className="bp-label">{label}</p>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        {momentProjects.map(p => (
-                          <ProjectCard showMomentCode key={p.id} project={p} journeyName={journey?.name ?? null} href={`/brands/${brandId}/projects/${p.id}`} />
-                        ))}
-                      </div>
-                    </div>
-                  )
-                })}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {jProjects.map(p => (
+                    <ProjectCard showMomentCode key={p.id} project={p} journeyName={journey?.name ?? null} href={`/brands/${brandId}/projects/${p.id}`} />
+                  ))}
+                </div>
               </div>
             ))}
           </div>
