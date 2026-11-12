@@ -56,6 +56,64 @@ function Q({ k, label, hint, placeholder, rows = 3 }: { k: TextKey; label: strin
   )
 }
 
+/** A list of rules, one box each, so every box becomes exactly one rule.
+ *  Stored as one line per rule in the same text field, so answers saved by the
+ *  older one-big-box version re-open split into boxes. */
+function Rules({ k, label, hint, placeholder, addLabel }: { k: 'copy_donts' | 'design_donts'; label: string; hint?: string; placeholder: string; addLabel: string }) {
+  const { form, set } = useForm()
+  const items = form[k] === '' ? [''] : form[k].split('\n')
+  const boxes = useRef<Array<HTMLInputElement | null>>([])
+  const focusNext = useRef<number | null>(null)
+  useEffect(() => {
+    if (focusNext.current != null) { boxes.current[focusNext.current]?.focus(); focusNext.current = null }
+  })
+  const save = (next: string[]) => set(k, next.slice(0, 30).join('\n'))
+  const insertAfter = (i: number, add: string[]) => {
+    focusNext.current = i + add.length
+    save([...items.slice(0, i + 1), ...add, ...items.slice(i + 1)])
+  }
+  return (
+    <div className="ik-field">
+      <span>{label}</span>
+      <div className="ik-rules">
+        {items.map((v, i) => (
+          <div key={i} className="ik-rule">
+            <input
+              ref={el => { boxes.current[i] = el }}
+              value={v}
+              placeholder={i === 0 ? placeholder : 'Another one'}
+              aria-label={`${label} ${i + 1}`}
+              onChange={e => save(items.map((x, j) => j === i ? e.target.value : x))}
+              onKeyDown={e => {
+                if (e.key === 'Enter') { e.preventDefault(); if (v.trim()) insertAfter(i, ['']) }
+                if (e.key === 'Backspace' && v === '' && items.length > 1) {
+                  e.preventDefault(); focusNext.current = Math.max(0, i - 1); save(items.filter((_, j) => j !== i))
+                }
+              }}
+              onPaste={e => {
+                // A pasted list becomes one box per line.
+                const lines = e.clipboardData.getData('text').split(/\r?\n/).map(l => l.replace(/^\s*([-*•–]|\d+[.)])\s*/, '').trim()).filter(Boolean)
+                if (lines.length < 2) return
+                e.preventDefault()
+                const first = (v + lines[0]).trim()
+                focusNext.current = i + lines.length - 1
+                save([...items.slice(0, i), first, ...lines.slice(1), ...items.slice(i + 1)])
+              }}
+            />
+            {items.length > 1 && (
+              <button type="button" className="ik-rule-x" aria-label="Remove" onClick={() => save(items.filter((_, j) => j !== i))}>×</button>
+            )}
+          </div>
+        ))}
+      </div>
+      {items.length < 30 && items[items.length - 1].trim() !== '' && (
+        <button type="button" className="ik-link" onClick={() => insertAfter(items.length - 1, [''])}>{addLabel}</button>
+      )}
+      {hint && <small>{hint}</small>}
+    </div>
+  )
+}
+
 /** A question with fixed answers. Tap again to clear. */
 function Pick({ k, label, choices }: { k: 'platform' | 'store_access' | 'discounts_by' | 'ads_by'; label: string; choices: Choice[] }) {
   const { form, set } = useForm()
@@ -217,11 +275,11 @@ export default function IntakeFormView({
             placeholder="e.g. We've moved away from the pastel look; the tone is more direct now" />
           <Q k="past_ads" label="Ads or content that worked for you, and ones that didn't"
             hint="Links or descriptions. Why they worked helps most." />
-          <Q k="copy_donts" rows={3} label="Words, claims or phrases we should never use"
-            hint="One per line. Each becomes a rule the whole team sees."
-            placeholder={'e.g. Never say "cure"\nNo "anti-ageing": say "skin renewal"'} />
-          <Q k="design_donts" rows={2} label="Visual don'ts" hint="One per line."
-            placeholder={'e.g. No product on a pure white background'} />
+          <Rules k="copy_donts" label="Words, claims or phrases we should never use"
+            hint="One per box. Each becomes a rule the whole team sees."
+            placeholder={'e.g. Never say "cure"'} addLabel="+ Add another" />
+          <Rules k="design_donts" label="Visual don'ts" hint="One per box."
+            placeholder="e.g. No product on a pure white background" addLabel="+ Add another" />
           <Q k="campaign_style" label="Do your sales and campaigns look or sound different?"
             hint="Fonts, colours or wording you use for Black Friday and other sales, if they differ from the everyday brand."
             placeholder={'e.g. Black Friday uses Anton in all caps on black\nWe say "Black Friday Deals", never "Special Offers"'} />

@@ -21,7 +21,8 @@ import ClientRulesBoard from '@/components/brand/ClientRulesBoard'
 import ContactsCard from '@/components/brand/ContactsCard'
 import IntakeAnswers from '@/components/brand/IntakeAnswers'
 import IntakePanel from '@/components/brand/IntakePanel'
-import { intakeCompleteness, normalizeIntake } from '@/lib/brands/intake'
+import IntakeReview from '@/components/brand/IntakeReview'
+import { intakeCompleteness, intakeSections, intakeText, normalizeIntake } from '@/lib/brands/intake'
 import OnboardingCall from '@/components/brand/OnboardingCall'
 import { loadContracts, type BrandContract } from '@/lib/bfcm/production-server'
 import { dnaSources } from '@/lib/brands/dna-sources'
@@ -111,8 +112,9 @@ export default async function BrandPage({
   const kindOf = (d: BrandDocument): DocKind => contractDocIds.has(d.id) ? 'contract' : (d.kind ?? 'other') as DocKind
   const docsOf = (k: DocKind) => documents.filter(d => kindOf(d) === k)
   const hasGuidelines = docsOf('guidelines').length > 0 || !!b.brand_guidelines
+  const intakeForm = b.intake_form ? normalizeIntake(b.intake_form) : null
   const intakeItems = intakeCompleteness({
-    form: b.intake_form ? normalizeIntake(b.intake_form) : null,
+    form: intakeForm,
     docKinds: documents.map(d => kindOf(d)),
     hasGuidelineText: !!b.brand_guidelines?.trim(),
     aiSensitivity: b.ai_sensitivity ?? null,
@@ -212,6 +214,16 @@ export default async function BrandPage({
               updatedAt={b.intake_updated_at ?? null}
               canEdit={isAuthorized}
             />
+
+            {intakeForm && (
+              <IntakeReview
+                brandName={b.name}
+                sections={intakeSections(intakeForm)}
+                text={intakeText(intakeForm)}
+                submittedAt={b.intake_submitted_at ?? null}
+                updatedAt={b.intake_updated_at ?? null}
+              />
+            )}
 
             {/* What was agreed, readable by the whole team */}
             <section className="mo-panel" aria-label="Contract">
@@ -390,7 +402,9 @@ export default async function BrandPage({
               </div>
               <div>
                 <p className="bp-label">Intake</p>
-                <IntakeAnswers brandId={brandId} answers={b.intake_answers ?? null} canEdit={isAuthorized} />
+                {intakeForm
+                  ? <p className="bp-empty" style={{ marginBottom: 8 }}>The client&apos;s answers are under Intake answers on the Overview tab.</p>
+                  : <IntakeAnswers brandId={brandId} answers={b.intake_answers ?? null} canEdit={isAuthorized} />}
                 <BrandDocuments
                   brandId={brandId}
                   documents={docsOf('intake')}

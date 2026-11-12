@@ -83,3 +83,8 @@
 /* The app's global label style (small caps, tracked) is for staff forms. */
 .ik-page label { display: flex; text-transform: none; letter-spacing: normal; font-size: inherit; font-weight: inherit; color: inherit; margin-bottom: 0; }
 .ik-page label.ik-drop { display: flex; }
+.ik-rules { display: flex; flex-direction: column; gap: 8px; }
+.ik-rule { display: flex; align-items: center; gap: 6px; }
+.ik-rule input { flex: 1; min-width: 0; }
+.ik-rule-x { flex: none; width: 32px; height: 32px; border: 0; border-radius: 8px; background: none; color: var(--text-muted); font-size: 20px; line-height: 1; cursor: pointer; }
+.ik-rule-x:hover { background: var(--surface-2, var(--border)); color: var(--text-primary); }

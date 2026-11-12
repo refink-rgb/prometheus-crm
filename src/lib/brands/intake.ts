@@ -140,21 +140,30 @@ export function normalizeIntake(raw: unknown): IntakeForm {
 
 export const filledContacts = (f: IntakeForm) => f.contacts.filter(c => c.name.trim())
 
-/** One rule per line, bullets stripped. Feeds client_rules on submit. */
+/** One rule per line, bullets stripped. Feeds client_rules on submit.
+ *  A line ending in a colon ("Not permitted:", "Words to avoid:") is a heading
+ *  the client wrote above their list, not a rule, so it is skipped. */
 export function ruleLines(text: string): string[] {
-  return text.split('\n').map(l => l.replace(/^\s*([-*•–]|\d+[.)])\s*/, '').trim()).filter(l => l.length > 1).slice(0, 30)
+  return text.split('\n')
+    .map(l => l.replace(/^\s*([-*•–]|\d+[.)])\s*/, '').trim())
+    .filter(l => l.length > 1 && !/[:：]$/.test(l))
+    .slice(0, 30)
 }
 
-/** The readable version written to brands.intake_answers, grouped like the form. */
-export function intakeText(f: IntakeForm): string {
+export interface IntakeQA { q: string; a: string }
+export interface IntakeSection { title: string; items: IntakeQA[] }
+
+/** Every question the form asks, grouped like the form, with the client's
+ *  answer ('' when skipped). The team review view and intake_answers both read this. */
+export function intakeSections(f: IntakeForm): IntakeSection[] {
   const groups: Array<[string, Array<[string, string]>]> = [
-    ['PRODUCTS & OFFERS', [
+    ['Products & offers', [
       ['Products to push', f.push_products],
       ['Products to leave out', f.avoid_products],
       ['Offers tested before (results, conditions)', f.past_offers],
       ['Discount and offer limits', f.offer_limits],
     ]],
-    ['CUSTOMERS & MARKET', [
+    ['Customers & market', [
       ['Why customers pick them', f.reasons],
       ['Main buyer (and any second type)', f.buyer],
       ['What frustrates buyers about the alternatives', f.frustrations],
@@ -162,7 +171,7 @@ export function intakeText(f: IntakeForm): string {
       ['Brands or tactics to steer clear of', f.steer_clear],
       ['Proof (reviews, results, press)', f.proof],
     ]],
-    ['BEYOND THE GUIDELINES', [
+    ['Beyond the guidelines', [
       ['How the brand has changed since the guidelines', f.brand_changes],
       ['Past ads that worked / did not', f.past_ads],
       ['Words, claims or phrases to avoid', f.copy_donts],
@@ -171,18 +180,18 @@ export function intakeText(f: IntakeForm): string {
       ['Colours (no guidelines)', f.colours],
       ['Fonts (no guidelines)', f.fonts],
     ]],
-    ['VIDEO & MUSIC', [
+    ['Video & music', [
       ['Existing footage', f.footage_link],
       ['Music likes and dislikes', f.music],
     ]],
     ['AI', [
-      ['How they feel about AI', [AI_CHOICES.find(c => c.v === f.ai)?.label ?? '', f.ai_note].filter(Boolean).join(' — ')],
+      ['How they feel about AI', [AI_CHOICES.find(c => c.v === f.ai)?.label ?? '', f.ai_note.trim()].filter(Boolean).join(' — ')],
     ]],
-    ['COMING UP', [
+    ['Coming up', [
       ['Launches, sales, events', f.upcoming],
       ['Marketing calendar link', f.calendar_link],
     ]],
-    ['TECHNICAL SETUP', [
+    ['Technical setup', [
       ['Website platform', labelOf(f.platform, PLATFORMS)],
       ['Theme / page builder', f.page_builder],
       ['Store access for us', labelOf(f.store_access, STORE_ACCESS)],
@@ -190,16 +199,21 @@ export function intakeText(f: IntakeForm): string {
       ['Who runs their ads', f.ads_by === 'agency' ? 'We (the agency) do' : labelOf(f.ads_by, ADS_BY)],
       ['Other technical notes', f.tech_notes],
     ]],
-    ['PEOPLE & FILES', [
+    ['People & files', [
       ['Points of contact', filledContacts(f).map(c => [c.name, c.role, c.email, c.phone].filter(Boolean).join(' · ')).join('\n')],
       ['Asset links (Drive, Dropbox, …)', f.asset_links],
       ['Anything else', f.anything_else],
     ]],
   ]
-  return groups
-    .map(([title, qs]) => {
-      const answered = qs.filter(([, a]) => a.trim()).map(([q, a]) => `${q}\n${a.trim()}`)
-      return answered.length ? `${title}\n\n${answered.join('\n\n')}` : ''
+  return groups.map(([title, qs]) => ({ title, items: qs.map(([q, a]) => ({ q, a: a.trim() })) }))
+}
+
+/** The readable version written to brands.intake_answers: answered questions only. */
+export function intakeText(f: IntakeForm): string {
+  return intakeSections(f)
+    .map(({ title, items }) => {
+      const answered = items.filter(i => i.a).map(i => `${i.q}\n${i.a}`)
+      return answered.length ? `${title.toUpperCase()}\n\n${answered.join('\n\n')}` : ''
     })
     .filter(Boolean)
     .join('\n\n\n')
