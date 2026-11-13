@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
 import { createServiceClient } from '@/lib/supabase/service'
-import { isIntakeToken, normalizeIntake } from '@/lib/brands/intake'
+import { isIntakeToken, loadLinkedKinds, normalizeIntake } from '@/lib/brands/intake'
 import IntakeFormView, { type IntakeFile } from '@/components/intake/IntakeForm'
 import '@/components/intake/intake.css'
 
@@ -40,6 +40,7 @@ export default async function IntakePage({ params }: { params: Promise<{ token: 
       initial={form}
       files={(docs ?? []) as IntakeFile[]}
       submittedAt={(brand.intake_submitted_at as string | null) ?? null}
+      linkedKinds={await loadLinkedKinds(db, brand.id as string)}
     />
   )
 }

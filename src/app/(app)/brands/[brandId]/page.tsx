@@ -6,7 +6,6 @@ import { getCachedProfiles } from '@/lib/profiles'
 import { updateBrandDetails, deleteBrand } from '@/lib/actions'
 import ConfirmDeleteForm from '@/components/ConfirmDeleteForm'
 import ProfitEngineerSelect from '@/components/ProfitEngineerSelect'
-import ClientPortalButton from '@/components/ClientPortalButton'
 import type { Brand, Project, Journey, PipelineStatus, BrandDna, BrandDocument, BrandComment } from '@/lib/types'
 import { PIPELINE_STATUS_LABELS, PIPELINE_STATUS_ORDER, profileName } from '@/lib/types'
 import BrandDnaPanel from '@/components/BrandDnaPanel'
@@ -21,6 +20,10 @@ import ClientRulesBoard from '@/components/brand/ClientRulesBoard'
 import ContactsCard from '@/components/brand/ContactsCard'
 import IntakeAnswers from '@/components/brand/IntakeAnswers'
 import IntakePanel from '@/components/brand/IntakePanel'
+import CheckInPanel from '@/components/brand/CheckInPanel'
+import PortalPrepPanel from '@/components/brand/PortalPrepPanel'
+import type { AssetLink } from '@/components/brand/IntakePanel'
+import type { CheckIn } from '@/lib/brands/checkin'
 import IntakeReview from '@/components/brand/IntakeReview'
 import { intakeCompleteness, intakeSections, intakeText, normalizeIntake } from '@/lib/brands/intake'
 import OnboardingCall from '@/components/brand/OnboardingCall'
@@ -76,11 +79,11 @@ export default async function BrandPage({
   // and the full ad-brief fields belong to the project detail page, not here.
   const [
     { data: projects }, { data: peRows }, { data: journeyRows }, { data: dnaRow }, { data: docRows },
-    { data: contactRows }, { data: commentRows }, { data: offerRows }, rules, contractRows, profiles,
+    { data: contactRows }, { data: commentRows }, { data: offerRows }, rules, contractRows, profiles, { data: checkInRows }, { data: linkRows },
   ] = await Promise.all([
     supabase
       .from('projects')
-      .select('id, name, brand_id, due_date, is_complete, journey_id, marketing_moment, lp_stage, creatives_stage, lp_approved, creatives_approved, share_token, moment_code, lp_editor_id, creative_editor_id')
+      .select('id, name, brand_id, due_date, is_complete, journey_id, marketing_moment, lp_stage, creatives_stage, lp_approved, creatives_approved, share_token, moment_code, lp_editor_id, creative_editor_id, promised_date')
       .eq('brand_id', brandId)
       .order('due_date', { ascending: true }),
     supabase.from('profit_engineers').select('name').order('name', { ascending: true }),
@@ -93,6 +96,8 @@ export default async function BrandPage({
     loadRules(supabase, brandId, { includeRetired: true }),
     loadContracts(brandId),
     getCachedProfiles(),
+    supabase.from('client_checkins').select('*').eq('brand_id', brandId).order('created_at', { ascending: false }).limit(24),
+    supabase.from('brand_asset_links').select('*').eq('brand_id', brandId).order('created_at', { ascending: false }),
   ])
 
   const b = brand as Brand
@@ -120,6 +125,7 @@ export default async function BrandPage({
     aiSensitivity: b.ai_sensitivity ?? null,
     contactCount: contacts.length,
     dna,
+    linkedKinds: ((linkRows ?? []) as AssetLink[]).flatMap(l => l.covers ?? []),
   })
 
   // Who works on this account: the named leads, then whoever is on live work.
@@ -212,6 +218,25 @@ export default async function BrandPage({
               items={intakeItems}
               submittedAt={b.intake_submitted_at ?? null}
               updatedAt={b.intake_updated_at ?? null}
+              canEdit={isAuthorized}
+              links={(linkRows ?? []) as AssetLink[]}
+            />
+
+            <PortalPrepPanel
+              brandId={brandId}
+              brandName={b.name}
+              clientToken={b.client_token ?? null}
+              readyAt={b.portal_ready_at ?? null}
+              projects={allProjects.filter(p => !p.is_complete).map(p => ({ id: p.id, name: p.name, due_date: p.due_date ?? null, promised_date: p.promised_date ?? null }))}
+              canEdit={isAuthorized}
+            />
+
+            <CheckInPanel
+              brandId={brandId}
+              brandName={b.name}
+              token={b.intake_token ?? null}
+              checkIns={(checkInRows ?? []) as CheckIn[]}
+              requestedAt={b.checkin_requested_at ?? null}
               canEdit={isAuthorized}
             />
 
@@ -324,10 +349,6 @@ export default async function BrandPage({
                     <dt>Meta ad account</dt><dd>{b.meta_ad_account_id ?? '—'}</dd>
                     <dt>Account created</dt><dd>{fmtDate(b.created_at)}</dd>
                   </dl>
-                  <div>
-                    <p className="bp-label">Client portal link</p>
-                    <ClientPortalButton brandId={brandId} initialToken={b.client_token ?? null} />
-                  </div>
                 </div>
               </section>
             )}

@@ -4,7 +4,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState, useTra
 import { createClient } from '@/lib/supabase/client'
 import { BRAND_DOC_ACCEPT, BRAND_DOC_BUCKET, MAX_BRAND_DOC_BYTES, MB, resolveDocType } from '@/lib/brand-docs'
 import {
-  ADS_BY, AI_CHOICES, DISCOUNTS_BY, PLATFORMS, STORE_ACCESS, intakeCompleteness,
+  ADS_BY, AI_CHOICES, DISCOUNTS_BY, LINKABLE, PLATFORMS, STORE_ACCESS, intakeCompleteness,
   type Choice, type IntakeForm,
 } from '@/lib/brands/intake'
 import { attachIntakeFile, createIntakeUploadUrl, removeIntakeFile, saveIntake } from '@/lib/brands/intake-actions'
@@ -131,13 +131,15 @@ function Pick({ k, label, choices }: { k: 'platform' | 'store_access' | 'discoun
 }
 
 export default function IntakeFormView({
-  token, brandName, initial, files: initialFiles, submittedAt,
+  token, brandName, initial, files: initialFiles, submittedAt, linkedKinds = [],
 }: {
   token: string
   brandName: string
   initial: IntakeForm
   files: IntakeFile[]
   submittedAt: string | null
+  /** Kinds the team already has in a shared link: shown as received. */
+  linkedKinds?: string[]
 }) {
   const [form, setForm] = useState<IntakeForm>(initial)
   const [files, setFiles] = useState<IntakeFile[]>(initialFiles)
@@ -162,8 +164,9 @@ export default function IntakeFormView({
   const set: Setter = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
   const items = useMemo(() => intakeCompleteness({
-    form, docKinds: files.map(f => f.kind), hasGuidelineText: false, aiSensitivity: form.ai, contactCount: 0,
-  }), [form, files])
+    form, docKinds: files.map(f => f.kind), hasGuidelineText: false, aiSensitivity: form.ai, contactCount: 0, linkedKinds,
+  }), [form, files, linkedKinds])
+  const linkedHere = new Set(items.filter(i => i.linked).map(i => i.key as string))
   const doneCount = items.filter(i => i.done).length
   const hasGuidelines = files.some(f => f.kind === 'guidelines')
 
@@ -183,7 +186,7 @@ export default function IntakeFormView({
       token={token}
       kind={s.kind}
       title={s.title}
-      hint={s.hint}
+      hint={linkedHere.has(s.kind) ? 'We already have this from the link you shared. Upload here only if it has changed.' : s.hint}
       badge={s.key ? 'Most important' : undefined}
       files={files.filter(f => f.kind === s.kind)}
       onAdded={f => setFiles(fs => [...fs, f])}
@@ -232,6 +235,23 @@ export default function IntakeFormView({
           <div className="ik-slots">{FILE_SLOTS.map(slot)}</div>
           <Q k="asset_links" rows={2} label="Files too big, or already in a folder? Paste a link instead"
             placeholder="Google Drive, Dropbox or WeTransfer link to your product photos, logo pack, etc." />
+          {form.asset_links.trim() && (
+            <div className="ik-field">
+              <span>What&apos;s in that link?</span>
+              <small>Tick everything it holds, so we don&apos;t ask you for it again.</small>
+              <div className="ik-pills">
+                {LINKABLE.map(l => {
+                  const on = form.asset_covers.includes(l.k)
+                  return (
+                    <button key={l.k} type="button" aria-pressed={on} className={`ik-pill${on ? ' on' : ''}`}
+                      onClick={() => setForm(f => ({ ...f, asset_covers: on ? f.asset_covers.filter(x => x !== l.k) : [...f.asset_covers, l.k] }))}>
+                      {on ? '✓ ' : ''}{l.label}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
           {!hasGuidelines && (
             <div className="ik-sub">
               <p className="ik-help" style={{ margin: 0 }}>No brand guidelines? Then tell us your colours and fonts.</p>
