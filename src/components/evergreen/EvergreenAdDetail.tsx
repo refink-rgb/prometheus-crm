@@ -16,6 +16,7 @@ import { CommentList, SectionTitle, TeamNoteForm, useAction } from './EvergreenC
 import { CreativeSection, DriveSyncCard, UploadButton } from './EvergreenCreatives'
 import { BriefCard, NotesCard, ReviewLinkCard } from './EvergreenSideCards'
 import MigrationNotice from './MigrationNotice'
+import ApprovedFilesExport from '@/components/ApprovedFilesExport'
 import styles from './evergreen.module.css'
 
 export default function EvergreenAdDetail({ ad, brandName, creatives, comments, canEdit, people, assignees, teamReady, driveFolderUrl, today }: {
@@ -171,6 +172,12 @@ export default function EvergreenAdDetail({ ad, brandName, creatives, comments, 
         <aside style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <BriefCard adId={ad.id} url={ad.brief_url} canEdit={canEdit} />
           <ReviewLinkCard ad={ad} creatives={creatives} />
+          {canEdit && (
+            <div className="card" style={{ padding: 16 }}>
+              <SectionTitle>Approved files</SectionTitle>
+              <ApprovedFilesExport kind="evergreen" itemKey={ad.id} label={`${brandName}-${ad.name}`} approvedCount={creatives.filter(c => c.status === 'approved').length} hasDriveFolder={!!driveFolderUrl} />
+            </div>
+          )}
           <NotesCard adId={ad.id} notes={ad.notes} canEdit={canEdit} />
           <div className="card" style={{ padding: 16 }}>
             <SectionTitle>General feedback</SectionTitle>

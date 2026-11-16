@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { CALIBRATION_TRACKS } from '@/lib/bfcm/production'
 import type { Calibration, CalibrationFeedback, CalibrationItem, CalibrationTrackState } from '@/lib/bfcm/production-server'
 import { attachCalibrationItem, copyCalibrationDriveFile, createCalibrationUploadUrl, publishCalibrationTrack, removeCalibrationItem, reopenCalibrationTrack, setCalibrationItemsVisible, startCalibration, syncCalibrationFolder } from '@/lib/bfcm/calibration-actions'
+import ApprovedFilesExport from '@/components/ApprovedFilesExport'
 import s from './BfcmProduction.module.css'
 
 const BUCKET = 'project-images'
@@ -173,6 +174,11 @@ export default function BfcmCalibrationStaff({ slug, brandName, data, revisions 
         <button className="btn-primary btn-sm" disabled={!!busy || !folder.trim()}>{calibration.drive_folder_url ? 'Sync again' : 'Sync from Drive'}</button>
       </form>
       <p className={s.muted} style={{ margin: '6px 0 0' }}>{working ? busy : synced || 'Paste the 01 Calibration folder. Reads the files directly in Motion and Static; folders inside them (old versions) are ignored.'}</p>
+    </div>
+
+    <div>
+      <p className={s.panelTitle}>Approved files</p>
+      <ApprovedFilesExport kind="bfcm" itemKey={slug} label={`${brandName}-bfcm-calibration`} approvedCount={items.filter(i => i.client_status === 'approved').length} hasDriveFolder={!!calibration.drive_folder_url} />
     </div>
 
     {CALIBRATION_TRACKS.map(track => {
