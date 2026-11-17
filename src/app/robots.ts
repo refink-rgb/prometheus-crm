@@ -7,20 +7,17 @@ import type { MetadataRoute } from 'next'
 // robots.txt belt-and-suspenders.
 //
 // One exception: the strategist status board (/status, /api/status). People
-// paste those links into an AI assistant to upload ads, and an assistant
-// fetching a page for its user checks robots.txt first. Those user-triggered
-// fetchers may read that one path. They are not crawlers: the links are
-// unguessable, nothing links to them, and every page there is still noindex.
-// Search and training crawlers stay blocked everywhere.
+// paste those links into an AI assistant to upload ads, and an assistant that
+// fetches a page for its user may check robots.txt first. So that one path is
+// open to every agent, whatever it calls itself. Nothing is exposed by this:
+// the links are unguessable, nothing links to them, and every page there
+// still answers noindex.
 export default function robots(): MetadataRoute.Robots {
   return {
-    rules: [
-      { userAgent: '*', disallow: '/' },
-      {
-        userAgent: ['ChatGPT-User', 'Claude-User', 'Perplexity-User'],
-        allow: ['/status/', '/api/status/'],
-        disallow: '/',
-      },
-    ],
+    rules: {
+      userAgent: '*',
+      allow: ['/status/', '/api/status/'],
+      disallow: '/',
+    },
   }
 }
