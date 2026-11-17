@@ -10,6 +10,7 @@ import { normalizeStage } from '@/lib/types'
 import StagePill from '@/components/StagePill'
 import DownloadApproved, { type DownloadFile } from '@/components/status/DownloadApproved'
 import { StatusShell, Tile, Tiles } from '@/components/status/StatusShell'
+import OpenHashTarget from '@/components/status/OpenHashTarget'
 
 // One brand on a profit engineer's status board: every project by where it
 // stands, with the client-approved files to download. Read-only, no account.
@@ -52,6 +53,7 @@ export default async function StatusBrandPage({
 
   return (
     <StatusShell>
+      <OpenHashTarget />
       <Link href={`/status/${token}`} style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', textDecoration: 'none' }}>
         ← All brands
       </Link>
@@ -130,7 +132,9 @@ function ProjectCard({ project: p, token, compact = false }: { project: BoardPro
   const more = p.approved.length - shown.length
 
   return (
-    <div className="card" style={{ padding: compact ? 'var(--space-3) var(--space-4)' : 'var(--space-5) var(--space-6)' }}>
+    // The id is what a project row on the home page links to; the margin keeps
+    // the card clear of the sticky top bar when the browser jumps to it.
+    <div id={`p-${p.id}`} className="card" style={{ scrollMarginTop: 72, padding: compact ? 'var(--space-3) var(--space-4)' : 'var(--space-5) var(--space-6)' }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
         <div style={{ flex: 1, minWidth: 220 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
