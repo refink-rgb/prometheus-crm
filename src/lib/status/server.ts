@@ -10,7 +10,7 @@
 
 import { createHash } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { daysLate, projectBucket, tallyAssets, waitingOn, type AssetTally, type Bucket } from './board'
+import { daysLate, daysSince, holderOf, projectBucket, tallyAssets, waitingOn, type AssetTally, type Bucket, type Holder } from './board'
 
 /** The status-page token for a profit engineer's approval token. */
 export function statusTokenFor(approvalToken: string): string {
@@ -51,7 +51,12 @@ export interface BoardProject {
   shareToken: string | null
   bucket: Bucket
   waiting: string
+  /** Whose move it is: the client's, the team's, or nobody's. */
+  holder: Holder
+  /** Days past due, counted only while the team holds the work. */
   late: number
+  /** Whole days the client has had it, or null when that was never logged. */
+  waitingDays: number | null
   tally: AssetTally
   /** Client-approved creatives, in the order the team arranged them. */
   approved: BoardAsset[]
@@ -143,10 +148,42 @@ export async function loadBoard(
     }
   }
 
+  // When each track last entered Client Review, from the append-only event
+  // log. That is the honest start of "waiting on the client": the due date
+  // says when the work was owed, not how long the client has had it.
+  const reviewSince = new Map<string, string>() // `${projectId}:${track}` -> ISO
+  for (let i = 0; i < ids.length; i += 60) {
+    const slice = ids.slice(i, i + 60)
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await service
+        .from('pipeline_events')
+        .select('card_id, track, created_at')
+        .eq('card_kind', 'production')
+        .eq('event_type', 'stage_changed')
+        .eq('to_stage', 'client_review')
+        .in('card_id', slice)
+        .order('created_at', { ascending: true })
+        .range(from, from + PAGE - 1)
+      if (error) { console.error('[status] failed to load stage history:', error); break }
+      const rows = (data ?? []) as { card_id: string; track: string | null; created_at: string }[]
+      // Ascending, so the last write per key is the most recent entry.
+      for (const e of rows) if (e.track) reviewSince.set(`${e.card_id}:${e.track}`, e.created_at)
+      if (rows.length < PAGE) break
+    }
+  }
+
   const byBrand = new Map<string, BoardProject[]>(brands.map(b => [b.id, []]))
   for (const p of projects) {
     const assets = assetsByProject.get(p.id) ?? []
     const bucket = projectBucket(p.lp_stage, p.creatives_stage, p.is_complete)
+    const holder = holderOf(p.lp_stage, p.creatives_stage, p.is_complete)
+    // The longest the client has been sitting on either track.
+    const waits = holder === 'client'
+      ? [
+          p.lp_stage === 'client_review' ? daysSince(reviewSince.get(`${p.id}:lp`)) : null,
+          p.creatives_stage === 'client_review' ? daysSince(reviewSince.get(`${p.id}:creative`)) : null,
+        ].filter((d): d is number => d !== null)
+      : []
     byBrand.get(p.brand_id)?.push({
       id: p.id,
       brandId: p.brand_id,
@@ -159,7 +196,11 @@ export async function loadBoard(
       shareToken: p.share_token,
       bucket,
       waiting: waitingOn(p.lp_stage, p.creatives_stage, p.is_complete),
-      late: daysLate(p.due_date, bucket),
+      holder,
+      // Late is the team's word: a date missed while the client holds the
+      // work is the client's wait, shown as that, not as our slip.
+      late: holder === 'team' ? daysLate(p.due_date, bucket) : 0,
+      waitingDays: waits.length ? Math.max(...waits) : null,
       tally: tallyAssets(assets.map(a => a.status)),
       approved: assets
         .filter(a => a.status === 'approved')
@@ -224,6 +265,10 @@ export function countBoard(projects: BoardProject[]) {
     working: projects.filter(p => p.bucket === 'working').length,
     upcoming: projects.filter(p => p.bucket === 'upcoming').length,
     launched: projects.filter(p => p.bucket === 'launched').length,
+    /** Open work the client is holding. */
+    client: projects.filter(p => p.holder === 'client').length,
+    /** Open work the team is holding (including not started). */
+    team: projects.filter(p => p.holder === 'team').length,
     late: projects.filter(p => p.late > 0).length,
     approvedFiles: projects.reduce((n, p) => n + p.approved.length, 0),
   }

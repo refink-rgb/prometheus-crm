@@ -3,7 +3,7 @@ import Link from 'next/link'
 import type { Metadata } from 'next'
 import { createServiceClient } from '@/lib/supabase/service'
 import { countBoard, loadBoard, resolveStatusToken, type BoardAsset, type BoardProject } from '@/lib/status/server'
-import { BUCKET_LABELS, safeName, tallyLine, type Bucket } from '@/lib/status/board'
+import { BUCKET_LABELS, safeName, statusLine, tallyLine, type Bucket, type Tone } from '@/lib/status/board'
 import { clientPosterOf, isVideoAsset } from '@/lib/creative-media'
 import { driveThumb, resizeDriveThumb } from '@/lib/drive-thumb'
 import { normalizeStage } from '@/lib/types'
@@ -22,6 +22,15 @@ import CopyText from '@/components/status/CopyText'
 
 export const metadata: Metadata = { title: 'Project status', robots: { index: false, follow: false } }
 export const dynamic = 'force-dynamic'
+
+// Same tones as the home page: red only for work the team owes late.
+const TONE: Record<Tone, string> = {
+  good: 'var(--success)',
+  warn: 'var(--stage-client-text)',
+  bad: 'var(--danger)',
+  plain: 'var(--text-secondary)',
+  muted: 'var(--text-muted)',
+}
 
 const THUMBS = 12
 const dueLabel = (iso: string) =>
@@ -129,6 +138,7 @@ function Section({ bucket, projects, token }: { bucket: Bucket; projects: BoardP
 function ProjectCard({ project: p, token, compact = false }: { project: BoardProject; token: string; compact?: boolean }) {
   const files: DownloadFile[] = p.approved.map(a => ({ id: a.id, name: fileName(a) }))
   const tally = tallyLine(p.tally)
+  const line = statusLine(p)
   const shown = compact ? [] : p.approved.slice(0, THUMBS)
   const more = p.approved.length - shown.length
 
@@ -157,16 +167,15 @@ function ProjectCard({ project: p, token, compact = false }: { project: BoardPro
             </div>
           )}
 
-          <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', margin: 0 }}>
-            {!compact && <>{p.waiting}</>}
-            {!compact && p.dueDate && ' · '}
-            {p.late > 0 ? (
-              <span style={{ color: 'var(--danger)', fontWeight: 600 }}>
-                {p.late} day{p.late === 1 ? '' : 's'} late{p.dueDate ? ` (due ${dueLabel(p.dueDate)})` : ''}
+          <p style={{ fontSize: 'var(--text-sm)', margin: 0 }}>
+            {!compact && (
+              <span style={{ color: TONE[line.tone], fontWeight: line.tone === 'bad' ? 600 : 500 }}>{line.text}</span>
+            )}
+            {p.dueDate && (
+              <span style={{ color: 'var(--text-muted)' }}>
+                {!compact && ' · '}{p.bucket === 'launched' ? 'Launch date' : 'Due'} {dueLabel(p.dueDate)}
               </span>
-            ) : p.dueDate ? (
-              <span>{p.bucket === 'launched' ? 'Launch date' : 'Due'} {dueLabel(p.dueDate)}</span>
-            ) : null}
+            )}
           </p>
           {tally && (
             <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', margin: '4px 0 0' }}>
