@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
-import { daysLate, projectBucket, safeName, tallyAssets, tallyLine, waitingOn } from './board'
+import { daysLate, daysSince, holderOf, projectBucket, safeName, statusLine, tallyAssets, tallyLine, waitingOn } from './board'
 
 test('a project is launched when archived or when every track is live', () => {
   assert.equal(projectBucket('live', 'live', false), 'launched')
@@ -59,4 +59,34 @@ test('safeName keeps names readable and zip-safe', () => {
   assert.equal(safeName('  ../secret  ', 'x'), 'secret')
   assert.equal(safeName('', 'project'), 'project')
   assert.equal(safeName(null, 'project'), 'project')
+})
+
+test('holder says whose move it is', () => {
+  assert.equal(holderOf('client_review', 'in_progress', false), 'client')
+  assert.equal(holderOf('revisions', 'brief', false), 'team')
+  assert.equal(holderOf('brief', 'brief', false), 'team')
+  assert.equal(holderOf('ready', 'ready', false), 'none')
+  assert.equal(holderOf('live', 'live', false), 'none')
+  assert.equal(holderOf('client_review', 'client_review', true), 'none') // archived
+})
+
+test('status line keeps red for work the team owes', () => {
+  const base = { bucket: 'working' as const, late: 0, waitingDays: null }
+  assert.deepEqual(statusLine({ ...base, holder: 'client', waitingDays: 15 }), { text: 'Waiting on client for 15 days', tone: 'warn' })
+  assert.deepEqual(statusLine({ ...base, holder: 'client', waitingDays: 1 }), { text: 'Waiting on client for 1 day', tone: 'warn' })
+  assert.deepEqual(statusLine({ ...base, holder: 'client', waitingDays: 0 }), { text: 'Waiting on client since today', tone: 'warn' })
+  assert.deepEqual(statusLine({ ...base, holder: 'client' }), { text: 'Waiting on client', tone: 'warn' })
+  assert.deepEqual(statusLine({ ...base, holder: 'team', late: 4 }), { text: 'With our team · 4 days late', tone: 'bad' })
+  assert.deepEqual(statusLine({ ...base, holder: 'team' }), { text: 'With our team', tone: 'plain' })
+  assert.deepEqual(statusLine({ bucket: 'upcoming', holder: 'team', late: 0, waitingDays: null }), { text: 'Not started yet', tone: 'muted' })
+  assert.deepEqual(statusLine({ bucket: 'ready', holder: 'none', late: 0, waitingDays: null }), { text: 'Ready to launch', tone: 'good' })
+  assert.deepEqual(statusLine({ bucket: 'launched', holder: 'none', late: 0, waitingDays: null }), { text: 'Launched', tone: 'muted' })
+})
+
+test('daysSince counts calendar days', () => {
+  const today = new Date(2026, 10, 18, 9, 0)
+  assert.equal(daysSince(new Date(2026, 10, 18, 1, 0).toISOString(), today), 0)
+  assert.equal(daysSince(new Date(2026, 10, 3, 23, 0).toISOString(), today), 15)
+  assert.equal(daysSince(null, today), null)
+  assert.equal(daysSince('nope', today), null)
 })

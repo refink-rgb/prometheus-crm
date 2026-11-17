@@ -65,6 +65,77 @@ export function waitingOn(
 }
 
 /**
+ * Who has to move next.
+ *
+ *   client  something is on the client's review link, waiting for an answer
+ *   team    the work is with us (brief, building, our check, client changes)
+ *   none    nothing to wait for: ready to launch, or launched
+ *
+ * A project with one track at the client and one still with us counts as the
+ * client's: that is the half a strategist can do something about.
+ */
+export type Holder = 'client' | 'team' | 'none'
+
+export function holderOf(
+  lpStage: string | null | undefined,
+  creativesStage: string | null | undefined,
+  isComplete: boolean,
+): Holder {
+  const bucket = projectBucket(lpStage, creativesStage, isComplete)
+  if (bucket === 'launched' || bucket === 'ready') return 'none'
+  return [track(lpStage), track(creativesStage)].includes('client_review') ? 'client' : 'team'
+}
+
+/** A stage in words a strategist uses, not the team's column names. */
+export const STAGE_PLAIN: Record<Stage, string> = {
+  brief: 'Not started',
+  in_progress: 'In progress',
+  internal_review: 'Our check',
+  client_review: 'Client review',
+  revisions: 'Client changes',
+  ready: 'Ready',
+  live: 'Live',
+}
+
+export type Tone = 'good' | 'warn' | 'bad' | 'plain' | 'muted'
+
+/**
+ * The one line under a project's name: where it is and whose move it is.
+ * Red is kept for work the team owes late. A project the client is sitting on
+ * is amber however old it is; when everything is red, nothing is.
+ */
+export function statusLine(p: {
+  bucket: Bucket
+  holder: Holder
+  late: number
+  /** Whole days the client has had it, when the stage change was logged. */
+  waitingDays: number | null
+}): { text: string; tone: Tone } {
+  if (p.bucket === 'launched') return { text: 'Launched', tone: 'muted' }
+  if (p.bucket === 'ready') return { text: 'Ready to launch', tone: 'good' }
+  if (p.holder === 'client') {
+    const d = p.waitingDays
+    return {
+      text: d === null ? 'Waiting on client' : d === 0 ? 'Waiting on client since today' : `Waiting on client for ${d} day${d === 1 ? '' : 's'}`,
+      tone: 'warn',
+    }
+  }
+  if (p.late > 0) return { text: `With our team · ${p.late} day${p.late === 1 ? '' : 's'} late`, tone: 'bad' }
+  if (p.bucket === 'upcoming') return { text: 'Not started yet', tone: 'muted' }
+  return { text: 'With our team', tone: 'plain' }
+}
+
+/** Whole days from an ISO timestamp to now (0 = today), or null. */
+export function daysSince(iso: string | null | undefined, today: Date = new Date()): number | null {
+  if (!iso) return null
+  const then = new Date(iso)
+  if (Number.isNaN(then.getTime())) return null
+  const a = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()
+  const b = new Date(then.getFullYear(), then.getMonth(), then.getDate()).getTime()
+  return Math.max(0, Math.round((a - b) / 86_400_000))
+}
+
+/**
  * Days past the due date, or 0 when the project is on time, finished, or
  * undated. "Late" here means the team still owes work: a project that is
  * Ready has none left, so a missed date is the launch waiting, not us.
