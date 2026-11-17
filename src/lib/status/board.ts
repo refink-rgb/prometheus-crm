@@ -183,6 +183,47 @@ export function tallyLine(t: AssetTally): string {
   ].filter(Boolean).join(' · ')
 }
 
+/**
+ * Who signed a project's files off.
+ *   client  the client approved them on the review link
+ *   team    the team approved them and has marked the creatives Ready or Live,
+ *           but the client's approval was never recorded in the CRM
+ */
+export type ApprovedBy = 'client' | 'team'
+
+export interface FinalFileFacts {
+  status: string | null
+  internal_status: string | null
+  client_visible: boolean | null
+}
+
+/**
+ * The files a strategist may take for a project, and on whose word.
+ *
+ * Client-approved files always win. In practice many clients approve by
+ * message and never press the button, so a project can be Ready or Live with
+ * nothing "client-approved" in the CRM. For those, and only those, fall back
+ * to what the team approved: the stage itself is the team saying the work is
+ * signed off. A file the client rejected or sent back is never offered, and
+ * while a project is still in review only the client's own approvals count.
+ */
+export function pickFinalFiles<T extends FinalFileFacts>(
+  assets: T[],
+  creativesStage: string | null | undefined,
+  isComplete: boolean,
+): { files: T[]; approvedBy: ApprovedBy | null } {
+  const byClient = assets.filter(a => a.status === 'approved' && a.client_visible === true)
+  if (byClient.length > 0) return { files: byClient, approvedBy: 'client' }
+
+  const stage = track(creativesStage)
+  const signedOff = isComplete || stage === 'ready' || stage === 'live'
+  if (!signedOff) return { files: [], approvedBy: null }
+
+  const byTeam = assets.filter(a =>
+    a.internal_status === 'approved' && a.status !== 'rejected' && a.status !== 'needs_revision')
+  return byTeam.length > 0 ? { files: byTeam, approvedBy: 'team' } : { files: [], approvedBy: null }
+}
+
 /** A file or folder name that is safe inside a .zip on every OS. */
 export function safeName(s: string | null | undefined, fallback: string): string {
   const cleaned = (s ?? '').replace(/[^\w.\- ]+/g, '_').replace(/\s+/g, ' ').trim().replace(/^[._]+|[._ ]+$/g, '')

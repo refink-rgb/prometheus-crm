@@ -11,7 +11,7 @@ const asset = (id: string, name: string | null, media_type: 'image' | 'video' | 
 const project: BoardProject = {
   id: '11111111-1111-1111-1111-111111111111', brandId: 'b', name: 'Fall Sale', dueDate: '2026-11-20T00:00:00+00:00',
   pageType: 'Listicle', lpStage: 'ready', creativesStage: 'done', lpUrl: 'https://example.com/pages/fall',
-  shareToken: null, bucket: 'ready', waiting: 'Approved and ready to launch', holder: 'none', late: 0, waitingDays: null,
+  shareToken: null, bucket: 'ready', waiting: 'Approved and ready to launch', holder: 'none', late: 0, waitingDays: null, approvedBy: 'client', driveUrl: null,
   tally: { approved: 2, awaiting: 0, changes: 0 },
   approved: [asset('aaaaaaaa-0000-0000-0000-000000000001', 'hero.png'), asset('bbbbbbbb-0000-0000-0000-000000000002', '  ', 'video')],
 }
@@ -41,4 +41,14 @@ test('agent instructions spell out every link and never invent a website URL', (
 
   const noUrl = kitInstructions(buildKit('https://crm.test', 'tok', brand, { ...project, lpUrl: null }))
   assert.ok(noUrl.includes('Website URL for every ad: NOT SET. Stop and ask a person before uploading.'))
+})
+
+test('a team-approved kit says so, in the data and in the agent brief', () => {
+  const kit = buildKit('https://crm.test', 'tok', brand, { ...project, approvedBy: 'team' })
+  assert.equal(kit.approved_by, 'team')
+  const text = kitInstructions(kit)
+  assert.ok(text.includes('approved by our team'))
+  assert.ok(text.includes('confirm it with the strategist before the ads go live'))
+  assert.ok(!text.includes('was approved by the client'))
+  assert.ok(kitInstructions(buildKit('https://crm.test', 'tok', brand, project)).includes('Every file listed was approved by the client.'))
 })

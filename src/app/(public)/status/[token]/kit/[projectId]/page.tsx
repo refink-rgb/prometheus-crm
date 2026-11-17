@@ -4,7 +4,7 @@ import Link from 'next/link'
 import type { Metadata } from 'next'
 import { createServiceClient } from '@/lib/supabase/service'
 import { loadBoardProject, resolveStatusToken } from '@/lib/status/server'
-import { buildKit, kitInstructions, KIT_RULES } from '@/lib/status/kit'
+import { approvedByLabel, buildKit, kitInstructions, kitRules } from '@/lib/status/kit'
 import { safeName } from '@/lib/status/board'
 import CopyText from '@/components/status/CopyText'
 import DownloadApproved from '@/components/status/DownloadApproved'
@@ -54,7 +54,7 @@ export default async function AdKitPage({
             Ad kit · {kit.project}
           </h1>
           <p style={{ fontSize: 14, color: 'var(--text-muted)' }}>
-            Everything needed to upload these ads: the website URL and the files the client approved.
+            Everything needed to upload these ads: the website URL and the approved files.
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-start' }}>
@@ -89,6 +89,12 @@ export default async function AdKitPage({
           <Desc>{kit.project}</Desc>
           <Term>Status</Term>
           <Desc>{kit.status}. {kit.waiting_on}.</Desc>
+          <Term>Files approved by</Term>
+          <Desc>
+            {kit.approved_by === 'team'
+              ? <span style={{ color: 'var(--stage-client-text)', fontWeight: 600 }}>{approvedByLabel('team')} Confirm before the ads go live.</span>
+              : approvedByLabel(kit.approved_by)}
+          </Desc>
           <Term>Website URL for the ads</Term>
           <Desc>
             {kit.website_url ? (
@@ -111,7 +117,10 @@ export default async function AdKitPage({
         </h2>
         {files.length === 0 ? (
           <p style={{ fontSize: 14, color: 'var(--text-muted)', padding: '0 var(--space-6) var(--space-5)' }}>
-            The client has not approved any files on this project yet.
+            No approved files on this project yet.
+            {found.project.driveUrl && (
+              <> The working files are in <a href={found.project.driveUrl} target="_blank" rel="noopener noreferrer" style={link}>the project’s Drive folder</a>.</>
+            )}
           </p>
         ) : (
           <div style={{ overflowX: 'auto' }}>
@@ -146,7 +155,7 @@ export default async function AdKitPage({
           How to use this page
         </h2>
         <ul style={{ margin: 0, paddingLeft: 18, fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
-          {KIT_RULES.map(rule => <li key={rule}>{rule}</li>)}
+          {kitRules(kit.approved_by).map(rule => <li key={rule}>{rule}</li>)}
         </ul>
         <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', margin: '12px 0 0' }}>
           The same information as data (JSON): <a href={kit.kit_json_url} style={link}>{kit.kit_json_url}</a>

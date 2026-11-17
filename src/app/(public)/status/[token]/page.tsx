@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation'
 import { headers } from 'next/headers'
 import Link from 'next/link'
 import type { Metadata } from 'next'
-import { ChevronDown } from 'lucide-react'
+import { ChevronDown, FolderOpen } from 'lucide-react'
 import { createServiceClient } from '@/lib/supabase/service'
 import { countBoard, loadBoard, resolveStatusToken, type BoardBrand, type BoardProject } from '@/lib/status/server'
 import { safeName, STAGE_PLAIN, statusLine, type Tone } from '@/lib/status/board'
@@ -44,7 +44,9 @@ const CSS = `
 .sb-name:hover { text-decoration: underline; }
 .sb-url { color: var(--accent); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
 .sb-url:hover { text-decoration: underline; }
-.sb-actions { display: flex; gap: 8px; align-items: flex-start; justify-content: flex-end; min-width: 176px; }
+.sb-actions { display: flex; flex-direction: column; gap: 5px; align-items: flex-end; min-width: 176px; }
+.sb-buttons { display: flex; gap: 8px; align-items: flex-start; justify-content: flex-end; flex-wrap: wrap; }
+.sb-note { font-size: var(--text-xs); color: var(--text-muted); text-align: right; max-width: 220px; }
 .sb-client > summary { list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: var(--space-4) var(--space-6); }
 .sb-client > summary::-webkit-details-marker { display: none; }
 .sb-client > summary:hover { background: var(--surface-raised); }
@@ -55,7 +57,9 @@ const CSS = `
 @media (max-width: 720px) {
   .sb-row { grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 13px var(--space-4); }
   .sb-need { flex-direction: column; align-items: flex-start; gap: 10px; padding: 13px var(--space-4); }
-  .sb-actions { justify-content: flex-start; min-width: 0; flex-wrap: wrap; }
+  .sb-actions { align-items: flex-start; min-width: 0; }
+  .sb-buttons { justify-content: flex-start; }
+  .sb-note { text-align: left; max-width: none; }
   .sb-client > summary, .sb-more > summary { padding-left: var(--space-4); padding-right: var(--space-4); }
 }
 `
@@ -233,15 +237,15 @@ function NeedRow({ project: p, client, token, origin }: { project: BoardProject;
       </div>
       <div className="sb-actions">
         {p.bucket === 'ready' ? <FileActions project={p} token={token} /> : p.shareToken ? (
-          <>
+          <div className="sb-buttons">
             <CopyText text={`${origin}/review/${p.shareToken}`} label="Copy review link" />
             <a href={`/review/${p.shareToken}`} target="_blank" rel="noopener noreferrer" className="btn-secondary btn-sm"
               aria-label={`Open the client review link for ${p.name}`} style={{ whiteSpace: 'nowrap', textDecoration: 'none' }}>
               Open
             </a>
-          </>
+          </div>
         ) : (
-          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>No review link yet</span>
+          <span className="sb-note">No review link yet</span>
         )}
       </div>
     </div>
@@ -337,6 +341,9 @@ function ProjectRow({ project: p, token }: { project: BoardProject; token: strin
         </Link>
         <span style={{ display: 'block', fontSize: 'var(--text-sm)', color: TONE[line.tone], fontWeight: line.tone === 'bad' ? 600 : 500, marginTop: 3 }}>
           {line.text}
+          {p.dueDate && p.bucket !== 'launched' && (
+            <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> · due {dueLabel(p.dueDate)}</span>
+          )}
         </span>
         {p.lpUrl && (
           <a
@@ -359,13 +366,7 @@ function ProjectRow({ project: p, token }: { project: BoardProject; token: strin
       </div>
 
       <div className="sb-actions">
-        {p.approved.length > 0 ? (
-          <FileActions project={p} token={token} />
-        ) : p.dueDate && p.bucket !== 'launched' ? (
-          <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Due {dueLabel(p.dueDate)}</span>
-        ) : (
-          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>No approved files</span>
-        )}
+        <FileActions project={p} token={token} />
       </div>
     </div>
   )
@@ -396,27 +397,59 @@ function Progress({ label, stage }: { label: string; stage: Stage }) {
   )
 }
 
-/** Download the approved files, or open the ad kit an AI agent can read. */
+/**
+ * The right-hand side of every project: its files.
+ *   approved files   Download (a zip, for people) and Ad kit (links, for agents)
+ *   none, but Drive  the project's Drive folder
+ *   neither          a plain line saying so, never a dead button
+ */
 function FileActions({ project: p, token }: { project: BoardProject; token: string }) {
   const files = p.approved.length
-  if (files === 0) return <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>No approved files</span>
+  if (files === 0) {
+    return p.driveUrl ? (
+      <>
+        <div className="sb-buttons">
+          <a
+            href={p.driveUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn-secondary btn-sm"
+            aria-label={`Open the Drive folder for ${p.name}`}
+            style={{ whiteSpace: 'nowrap', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          >
+            <FolderOpen size={12} aria-hidden /> Open Drive folder
+          </a>
+        </div>
+        <span className="sb-note">No approved files in the CRM yet</span>
+      </>
+    ) : (
+      <span className="sb-note">No files to download</span>
+    )
+  }
   return (
     <>
-      <DownloadApproved
-        token={token}
-        files={p.approved.map(a => ({ id: a.id, name: safeName(a.name, `creative-${a.id.slice(0, 8)}`) }))}
-        zipName={safeName(p.name, 'project')}
-        label={`Download ${files}`}
-        ariaLabel={`Download ${plural(files, 'approved file')} for ${p.name} as a zip`}
-      />
-      <Link
-        href={`/status/${token}/kit/${p.id}`}
-        className="btn-secondary btn-sm"
-        aria-label={`Ad kit for ${p.name}: website URL and a download link for each approved file`}
-        style={{ whiteSpace: 'nowrap', textDecoration: 'none' }}
-      >
-        Ad kit
-      </Link>
+      <div className="sb-buttons">
+        <DownloadApproved
+          token={token}
+          files={p.approved.map(a => ({ id: a.id, name: safeName(a.name, `creative-${a.id.slice(0, 8)}`) }))}
+          zipName={safeName(p.name, 'project')}
+          label={`Download ${files}`}
+          ariaLabel={`Download ${plural(files, 'approved file')} for ${p.name} as a zip`}
+        />
+        <Link
+          href={`/status/${token}/kit/${p.id}`}
+          className="btn-secondary btn-sm"
+          aria-label={`Ad kit for ${p.name}: website URL and a download link for each approved file`}
+          style={{ whiteSpace: 'nowrap', textDecoration: 'none' }}
+        >
+          Ad kit
+        </Link>
+      </div>
+      {p.approvedBy === 'team' && (
+        <span className="sb-note" style={{ color: 'var(--stage-client-text)' }}>
+          Approved by our team. Client approval not recorded.
+        </span>
+      )}
     </>
   )
 }
