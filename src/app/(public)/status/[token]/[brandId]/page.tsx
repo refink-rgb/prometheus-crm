@@ -11,6 +11,7 @@ import StagePill from '@/components/StagePill'
 import DownloadApproved, { type DownloadFile } from '@/components/status/DownloadApproved'
 import { StatusShell, Tile, Tiles } from '@/components/status/StatusShell'
 import OpenHashTarget from '@/components/status/OpenHashTarget'
+import CopyText from '@/components/status/CopyText'
 
 // One brand on a profit engineer's status board: every project by where it
 // stands, with the client-approved files to download. Read-only, no account.
@@ -172,26 +173,40 @@ function ProjectCard({ project: p, token, compact = false }: { project: BoardPro
               Creatives: {tally}
             </p>
           )}
+          {p.lpUrl && (
+            <p style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 'var(--text-sm)', color: 'var(--text-muted)', margin: '8px 0 0' }}>
+              <span>Website URL:</span>
+              <a href={p.lpUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', wordBreak: 'break-all' }}>
+                {p.lpUrl}
+              </a>
+              <CopyText text={p.lpUrl} label="Copy" />
+            </p>
+          )}
         </div>
 
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'flex-end' }}>
-          {p.lpUrl && /^https?:\/\//i.test(p.lpUrl) && (
-            <a href={p.lpUrl} target="_blank" rel="noopener noreferrer" className="btn-secondary btn-sm" style={{ whiteSpace: 'nowrap', textDecoration: 'none' }}>
-              Open landing page
-            </a>
-          )}
           {p.shareToken && (
             <a href={`/review/${p.shareToken}`} target="_blank" rel="noopener noreferrer" className="btn-secondary btn-sm" style={{ whiteSpace: 'nowrap', textDecoration: 'none' }}>
               Open client review
             </a>
           )}
           {files.length > 0 && (
-            <DownloadApproved
-              token={token}
-              files={files}
-              zipName={safeName(p.name, 'project')}
-              label={`Download approved (${files.length})`}
-            />
+            <>
+              <Link
+                href={`/status/${token}/kit/${p.id}`}
+                className="btn-secondary btn-sm"
+                aria-label={`Ad kit for ${p.name}: website URL and a download link for each approved file`}
+                style={{ whiteSpace: 'nowrap', textDecoration: 'none' }}
+              >
+                Ad kit
+              </Link>
+              <DownloadApproved
+                token={token}
+                files={files}
+                zipName={safeName(p.name, 'project')}
+                label={`Download approved (${files.length})`}
+              />
+            </>
           )}
         </div>
       </div>

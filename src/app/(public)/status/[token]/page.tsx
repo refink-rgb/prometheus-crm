@@ -5,6 +5,8 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { countBoard, loadBoard, resolveStatusToken, type BoardBrand, type BoardProject } from '@/lib/status/server'
 import { normalizeStage } from '@/lib/types'
 import StagePill from '@/components/StagePill'
+import DownloadApproved from '@/components/status/DownloadApproved'
+import { safeName } from '@/lib/status/board'
 import { StatusShell, Tile, Tiles } from '@/components/status/StatusShell'
 
 // A profit engineer's status board: every active brand they own. Each brand is
@@ -21,20 +23,27 @@ export const dynamic = 'force-dynamic'
 // The project list is a four-column table on a wide screen and a stacked card
 // on a phone. Media queries cannot live in inline styles, hence the one block.
 const CSS = `
-.sb-row { display: grid; grid-template-columns: minmax(0, 1.8fr) minmax(0, 1.4fr) minmax(0, 2fr) 100px; gap: 12px; align-items: center; padding: 11px var(--space-6); }
+.sb-row { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1.4fr) minmax(0, 1.5fr) auto; gap: 12px; align-items: center; padding: 11px var(--space-6); }
 .sb-head { padding-top: 8px; padding-bottom: 8px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); background: var(--surface-raised); border-top: 1px solid var(--border); }
-a.sb-row { text-decoration: none; border-top: 1px solid var(--border); transition: background 0.12s; }
-a.sb-row:hover { background: var(--surface-raised); }
-.sb-due { text-align: right; }
+.sb-item { border-top: 1px solid var(--border); transition: background 0.12s; }
+.sb-item:hover { background: var(--surface-raised); }
+.sb-name { color: var(--text-primary); text-decoration: none; }
+.sb-name:hover { text-decoration: underline; }
+.sb-url { color: var(--accent); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.sb-url:hover { text-decoration: underline; }
+.sb-actions { display: flex; gap: 8px; align-items: flex-start; justify-content: flex-end; min-width: 190px; }
 .sb-stat { padding: 12px var(--space-6); border-left: 1px solid var(--border); }
 .sb-stat:first-child { border-left: 0; }
 @media (max-width: 720px) {
   .sb-head { display: none; }
-  .sb-row { grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 12px var(--space-4); }
-  .sb-due { text-align: left; }
+  .sb-row { grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 12px var(--space-4); }
+  .sb-actions { justify-content: flex-start; min-width: 0; flex-wrap: wrap; }
   .sb-stat { padding: 10px var(--space-4); }
 }
 `
+
+/** "brand.com/pages/sale": a web address the way people say it. */
+const shortUrl = (url: string) => url.replace(/^https?:\/\/(www\.)?/i, '').replace(/\/$/, '')
 
 const dueLabel = (iso: string) =>
   new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(new Date(iso.slice(0, 10) + 'T12:00:00'))
@@ -109,9 +118,16 @@ function BrandBlock({ brand, token }: { brand: BoardBrand; token: string }) {
           }}>
             {initials}
           </div>
-          <h2 style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.02em', margin: 0 }}>
-            {brand.name}
-          </h2>
+          <div style={{ minWidth: 0 }}>
+            <h2 style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.02em', margin: 0 }}>
+              {brand.name}
+            </h2>
+            {brand.website && (
+              <a href={brand.website} target="_blank" rel="noopener noreferrer" className="sb-url" style={{ fontSize: 'var(--text-sm)', marginTop: 2 }}>
+                {shortUrl(brand.website)}
+              </a>
+            )}
+          </div>
         </div>
         <Link href={href} className="btn-secondary btn-sm" style={{ whiteSpace: 'nowrap', textDecoration: 'none' }}>
           Open client and downloads →
@@ -142,13 +158,13 @@ function BrandBlock({ brand, token }: { brand: BoardBrand; token: string }) {
         <>
           {open.length > 0 && (
             <div className="sb-row sb-head">
-              <span>Project</span>
+              <span>Project and website URL</span>
               <span>Status</span>
               <span>Stage</span>
-              <span className="sb-due">Due</span>
+              <span style={{ minWidth: 190, textAlign: 'right' }}>Approved files</span>
             </div>
           )}
-          {open.map(p => <ProjectRow key={p.id} project={p} href={`${href}#p-${p.id}`} />)}
+          {open.map(p => <ProjectRow key={p.id} project={p} token={token} />)}
           {open.length === 0 && (
             <p style={{
               fontSize: 'var(--text-sm)', color: 'var(--text-muted)', margin: 0,
@@ -165,7 +181,7 @@ function BrandBlock({ brand, token }: { brand: BoardBrand; token: string }) {
               }}>
                 Launched ({launched.length})
               </summary>
-              {launched.map(p => <ProjectRow key={p.id} project={p} href={`${href}#p-${p.id}`} />)}
+              {launched.map(p => <ProjectRow key={p.id} project={p} token={token} />)}
             </details>
           )}
         </>
@@ -186,7 +202,7 @@ function Stat({ n, label, color }: { n: number; label: string; color: string }) 
   )
 }
 
-function ProjectRow({ project: p, href }: { project: BoardProject; href: string }) {
+function ProjectRow({ project: p, token }: { project: BoardProject; token: string }) {
   const dot = p.late > 0
     ? 'var(--danger)'
     : p.bucket === 'ready' ? 'var(--success)'
@@ -194,38 +210,78 @@ function ProjectRow({ project: p, href }: { project: BoardProject; href: string 
     : p.waiting === 'Waiting on client feedback' ? 'var(--stage-client)'
     : p.bucket === 'upcoming' ? 'var(--stage-brief)'
     : 'var(--stage-progress)'
+  const files = p.approved.length
 
+  // A div, not one big link: the row holds its own links and a button, and an
+  // agent reading the page needs each of them to be a separate, named target.
   return (
-    <Link href={href} className="sb-row">
-      <span style={{ minWidth: 0 }}>
-        <span style={{ display: 'block', fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{p.name}</span>
-        {(p.pageType || p.approved.length > 0) && (
-          <span style={{ display: 'block', fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: 2 }}>
-            {[p.pageType, p.approved.length > 0 && `${p.approved.length} approved file${p.approved.length === 1 ? '' : 's'}`]
-              .filter(Boolean).join(' · ')}
-          </span>
+    <div className="sb-row sb-item">
+      <div style={{ minWidth: 0 }}>
+        <Link href={`/status/${token}/${p.brandId}#p-${p.id}`} className="sb-name" style={{ display: 'block', fontSize: 14, fontWeight: 600 }}>
+          {p.name}
+        </Link>
+        {p.pageType && (
+          <span style={{ display: 'block', fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: 2 }}>{p.pageType}</span>
         )}
-      </span>
+        {p.lpUrl && (
+          <a
+            href={p.lpUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="sb-url"
+            title={p.lpUrl}
+            aria-label={`Website URL for ${p.name}: ${p.lpUrl}`}
+            style={{ fontSize: 'var(--text-xs)', marginTop: 3 }}
+          >
+            {shortUrl(p.lpUrl)}
+          </a>
+        )}
+      </div>
 
-      <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', minWidth: 0 }}>
-        <span aria-hidden style={{ width: 8, height: 8, borderRadius: '50%', background: dot, flexShrink: 0 }} />
-        {p.waiting}
-      </span>
+      <div style={{ minWidth: 0 }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+          <span aria-hidden style={{ width: 8, height: 8, borderRadius: '50%', background: dot, flexShrink: 0 }} />
+          {p.waiting}
+        </span>
+        <span style={{ display: 'block', fontSize: 'var(--text-xs)', marginTop: 3, paddingLeft: 16 }}>
+          {p.late > 0 ? (
+            <span style={{ color: 'var(--danger)', fontWeight: 600 }}>
+              {p.late} day{p.late === 1 ? '' : 's'} late{p.dueDate ? ` · was due ${dueLabel(p.dueDate)}` : ''}
+            </span>
+          ) : p.dueDate ? (
+            <span style={{ color: 'var(--text-muted)' }}>{p.bucket === 'launched' ? 'Launch date' : 'Due'} {dueLabel(p.dueDate)}</span>
+          ) : null}
+        </span>
+      </div>
 
-      <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
         {p.lpStage && <StagePill stage={normalizeStage(p.lpStage)} track="LP" />}
         {p.creativesStage && <StagePill stage={normalizeStage(p.creativesStage)} track="Creatives" />}
-      </span>
+      </div>
 
-      <span className="sb-due" style={{ fontSize: 'var(--text-sm)', whiteSpace: 'nowrap' }}>
-        {p.late > 0 ? (
-          <span style={{ color: 'var(--danger)', fontWeight: 600 }}>{p.late} day{p.late === 1 ? '' : 's'} late</span>
-        ) : p.dueDate ? (
-          <span style={{ color: 'var(--text-muted)' }}>{dueLabel(p.dueDate)}</span>
+      <div className="sb-actions">
+        {files > 0 ? (
+          <>
+            <DownloadApproved
+              token={token}
+              files={p.approved.map(a => ({ id: a.id, name: safeName(a.name, `creative-${a.id.slice(0, 8)}`) }))}
+              zipName={safeName(p.name, 'project')}
+              label={`Download ${files}`}
+              ariaLabel={`Download ${files} approved file${files === 1 ? '' : 's'} for ${p.name} as a zip`}
+            />
+            <Link
+              href={`/status/${token}/kit/${p.id}`}
+              className="btn-secondary btn-sm"
+              aria-label={`Ad kit for ${p.name}: website URL and a download link for each approved file`}
+              style={{ whiteSpace: 'nowrap', textDecoration: 'none' }}
+            >
+              Ad kit
+            </Link>
+          </>
         ) : (
-          <span style={{ color: 'var(--text-muted)' }}>—</span>
+          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>None approved yet</span>
         )}
-      </span>
-    </Link>
+      </div>
+    </div>
   )
 }
