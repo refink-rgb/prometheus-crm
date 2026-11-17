@@ -5,6 +5,7 @@ import { getCachedProfiles } from '@/lib/profiles'
 import type { Brand, OfferCard } from '@/lib/types'
 import { buildOfferHistory, type OfferHistoryProject } from '@/lib/offer-history'
 import OffersBoard from '@/components/OffersBoard'
+import { statusTokenFor } from '@/lib/status/server'
 
 type BoardOfferCard = OfferCard & { brands: { id: string; name: string } }
 
@@ -109,6 +110,8 @@ export default async function OffersPage() {
     .map(e => ({
       name: e.name,
       token: e.approval_token as string,
+      // Read-only project status board. Derived here: the hash needs node:crypto.
+      statusToken: statusTokenFor(e.approval_token as string),
       waiting: waitingByEngineer.get(e.name) ?? 0,
     }))
 

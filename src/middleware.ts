@@ -4,11 +4,12 @@ import type { NextRequest } from 'next/server'
 
 // Token-authed routes bypass the session check: /api/preview and /api/review
 // use the project's share_token; /approvals uses a profit engineer's
-// approval_token; /offer-approval uses the brand's client_token; /api/creative uses a Bearer editor token
+// approval_token; /status and /api/status use a token derived from it
+// (lib/status/server.ts); /offer-approval uses the brand's client_token; /api/creative uses a Bearer editor token
 // validated at the route level; /api/cron checks CRON_SECRET in-route;
 // /api/results checks RESULTS_INGEST_SECRET in-route (the scheduled Meta-MCP
 // agent posts daily campaign results and has no session cookie).
-const PUBLIC_PREFIXES = ['/login', '/review', '/portal', '/intake', '/showcase', '/offer-preview-qa', '/approvals', '/offer-approval', '/auth', '/api/preview', '/api/review', '/api/creative', '/api/cron', '/api/results']
+const PUBLIC_PREFIXES = ['/login', '/review', '/portal', '/intake', '/showcase', '/offer-preview-qa', '/approvals', '/status', '/offer-approval', '/auth', '/api/preview', '/api/review', '/api/status', '/api/creative', '/api/cron', '/api/results']
 
 function b64Decode(s: string): string {
   const normalized = s.replace(/-/g, '+').replace(/_/g, '/')
