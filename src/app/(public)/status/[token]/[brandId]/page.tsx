@@ -73,7 +73,7 @@ export default async function StatusBrandPage({
             {brand.name}
           </h1>
           <p style={{ fontSize: 14, color: 'var(--text-muted)' }}>
-            Where each project stands. Downloads hold only files the client approved.
+            Where each project stands. Downloads hold only approved files.
           </p>
         </div>
         {readyFiles.length > 0 && (
@@ -91,7 +91,7 @@ export default async function StatusBrandPage({
         <Tile label="Ready to launch" value={counts.ready} unit="project" tone="good" />
         <Tile label="In the works" value={counts.working + counts.upcoming} unit="project" />
         <Tile label="Running late" value={counts.late} unit="project" tone="bad" />
-        <Tile label="Approved by the client" value={counts.approvedFiles} unit="file" />
+        <Tile label="Approved files" value={counts.approvedFiles} unit="file" />
       </Tiles>
 
       {brand.projects.length === 0 && (
@@ -182,6 +182,11 @@ function ProjectCard({ project: p, token, compact = false }: { project: BoardPro
               Creatives: {tally}
             </p>
           )}
+          {p.approvedBy === 'team' && (
+            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--stage-client-text)', margin: '4px 0 0' }}>
+              {files.length} file{files.length === 1 ? '' : 's'} approved by our team. Client approval is not recorded in the CRM.
+            </p>
+          )}
           {p.lpUrl && (
             <p style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 'var(--text-sm)', color: 'var(--text-muted)', margin: '8px 0 0' }}>
               <span>Website URL:</span>
@@ -197,6 +202,12 @@ function ProjectCard({ project: p, token, compact = false }: { project: BoardPro
           {p.shareToken && (
             <a href={`/review/${p.shareToken}`} target="_blank" rel="noopener noreferrer" className="btn-secondary btn-sm" style={{ whiteSpace: 'nowrap', textDecoration: 'none' }}>
               Open client review
+            </a>
+          )}
+          {files.length === 0 && p.driveUrl && (
+            <a href={p.driveUrl} target="_blank" rel="noopener noreferrer" className="btn-secondary btn-sm"
+              aria-label={`Open the Drive folder for ${p.name}`} style={{ whiteSpace: 'nowrap', textDecoration: 'none' }}>
+              Open Drive folder
             </a>
           )}
           {files.length > 0 && (
@@ -225,7 +236,7 @@ function ProjectCard({ project: p, token, compact = false }: { project: BoardPro
           display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(84px, 1fr))',
           gap: 8, marginTop: 14,
         }}>
-          {shown.map(a => <Thumb key={a.id} asset={a} token={token} />)}
+          {shown.map(a => <Thumb key={a.id} asset={a} token={token} byTeam={p.approvedBy === 'team'} />)}
           {more > 0 && (
             <div style={{
               aspectRatio: '4 / 5', borderRadius: 8, border: '1px dashed var(--border)',
@@ -242,13 +253,15 @@ function ProjectCard({ project: p, token, compact = false }: { project: BoardPro
 }
 
 /** A small still of an approved file. Opens the real file in a new tab. */
-function Thumb({ asset: a, token }: { asset: BoardAsset; token: string }) {
+function Thumb({ asset: a, token, byTeam }: { asset: BoardAsset; token: string; byTeam: boolean }) {
   const video = isVideoAsset(a)
-  // The version the client approved: the published one when there is one.
+  // The version that was signed off, matching what the file link serves: the
+  // published one for a client approval, the team's latest for a team one.
+  const shown = byTeam ? a.revision_url || a.published_url : a.published_url
   const src = video
     ? clientPosterOf(a, 600)
-    : a.published_url && !a.published_url.includes('drive.google.com')
-      ? a.published_url
+    : shown && !shown.includes('drive.google.com')
+      ? shown
       : resizeDriveThumb(a.thumbnail_url, 600) ?? driveThumb(a.drive_file_id, 600)
   return (
     <a

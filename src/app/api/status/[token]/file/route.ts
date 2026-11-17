@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { getDriveAccessToken, hasDriveServiceAccount } from '@/lib/drive'
 import { resolveStatusToken } from '@/lib/status/server'
-import { safeName } from '@/lib/status/board'
+import { pickFinalFiles, safeName, type ApprovedBy } from '@/lib/status/board'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300
@@ -20,7 +20,8 @@ export const maxDuration = 300
  *
  * Serves a file only when all of this holds: the token is a profit engineer's
  * status link, the creative's brand is theirs and active, and the creative is
- * client-approved, on the review link and not hidden.
+ * one of the project's final files: exactly the set the board lists
+ * (pickFinalFiles), never a hidden, rejected or still-in-review one.
  */
 export async function GET(
   request: Request,
@@ -37,14 +38,16 @@ export async function GET(
 
   const { data: asset } = await service
     .from('creative_assets')
-    .select('id, project_id, name, drive_file_id, published_url, media_type, video_url, status, is_hidden, client_visible')
+    .select('id, project_id, name, drive_file_id, published_url, revision_url, media_type, video_url, is_hidden')
     .eq('id', assetId)
     .maybeSingle()
-  if (!asset || asset.status !== 'approved' || asset.is_hidden || !asset.client_visible) {
-    return NextResponse.json({ error: 'Unknown file.' }, { status: 404 })
-  }
+  if (!asset || asset.is_hidden) return NextResponse.json({ error: 'Unknown file.' }, { status: 404 })
 
-  const { data: project } = await service.from('projects').select('brand_id').eq('id', asset.project_id).maybeSingle()
+  const { data: project } = await service
+    .from('projects')
+    .select('brand_id, creatives_stage, is_complete')
+    .eq('id', asset.project_id)
+    .maybeSingle()
   const { data: brand } = project
     ? await service.from('brands').select('profit_engineer, is_active').eq('id', project.brand_id).maybeSingle()
     : { data: null }
@@ -52,7 +55,26 @@ export async function GET(
     return NextResponse.json({ error: 'Unknown file.' }, { status: 404 })
   }
 
-  const upstream = await openFile(asset)
+  // The same rule the board uses, run over the same rows, so a link can never
+  // fetch a file the page would not list.
+  const facts: { id: string; status: string | null; internal_status: string | null; client_visible: boolean | null }[] = []
+  for (let from = 0; ; from += 1000) {
+    const { data } = await service
+      .from('creative_assets')
+      .select('id, status, internal_status, client_visible')
+      .eq('project_id', asset.project_id)
+      .eq('is_hidden', false)
+      .order('id')
+      .range(from, from + 999)
+    facts.push(...(data ?? []))
+    if (!data || data.length < 1000) break
+  }
+  const final = pickFinalFiles(facts, project?.creatives_stage, !!project?.is_complete)
+  if (!final.approvedBy || !final.files.some(f => f.id === asset.id)) {
+    return NextResponse.json({ error: 'Unknown file.' }, { status: 404 })
+  }
+
+  const upstream = await openFile(asset, final.approvedBy)
   if (!upstream) {
     return NextResponse.json({ error: 'This file could not be fetched from storage.' }, { status: 502 })
   }
@@ -85,18 +107,22 @@ function extFor(type: string): string {
 type FileSource = {
   drive_file_id: string
   published_url: string | null
+  revision_url: string | null
   media_type: string | null
   video_url: string | null
 }
 
 /**
- * The bytes the client signed off: the published version, else the original.
- * Same order as zip-assets.ts. A video's original is our storage copy, because
- * Drive answers a large download with a virus-scan page instead of the file.
+ * The bytes that were signed off. For a client-approved file that is the
+ * published version (what the client saw); for a team-approved one it is the
+ * team's latest revision, which may never have been published. Either falls
+ * back to the original. A video's original is our storage copy, because Drive
+ * answers a large download with a virus-scan page instead of the file.
  * Returns null when nothing usable came back.
  */
-async function openFile(a: FileSource): Promise<Response | null> {
-  const stored = a.published_url || (a.media_type === 'video' ? a.video_url : null)
+async function openFile(a: FileSource, approvedBy: ApprovedBy): Promise<Response | null> {
+  const version = approvedBy === 'team' ? a.revision_url || a.published_url : a.published_url
+  const stored = version || (a.media_type === 'video' ? a.video_url : null)
   if (stored && !stored.includes('drive.google.com')) {
     const res = await tryFetch(stored)
     if (res) return res

@@ -5,7 +5,7 @@
 // Pure: no Supabase, no request. The caller supplies the site origin.
 
 import { STAGE_LABELS, normalizeStage } from '../types'
-import { BUCKET_LABELS } from './board'
+import { BUCKET_LABELS, type ApprovedBy } from './board'
 import type { BoardBrand, BoardProject } from './server'
 
 export interface AdKitFile {
@@ -29,6 +29,12 @@ export interface AdKit {
   due_date: string | null
   /** The page the ads send people to. Null until the team has set one. */
   website_url: string | null
+  /**
+   * Who signed the files off. "team" means the team approved them and marked
+   * the work Ready or Live, but the client's approval is not recorded in the
+   * CRM. Null when there are no files.
+   */
+  approved_by: ApprovedBy | null
   approved_files: AdKitFile[]
   kit_page_url: string
   kit_json_url: string
@@ -47,6 +53,7 @@ export function buildKit(origin: string, token: string, brand: BoardBrand, proje
     stages: { landing_page: stageWord(project.lpStage), creatives: stageWord(project.creativesStage) },
     due_date: project.dueDate ? project.dueDate.slice(0, 10) : null,
     website_url: project.lpUrl,
+    approved_by: project.approvedBy,
     approved_files: project.approved.map((a, i) => ({
       position: i + 1,
       file_name: a.name?.trim() || `creative-${a.id.slice(0, 8)}`,
@@ -58,13 +65,24 @@ export function buildKit(origin: string, token: string, brand: BoardBrand, proje
   }
 }
 
+/** "Approved by the client" / "Approved by our team ...", for a label. */
+export function approvedByLabel(by: ApprovedBy | null): string {
+  if (by === 'client') return 'Approved by the client'
+  if (by === 'team') return 'Approved by our team. The client’s approval is not recorded in the CRM.'
+  return 'No approved files yet'
+}
+
 /** The rules every reader of a kit needs, human or agent. */
-export const KIT_RULES = [
-  'Every file listed was approved by the client. Use only these files.',
-  'Each download link returns the file itself. No login is needed.',
-  'Use the website URL as the destination (website URL) of every ad.',
-  'If the website URL is missing, stop and ask a person. Do not guess one.',
-] as const
+export function kitRules(by: ApprovedBy | null): string[] {
+  return [
+    by === 'team'
+      ? 'Every file listed was approved by our team, and the project is marked ready. The client’s approval is not recorded in the CRM: confirm it with the strategist before the ads go live. Use only these files.'
+      : 'Every file listed was approved by the client. Use only these files.',
+    'Each download link returns the file itself. No login is needed.',
+    'Use the website URL as the destination (website URL) of every ad.',
+    'If the website URL is missing, stop and ask a person. Do not guess one.',
+  ]
+}
 
 /**
  * A ready-to-paste brief for an AI agent that will upload the ads. Plain
@@ -80,7 +98,7 @@ export function kitInstructions(kit: AdKit): string {
     ...files.map(f => `${f.position}. ${f.file_name} (${f.media_type}): ${f.download_url}`),
     '',
     'Rules:',
-    ...KIT_RULES.map(r => `- ${r}`),
+    ...kitRules(kit.approved_by).map(r => `- ${r}`),
     '',
     `Full ad kit page: ${kit.kit_page_url}`,
     `Same data as JSON: ${kit.kit_json_url}`,

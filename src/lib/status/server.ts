@@ -10,7 +10,7 @@
 
 import { createHash } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { daysLate, daysSince, holderOf, projectBucket, tallyAssets, waitingOn, type AssetTally, type Bucket, type Holder } from './board'
+import { daysLate, daysSince, holderOf, pickFinalFiles, projectBucket, tallyAssets, waitingOn, type ApprovedBy, type AssetTally, type Bucket, type Holder } from './board'
 
 /** The status-page token for a profit engineer's approval token. */
 export function statusTokenFor(approvalToken: string): string {
@@ -58,8 +58,16 @@ export interface BoardProject {
   /** Whole days the client has had it, or null when that was never logged. */
   waitingDays: number | null
   tally: AssetTally
-  /** Client-approved creatives, in the order the team arranged them. */
+  /**
+   * The files a strategist may take, in the order the team arranged them:
+   * client-approved, or team-approved once the creatives are Ready or Live
+   * (see pickFinalFiles).
+   */
   approved: BoardAsset[]
+  /** On whose word those files are final. Null when there are none. */
+  approvedBy: ApprovedBy | null
+  /** The project's Drive folder, for projects whose files are not in the CRM. */
+  driveUrl: string | null
 }
 
 export interface BoardBrand {
@@ -76,22 +84,26 @@ const ARCHIVE_WINDOW_DAYS = 60
 const PAGE = 1000
 
 const ASSET_COLUMNS =
-  'id, project_id, name, status, drive_file_id, thumbnail_url, published_url, revision_url, revision_poster_url, media_type, video_url, sort_order'
+  'id, project_id, name, status, internal_status, client_visible, drive_file_id, thumbnail_url, published_url, revision_url, revision_poster_url, media_type, video_url, sort_order'
 
 type ProjectRow = {
   id: string; brand_id: string; name: string; due_date: string | null; is_complete: boolean
   lp_stage: string | null; creatives_stage: string | null; page_type: string | null
-  lp_url: string | null; share_token: string | null
+  lp_url: string | null; share_token: string | null; drive_folder_url: string | null
 }
-type AssetRow = BoardAsset & { project_id: string; status: string | null; sort_order: number | null }
+type AssetRow = BoardAsset & {
+  project_id: string; status: string | null; internal_status: string | null
+  client_visible: boolean | null; sort_order: number | null
+}
 
 /**
  * Every active brand this engineer owns, with its projects and what the client
  * has approved. Pass brandId to load one brand (null if it is not theirs).
  *
- * Only what a client could already see is read: creatives that are on the
- * review link (client_visible) and not hidden. Internal notes, internal QC
- * status and unpublished revisions never leave the database here.
+ * Hidden creatives (the team's discards) are never read. Of the rest, only
+ * the final files leave here (pickFinalFiles): what the client approved, or
+ * what the team approved once the work is Ready or Live. Internal notes and
+ * unpublished revisions never do.
  */
 export async function loadBoard(
   service: SupabaseClient,
@@ -112,7 +124,7 @@ export async function loadBoard(
 
   const { data: projectsRaw } = await service
     .from('projects')
-    .select('id, brand_id, name, due_date, is_complete, lp_stage, creatives_stage, page_type, lp_url, share_token')
+    .select('id, brand_id, name, due_date, is_complete, lp_stage, creatives_stage, page_type, lp_url, share_token, drive_folder_url')
     .in('brand_id', brands.map(b => b.id))
     .order('due_date', { ascending: true })
   const cutoff = Date.now() - ARCHIVE_WINDOW_DAYS * 86_400_000
@@ -134,7 +146,6 @@ export async function loadBoard(
         .select(ASSET_COLUMNS)
         .in('project_id', slice)
         .eq('is_hidden', false)
-        .eq('client_visible', true)
         .order('id')
         .range(from, from + PAGE - 1)
       if (error) { console.error('[status] failed to load creatives:', error); break }
@@ -176,6 +187,7 @@ export async function loadBoard(
   for (const p of projects) {
     const assets = assetsByProject.get(p.id) ?? []
     const bucket = projectBucket(p.lp_stage, p.creatives_stage, p.is_complete)
+    const final = pickFinalFiles(assets, p.creatives_stage, p.is_complete)
     const holder = holderOf(p.lp_stage, p.creatives_stage, p.is_complete)
     // The longest the client has been sitting on either track.
     const waits = holder === 'client'
@@ -201,9 +213,11 @@ export async function loadBoard(
       // work is the client's wait, shown as that, not as our slip.
       late: holder === 'team' ? daysLate(p.due_date, bucket) : 0,
       waitingDays: waits.length ? Math.max(...waits) : null,
-      tally: tallyAssets(assets.map(a => a.status)),
-      approved: assets
-        .filter(a => a.status === 'approved')
+      // What the client has said, about the files the client can see.
+      tally: tallyAssets(assets.filter(a => a.client_visible).map(a => a.status)),
+      approvedBy: final.approvedBy,
+      driveUrl: driveFolderUrl(p.drive_folder_url),
+      approved: final.files
         .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
         .map(a => ({
           id: a.id,
@@ -235,6 +249,17 @@ export function webUrl(raw: string | null | undefined): string | null {
   try {
     const u = new URL(withScheme)
     return u.hostname.includes('.') ? u.toString() : null
+  } catch {
+    return null
+  }
+}
+
+/** A Google Drive folder link, or null for anything else typed in the field. */
+export function driveFolderUrl(raw: string | null | undefined): string | null {
+  const url = webUrl(raw)
+  if (!url) return null
+  try {
+    return /(^|\.)google\.com$/i.test(new URL(url).hostname) ? url : null
   } catch {
     return null
   }

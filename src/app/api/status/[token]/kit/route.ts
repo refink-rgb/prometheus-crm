@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { loadBoard, loadBoardProject, resolveStatusToken } from '@/lib/status/server'
-import { buildKit, KIT_RULES } from '@/lib/status/kit'
+import { buildKit, kitRules } from '@/lib/status/kit'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -29,21 +29,27 @@ export async function GET(
   if (projectId) {
     const found = await loadBoardProject(service, engineer, projectId)
     if (!found) return json({ error: 'Unknown project.' }, 404)
-    return json({ how_to_use: KIT_RULES, ...buildKit(url.origin, token, found.brand, found.project) })
+    const kit = buildKit(url.origin, token, found.brand, found.project)
+    return json({ how_to_use: kitRules(kit.approved_by), ...kit })
   }
 
   const brands = (await loadBoard(service, engineer)) ?? []
   return json({
     strategist: engineer,
     generated_at: new Date().toISOString(),
-    how_to_use: KIT_RULES,
+    // Each project says who approved its files (approved_by). Where that is
+    // "team", the client's approval is not recorded: confirm before going live.
+    how_to_use: kitRules('client'),
     clients: brands.map(brand => ({
       client: brand.name,
       client_website: brand.website,
       // Only projects that have something to upload.
       projects: brand.projects
         .filter(p => p.approved.length > 0)
-        .map(p => buildKit(url.origin, token, brand, p)),
+        .map(p => {
+          const kit = buildKit(url.origin, token, brand, p)
+          return { ...kit, how_to_use: kitRules(kit.approved_by) }
+        }),
     })),
   })
 }

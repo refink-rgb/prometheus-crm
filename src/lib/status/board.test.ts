@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
-import { daysLate, daysSince, holderOf, projectBucket, safeName, statusLine, tallyAssets, tallyLine, waitingOn } from './board'
+import { daysLate, daysSince, holderOf, pickFinalFiles, projectBucket, safeName, statusLine, tallyAssets, tallyLine, waitingOn } from './board'
 
 test('a project is launched when archived or when every track is live', () => {
   assert.equal(projectBucket('live', 'live', false), 'launched')
@@ -89,4 +89,30 @@ test('daysSince counts calendar days', () => {
   assert.equal(daysSince(new Date(2026, 10, 3, 23, 0).toISOString(), today), 15)
   assert.equal(daysSince(null, today), null)
   assert.equal(daysSince('nope', today), null)
+})
+
+test('final files: client approvals win, team approvals count only once the work is signed off', () => {
+  const f = (id: string, status: string, internal_status: string, client_visible = true) => ({ id, status, internal_status, client_visible })
+  const ids = (r: { files: { id: string }[] }) => r.files.map(x => x.id)
+
+  // The client approved some: exactly those, whatever the team approved.
+  const mixed = [f('a', 'approved', 'approved'), f('b', 'pending', 'approved'), f('c', 'approved', 'pending', false)]
+  assert.deepEqual(ids(pickFinalFiles(mixed, 'live', false)), ['a'])
+  assert.equal(pickFinalFiles(mixed, 'live', false).approvedBy, 'client')
+
+  // Nothing client-approved, creatives Ready or Live: what the team approved,
+  // minus anything the client rejected or sent back.
+  const team = [f('a', 'pending', 'approved'), f('b', 'needs_revision', 'approved'), f('c', 'rejected', 'approved'), f('d', 'pending', 'pending'), f('e', 'pending', 'approved', false)]
+  for (const stage of ['ready', 'live', 'done']) {
+    assert.deepEqual(ids(pickFinalFiles(team, stage, false)), ['a', 'e'], stage)
+    assert.equal(pickFinalFiles(team, stage, false).approvedBy, 'team')
+  }
+  assert.deepEqual(ids(pickFinalFiles(team, 'client_review', true)), ['a', 'e']) // archived
+
+  // Still in review: the team's approval alone is not enough.
+  for (const stage of ['brief', 'in_progress', 'internal_review', 'client_review', 'revisions', null]) {
+    assert.deepEqual(pickFinalFiles(team, stage, false), { files: [], approvedBy: null }, String(stage))
+  }
+  assert.deepEqual(pickFinalFiles([], 'live', false), { files: [], approvedBy: null })
+  assert.deepEqual(pickFinalFiles([f('d', 'pending', 'pending')], 'live', false), { files: [], approvedBy: null })
 })
