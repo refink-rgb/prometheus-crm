@@ -2,13 +2,18 @@
 
 import { useState } from 'react'
 
-// Where the team gets each profit engineer's approval link. One link per
-// engineer, permanent — the queue behind it is computed per request, so a new
-// offer entering Internal Review shows up without reissuing anything.
+// Where the team gets each profit engineer's links. Two per engineer, both
+// permanent:
+//   approval link — their offer queue; anyone holding it can approve.
+//   status link   — read-only board of their brands' projects, with the
+//                   client-approved files to download. Safe to forward: it
+//                   cannot be turned back into the approval link.
 
 export interface EngineerLink {
   name: string
   token: string
+  /** Token for the read-only /status board (derived from the approval token). */
+  statusToken: string
   /** Offers currently in Internal Review on this engineer's brands. */
   waiting: number
 }
@@ -16,12 +21,12 @@ export interface EngineerLink {
 export default function ApprovalLinksPanel({ engineers }: { engineers: EngineerLink[] }) {
   const [copied, setCopied] = useState<string | null>(null)
 
-  async function copy(token: string, name: string) {
-    const url = `${window.location.origin}/approvals/${token}`
+  async function copy(path: string, key: string) {
+    const url = `${window.location.origin}${path}`
     try {
       await navigator.clipboard.writeText(url)
-      setCopied(name)
-      setTimeout(() => setCopied(current => (current === name ? null : current)), 2000)
+      setCopied(key)
+      setTimeout(() => setCopied(current => (current === key ? null : current)), 2000)
     } catch {
       // Clipboard can be blocked; the link is selectable in the row itself.
     }
@@ -40,7 +45,8 @@ export default function ApprovalLinksPanel({ engineers }: { engineers: EngineerL
       <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', marginBottom: 4 }}>
         Send each engineer their own link. It stays valid — anything of theirs that
         reaches internal review appears there automatically. Anyone with the link can
-        approve, so treat it like the client review link.
+        approve, so treat it like the client review link. The status link is read-only:
+        where every project on their brands stands, plus the client-approved files.
       </p>
       {engineers.map(engineer => (
         <div
@@ -80,11 +86,28 @@ export default function ApprovalLinksPanel({ engineers }: { engineers: EngineerL
           </a>
           <button
             type="button"
-            onClick={() => copy(engineer.token, engineer.name)}
+            onClick={() => copy(`/approvals/${engineer.token}`, engineer.name)}
             className="btn-accent-outline btn-sm"
             style={{ whiteSpace: 'nowrap' }}
           >
             {copied === engineer.name ? '✓ Copied' : 'Copy link'}
+          </button>
+          <a
+            href={`/status/${engineer.statusToken}`}
+            target="_blank"
+            rel="noreferrer"
+            className="btn-secondary"
+            style={{ fontSize: 'var(--text-sm)', whiteSpace: 'nowrap', textDecoration: 'none' }}
+          >
+            Open status
+          </a>
+          <button
+            type="button"
+            onClick={() => copy(`/status/${engineer.statusToken}`, `${engineer.name}:status`)}
+            className="btn-accent-outline btn-sm"
+            style={{ whiteSpace: 'nowrap' }}
+          >
+            {copied === `${engineer.name}:status` ? '✓ Copied' : 'Copy status link'}
           </button>
         </div>
       ))}
