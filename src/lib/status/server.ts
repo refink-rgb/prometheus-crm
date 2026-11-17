@@ -60,6 +60,8 @@ export interface BoardProject {
 export interface BoardBrand {
   id: string
   name: string
+  /** The client's own site, as an absolute https URL, or null. */
+  website: string | null
   projects: BoardProject[]
 }
 
@@ -93,13 +95,13 @@ export async function loadBoard(
 ): Promise<BoardBrand[] | null> {
   let brandQuery = service
     .from('brands')
-    .select('id, name')
+    .select('id, name, website')
     .eq('profit_engineer', engineerName)
     .eq('is_active', true)
     .order('name')
   if (brandId) brandQuery = brandQuery.eq('id', brandId)
   const { data: brandsRaw } = await brandQuery
-  const brands = (brandsRaw ?? []) as { id: string; name: string }[]
+  const brands = (brandsRaw ?? []) as { id: string; name: string; website: string | null }[]
   if (brandId && brands.length === 0) return null
   if (brands.length === 0) return []
 
@@ -153,7 +155,7 @@ export async function loadBoard(
       pageType: p.page_type,
       lpStage: p.lp_stage,
       creativesStage: p.creatives_stage,
-      lpUrl: p.lp_url?.trim() || null,
+      lpUrl: webUrl(p.lp_url),
       shareToken: p.share_token,
       bucket,
       waiting: waitingOn(p.lp_stage, p.creatives_stage, p.is_complete),
@@ -176,7 +178,43 @@ export async function loadBoard(
     })
   }
 
-  return brands.map(b => ({ id: b.id, name: b.name, projects: byBrand.get(b.id) ?? [] }))
+  return brands.map(b => ({ id: b.id, name: b.name, website: webUrl(b.website), projects: byBrand.get(b.id) ?? [] }))
+}
+
+/**
+ * A typed-in address as an absolute http(s) URL, or null. People enter
+ * "brand.com" as often as "https://brand.com"; anything that is not a web
+ * address (a note, "tbd", a javascript: link) is dropped rather than linked.
+ */
+export function webUrl(raw: string | null | undefined): string | null {
+  const v = raw?.trim()
+  if (!v || /\s/.test(v)) return null
+  const withScheme = /^https?:\/\//i.test(v) ? v : /^[a-z][a-z0-9+.-]*:/i.test(v) ? null : `https://${v}`
+  if (!withScheme) return null
+  try {
+    const u = new URL(withScheme)
+    return u.hostname.includes('.') ? u.toString() : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * One project on this engineer's board, with its brand, or null when the
+ * project is not theirs (or is archived past the window).
+ */
+export async function loadBoardProject(
+  service: SupabaseClient,
+  engineerName: string,
+  projectId: string,
+): Promise<{ brand: BoardBrand; project: BoardProject } | null> {
+  if (!/^[0-9a-f-]{36}$/i.test(projectId)) return null
+  const { data } = await service.from('projects').select('brand_id').eq('id', projectId).maybeSingle()
+  if (!data) return null
+  const board = await loadBoard(service, engineerName, data.brand_id as string)
+  const brand = board?.[0]
+  const project = brand?.projects.find(p => p.id === projectId)
+  return brand && project ? { brand, project } : null
 }
 
 /** Counts for the tiles and brand cards. */

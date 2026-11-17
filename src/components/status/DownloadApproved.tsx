@@ -26,6 +26,7 @@ export default function DownloadApproved({
   files,
   zipName,
   label,
+  ariaLabel,
   primary = false,
 }: {
   token: string
@@ -33,6 +34,8 @@ export default function DownloadApproved({
   /** File name of the .zip, without the extension. */
   zipName: string
   label: string
+  /** The full name read by screen readers and AI agents, when the label is short. */
+  ariaLabel?: string
   primary?: boolean
 }) {
   const [busy, setBusy] = useState<string | null>(null)
@@ -100,6 +103,7 @@ export default function DownloadApproved({
       <button
         type="button"
         className={primary ? 'btn-primary' : 'btn-secondary btn-sm'}
+        aria-label={busy ? undefined : ariaLabel}
         disabled={!!busy || files.length === 0}
         onClick={() => void download()}
         style={{ whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 6 }}
