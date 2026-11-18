@@ -18,6 +18,8 @@ interface SidebarProps {
   showCodes?: boolean
   /** Client Satisfaction: same audience as the full Dashboard. */
   showSatisfaction?: boolean
+  /** Prometheus 2.0: management only while it is being built. */
+  show2?: boolean
 }
 
 function capacityColor(total: number): string {
@@ -66,6 +68,14 @@ const EvergreenIcon = (
   <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
     <path d="M12 3l-5 6h3l-4 5h4l-4 5h12l-4-5h4l-4-5h3z" />
     <line x1="12" y1="19" x2="12" y2="22" />
+  </svg>
+)
+
+// Two stacked layers: the new version sitting on the old one.
+const V2Icon = (
+  <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 3l9 5-9 5-9-5z" />
+    <path d="M3 13l9 5 9-5" opacity="0.6" />
   </svg>
 )
 
@@ -151,7 +161,7 @@ const ShowcaseIcon = (
   </svg>
 )
 
-export default function Sidebar({ email, capacity = null, showCodes = false, showSatisfaction = false }: SidebarProps) {
+export default function Sidebar({ email, capacity = null, showCodes = false, showSatisfaction = false, show2 = false }: SidebarProps) {
   const pathname = usePathname()
 
   // Collapsed to a 60px rail. Asked for by Janella, 1 Sep: reviewing creatives
@@ -185,6 +195,12 @@ export default function Sidebar({ email, capacity = null, showCodes = false, sho
       matches: (p) => p === '/',
       icon: DashboardIcon,
     },
+    ...(show2 ? [{
+      href: '/v2',
+      label: '2.0',
+      matches: (p: string) => p === '/v2' || p.startsWith('/v2/'),
+      icon: V2Icon,
+    }] : []),
     ...(showSatisfaction ? [{
       href: '/satisfaction',
       label: 'Client Satisfaction',

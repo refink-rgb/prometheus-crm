@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createClient, getCachedUser } from '@/lib/supabase/server'
-import { canEdit, canViewCapacity, canViewDashboard, canViewMomentCodes } from '@/lib/permissions'
+import { canEdit, canUse2, canViewCapacity, canViewDashboard, canViewMomentCodes } from '@/lib/permissions'
 import { getCachedProfiles } from '@/lib/profiles'
 import { computeCapacity, type CapacityProject } from '@/lib/capacity'
 import { signOut } from '@/lib/actions'
@@ -61,7 +61,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <ToastProvider>
       <ConfirmDialogHost>
         <div style={{ minHeight: '100vh' }}>
-          <Sidebar email={user.email ?? null} capacity={capacity} showCodes={canViewMomentCodes(user.email)} showSatisfaction={showSatisfaction} />
+          <Sidebar email={user.email ?? null} capacity={capacity} showCodes={canViewMomentCodes(user.email)} showSatisfaction={showSatisfaction} show2={canUse2(user.email)} />
           {/* Follows the sidebar. The variable is set by Sidebar (a client
               component); the fallback is what renders before its effect runs and on
               any page where the sidebar is absent. */}
