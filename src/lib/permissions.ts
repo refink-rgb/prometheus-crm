@@ -60,6 +60,13 @@ export function canViewDashboard(
   return !(profile && (profile.is_lp_editor || profile.is_creative_editor))
 }
 
+/** Prometheus 2.0 (the "2.0" menu item: pods, templates, work). The management
+ *  roster while it is being built; open it to the team by changing this one
+ *  check. Setting up pods stays management-only either way. */
+export function canUse2(email: string | undefined | null): boolean {
+  return isManagement(email)
+}
+
 /** The moment-code index at /codes — the master list of every project's
  *  searchable ad-account code. The management roster, nobody else. */
 export function canViewMomentCodes(email: string | undefined | null): boolean {
