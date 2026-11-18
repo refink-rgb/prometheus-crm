@@ -1,8 +1,10 @@
 import { notFound } from 'next/navigation'
+import { headers } from 'next/headers'
 import Link from 'next/link'
 import type { Metadata } from 'next'
 import { createServiceClient } from '@/lib/supabase/service'
-import { countBoard, loadBoard, resolveStatusToken, type BoardAsset, type BoardProject } from '@/lib/status/server'
+import { countBoard, loadBoard, resolveStatusToken, type BoardAsset, type BoardBrand, type BoardProject } from '@/lib/status/server'
+import { agentPrompt, buildKit } from '@/lib/status/kit'
 import { BUCKET_LABELS, safeName, statusLine, tallyLine, type Bucket, type Tone } from '@/lib/status/board'
 import { clientPosterOf, isVideoAsset } from '@/lib/creative-media'
 import { driveThumb, resizeDriveThumb } from '@/lib/drive-thumb'
@@ -50,6 +52,11 @@ export default async function StatusBrandPage({
   const board = await loadBoard(service, engineer, brandId)
   const brand = board?.[0]
   if (!brand) notFound()
+
+  // The agent prompt spells every link out in full, so it needs the site's address.
+  const h = await headers()
+  const host = h.get('x-forwarded-host') ?? h.get('host') ?? 'localhost'
+  const origin = `${h.get('x-forwarded-proto') ?? (host.startsWith('localhost') ? 'http' : 'https')}://${host}`
 
   const counts = countBoard(brand.projects)
   const inBucket = (b: Bucket) => brand.projects.filter(p => p.bucket === b)
@@ -100,9 +107,9 @@ export default async function StatusBrandPage({
         </div>
       )}
 
-      <Section bucket="ready" projects={ready} token={token} />
-      <Section bucket="working" projects={inBucket('working')} token={token} />
-      <Section bucket="upcoming" projects={inBucket('upcoming')} token={token} />
+      <Section bucket="ready" projects={ready} brand={brand} token={token} origin={origin} />
+      <Section bucket="working" projects={inBucket('working')} brand={brand} token={token} origin={origin} />
+      <Section bucket="upcoming" projects={inBucket('upcoming')} brand={brand} token={token} origin={origin} />
 
       {launched.length > 0 && (
         <details style={{ marginTop: 'var(--space-8)' }}>
@@ -113,7 +120,7 @@ export default async function StatusBrandPage({
             {BUCKET_LABELS.launched} ({launched.length})
           </summary>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>
-            {launched.map(p => <ProjectCard key={p.id} project={p} token={token} compact />)}
+            {launched.map(p => <ProjectCard key={p.id} project={p} brand={brand} token={token} origin={origin} compact />)}
           </div>
         </details>
       )}
@@ -121,7 +128,7 @@ export default async function StatusBrandPage({
   )
 }
 
-function Section({ bucket, projects, token }: { bucket: Bucket; projects: BoardProject[]; token: string }) {
+function Section({ bucket, projects, brand, token, origin }: { bucket: Bucket; projects: BoardProject[]; brand: BoardBrand; token: string; origin: string }) {
   if (projects.length === 0) return null
   return (
     <section style={{ marginTop: 'var(--space-8)' }}>
@@ -129,13 +136,13 @@ function Section({ bucket, projects, token }: { bucket: Bucket; projects: BoardP
         {BUCKET_LABELS[bucket]} ({projects.length})
       </h2>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {projects.map(p => <ProjectCard key={p.id} project={p} token={token} />)}
+        {projects.map(p => <ProjectCard key={p.id} project={p} brand={brand} token={token} origin={origin} />)}
       </div>
     </section>
   )
 }
 
-function ProjectCard({ project: p, token, compact = false }: { project: BoardProject; token: string; compact?: boolean }) {
+function ProjectCard({ project: p, brand, token, origin, compact = false }: { project: BoardProject; brand: BoardBrand; token: string; origin: string; compact?: boolean }) {
   const files: DownloadFile[] = p.approved.map(a => ({ id: a.id, name: fileName(a) }))
   const tally = tallyLine(p.tally)
   const line = statusLine(p)
@@ -204,22 +211,14 @@ function ProjectCard({ project: p, token, compact = false }: { project: BoardPro
               Open client review
             </a>
           )}
-          {files.length === 0 && p.driveUrl && (
-            <a href={p.driveUrl} target="_blank" rel="noopener noreferrer" className="btn-secondary btn-sm"
-              aria-label={`Open the Drive folder for ${p.name}`} style={{ whiteSpace: 'nowrap', textDecoration: 'none' }}>
-              Open Drive folder
-            </a>
-          )}
           {files.length > 0 && (
             <>
-              <Link
-                href={`/status/${token}/kit/${p.id}`}
-                className="btn-secondary btn-sm"
-                aria-label={`Ad kit for ${p.name}: website URL and a download link for each approved file`}
-                style={{ whiteSpace: 'nowrap', textDecoration: 'none' }}
-              >
-                Ad kit
-              </Link>
+              <CopyText
+                text={agentPrompt(buildKit(origin, token, brand, p))}
+                label="Copy agent prompt"
+                ariaLabel={`Copy a prompt for an AI agent: upload the approved files for ${p.name} with Ads Uploader`}
+                fallbackHref={`/status/${token}/kit/${p.id}#agent-prompt`}
+              />
               <DownloadApproved
                 token={token}
                 files={files}

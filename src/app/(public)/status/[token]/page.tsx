@@ -2,10 +2,11 @@ import { notFound } from 'next/navigation'
 import { headers } from 'next/headers'
 import Link from 'next/link'
 import type { Metadata } from 'next'
-import { ChevronDown, FolderOpen } from 'lucide-react'
+import { ChevronDown } from 'lucide-react'
 import { createServiceClient } from '@/lib/supabase/service'
 import { countBoard, loadBoard, resolveStatusToken, type BoardBrand, type BoardProject } from '@/lib/status/server'
 import { safeName, STAGE_PLAIN, statusLine, type Tone } from '@/lib/status/board'
+import { agentPrompt, buildKit } from '@/lib/status/kit'
 import { normalizeStage, type Stage } from '@/lib/types'
 import { STAGE_PCT } from '@/lib/stageColors'
 import CopyText from '@/components/status/CopyText'
@@ -121,7 +122,7 @@ export default async function StatusHomePage({
   const brands = (await loadBoard(service, engineer)) ?? []
   const all = brands.flatMap(b => b.projects)
   const total = countBoard(all)
-  const brandName = new Map(brands.map(b => [b.id, b.name]))
+  const brandOf = new Map(brands.map(b => [b.id, b]))
 
   // The short list a strategist can act on: launch it, or chase the client.
   const needs = all.filter(p => p.bucket === 'ready' || p.holder === 'client').sort(byUrgency)
@@ -176,9 +177,10 @@ export default async function StatusHomePage({
                 Needs you ({needs.length})
               </h2>
               <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-                {needs.slice(0, NEEDS_SHOWN).map(p => (
-                  <NeedRow key={p.id} project={p} client={brandName.get(p.brandId) ?? ''} token={token} origin={origin} />
-                ))}
+                {needs.slice(0, NEEDS_SHOWN).map(p => {
+                  const brand = brandOf.get(p.brandId)
+                  return brand ? <NeedRow key={p.id} project={p} brand={brand} token={token} origin={origin} /> : null
+                })}
                 {needs.length > NEEDS_SHOWN && (
                   <Link
                     href={`/status/${token}?show=client`}
@@ -201,7 +203,7 @@ export default async function StatusHomePage({
             </div>
           )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-            {withProjects.map(brand => <ClientBlock key={brand.id} brand={brand} token={token} show={show} />)}
+            {withProjects.map(brand => <ClientBlock key={brand.id} brand={brand} token={token} origin={origin} show={show} />)}
           </div>
 
           {show === 'all' && empty.length > 0 && (
@@ -216,7 +218,7 @@ export default async function StatusHomePage({
 }
 
 /** One line in "Needs you": the client, the project, and its one action. */
-function NeedRow({ project: p, client, token, origin }: { project: BoardProject; client: string; token: string; origin: string }) {
+function NeedRow({ project: p, brand, token, origin }: { project: BoardProject; brand: BoardBrand; token: string; origin: string }) {
   const line = statusLine(p)
   const files = p.approved.length
   // What the client still has to look at, when we can count it.
@@ -228,7 +230,7 @@ function NeedRow({ project: p, client, token, origin }: { project: BoardProject;
     <div className="sb-need">
       <div style={{ minWidth: 0 }}>
         <Link href={`/status/${token}/${p.brandId}#p-${p.id}`} className="sb-name" style={{ fontSize: 14, fontWeight: 600 }}>
-          <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>{client} · </span>
+          <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>{brand.name} · </span>
           {p.name}
         </Link>
         <div style={{ fontSize: 'var(--text-sm)', color: TONE[line.tone], marginTop: 3 }}>
@@ -236,7 +238,7 @@ function NeedRow({ project: p, client, token, origin }: { project: BoardProject;
         </div>
       </div>
       <div className="sb-actions">
-        {p.bucket === 'ready' ? <FileActions project={p} token={token} /> : p.shareToken ? (
+        {p.bucket === 'ready' ? <FileActions project={p} brand={brand} token={token} origin={origin} /> : p.shareToken ? (
           <div className="sb-buttons">
             <CopyText text={`${origin}/review/${p.shareToken}`} label="Copy review link" />
             <a href={`/review/${p.shareToken}`} target="_blank" rel="noopener noreferrer" className="btn-secondary btn-sm"
@@ -252,7 +254,7 @@ function NeedRow({ project: p, client, token, origin }: { project: BoardProject;
   )
 }
 
-function ClientBlock({ brand, token, show }: { brand: BoardBrand; token: string; show: Show }) {
+function ClientBlock({ brand, token, origin, show }: { brand: BoardBrand; token: string; origin: string; show: Show }) {
   const c = countBoard(brand.projects)
   const listed = brand.projects.filter(p => matches(p, show)).sort(byUrgency)
   // Under "All open" the launched work folds away so the open work leads.
@@ -306,7 +308,7 @@ function ClientBlock({ brand, token, show }: { brand: BoardBrand; token: string;
         </Link>
       </div>
 
-      {listed.map(p => <ProjectRow key={p.id} project={p} token={token} />)}
+      {listed.map(p => <ProjectRow key={p.id} project={p} brand={brand} token={token} origin={origin} />)}
       {listed.length === 0 && show === 'all' && (
         <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', margin: 0, padding: 'var(--space-4) var(--space-6)', borderTop: '1px solid var(--border)' }}>
           Nothing in the works right now.
@@ -315,14 +317,14 @@ function ClientBlock({ brand, token, show }: { brand: BoardBrand; token: string;
       {launched.length > 0 && (
         <details className="sb-more">
           <summary>Launched ({launched.length})</summary>
-          {launched.map(p => <ProjectRow key={p.id} project={p} token={token} />)}
+          {launched.map(p => <ProjectRow key={p.id} project={p} brand={brand} token={token} origin={origin} />)}
         </details>
       )}
     </details>
   )
 }
 
-function ProjectRow({ project: p, token }: { project: BoardProject; token: string }) {
+function ProjectRow({ project: p, brand, token, origin }: { project: BoardProject; brand: BoardBrand; token: string; origin: string }) {
   const line = statusLine(p)
   const lp = p.lpStage ? normalizeStage(p.lpStage) : null
   const ads = p.creativesStage ? normalizeStage(p.creativesStage) : null
@@ -366,7 +368,7 @@ function ProjectRow({ project: p, token }: { project: BoardProject; token: strin
       </div>
 
       <div className="sb-actions">
-        <FileActions project={p} token={token} />
+        <FileActions project={p} brand={brand} token={token} origin={origin} />
       </div>
     </div>
   )
@@ -398,34 +400,13 @@ function Progress({ label, stage }: { label: string; stage: Stage }) {
 }
 
 /**
- * The right-hand side of every project: its files.
- *   approved files   Download (a zip, for people) and Ad kit (links, for agents)
- *   none, but Drive  the project's Drive folder
- *   neither          a plain line saying so, never a dead button
+ * The right-hand side of a project that has final files: Download (a zip, for
+ * people) and a prompt to hand an AI agent, which uploads the same files
+ * through Ads Uploader. A project with no files shows nothing here.
  */
-function FileActions({ project: p, token }: { project: BoardProject; token: string }) {
+function FileActions({ project: p, brand, token, origin }: { project: BoardProject; brand: BoardBrand; token: string; origin: string }) {
   const files = p.approved.length
-  if (files === 0) {
-    return p.driveUrl ? (
-      <>
-        <div className="sb-buttons">
-          <a
-            href={p.driveUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn-secondary btn-sm"
-            aria-label={`Open the Drive folder for ${p.name}`}
-            style={{ whiteSpace: 'nowrap', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}
-          >
-            <FolderOpen size={12} aria-hidden /> Open Drive folder
-          </a>
-        </div>
-        <span className="sb-note">No approved files in the CRM yet</span>
-      </>
-    ) : (
-      <span className="sb-note">No files to download</span>
-    )
-  }
+  if (files === 0) return null
   return (
     <>
       <div className="sb-buttons">
@@ -436,14 +417,12 @@ function FileActions({ project: p, token }: { project: BoardProject; token: stri
           label={`Download ${files}`}
           ariaLabel={`Download ${plural(files, 'approved file')} for ${p.name} as a zip`}
         />
-        <Link
-          href={`/status/${token}/kit/${p.id}`}
-          className="btn-secondary btn-sm"
-          aria-label={`Ad kit for ${p.name}: website URL and a download link for each approved file`}
-          style={{ whiteSpace: 'nowrap', textDecoration: 'none' }}
-        >
-          Ad kit
-        </Link>
+        <CopyText
+          text={agentPrompt(buildKit(origin, token, brand, p))}
+          label="Copy agent prompt"
+          ariaLabel={`Copy a prompt for an AI agent: upload the ${plural(files, 'approved file')} for ${p.name} with Ads Uploader`}
+          fallbackHref={`/status/${token}/kit/${p.id}#agent-prompt`}
+        />
       </div>
       {p.approvedBy === 'team' && (
         <span className="sb-note" style={{ color: 'var(--stage-client-text)' }}>
