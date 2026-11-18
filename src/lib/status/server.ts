@@ -66,8 +66,6 @@ export interface BoardProject {
   approved: BoardAsset[]
   /** On whose word those files are final. Null when there are none. */
   approvedBy: ApprovedBy | null
-  /** The project's Drive folder, for projects whose files are not in the CRM. */
-  driveUrl: string | null
 }
 
 export interface BoardBrand {
@@ -89,7 +87,7 @@ const ASSET_COLUMNS =
 type ProjectRow = {
   id: string; brand_id: string; name: string; due_date: string | null; is_complete: boolean
   lp_stage: string | null; creatives_stage: string | null; page_type: string | null
-  lp_url: string | null; share_token: string | null; drive_folder_url: string | null
+  lp_url: string | null; share_token: string | null
 }
 type AssetRow = BoardAsset & {
   project_id: string; status: string | null; internal_status: string | null
@@ -124,7 +122,7 @@ export async function loadBoard(
 
   const { data: projectsRaw } = await service
     .from('projects')
-    .select('id, brand_id, name, due_date, is_complete, lp_stage, creatives_stage, page_type, lp_url, share_token, drive_folder_url')
+    .select('id, brand_id, name, due_date, is_complete, lp_stage, creatives_stage, page_type, lp_url, share_token')
     .in('brand_id', brands.map(b => b.id))
     .order('due_date', { ascending: true })
   const cutoff = Date.now() - ARCHIVE_WINDOW_DAYS * 86_400_000
@@ -216,7 +214,6 @@ export async function loadBoard(
       // What the client has said, about the files the client can see.
       tally: tallyAssets(assets.filter(a => a.client_visible).map(a => a.status)),
       approvedBy: final.approvedBy,
-      driveUrl: driveFolderUrl(p.drive_folder_url),
       approved: final.files
         .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
         .map(a => ({
@@ -249,17 +246,6 @@ export function webUrl(raw: string | null | undefined): string | null {
   try {
     const u = new URL(withScheme)
     return u.hostname.includes('.') ? u.toString() : null
-  } catch {
-    return null
-  }
-}
-
-/** A Google Drive folder link, or null for anything else typed in the field. */
-export function driveFolderUrl(raw: string | null | undefined): string | null {
-  const url = webUrl(raw)
-  if (!url) return null
-  try {
-    return /(^|\.)google\.com$/i.test(new URL(url).hostname) ? url : null
   } catch {
     return null
   }

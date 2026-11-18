@@ -4,7 +4,7 @@ import Link from 'next/link'
 import type { Metadata } from 'next'
 import { createServiceClient } from '@/lib/supabase/service'
 import { loadBoardProject, resolveStatusToken } from '@/lib/status/server'
-import { approvedByLabel, buildKit, kitInstructions, kitRules } from '@/lib/status/kit'
+import { agentPrompt, approvedByLabel, buildKit, kitRules } from '@/lib/status/kit'
 import { safeName } from '@/lib/status/board'
 import CopyText from '@/components/status/CopyText'
 import DownloadApproved from '@/components/status/DownloadApproved'
@@ -38,6 +38,7 @@ export default async function AdKitPage({
   const origin = `${h.get('x-forwarded-proto') ?? (host.startsWith('localhost') ? 'http' : 'https')}://${host}`
   const kit = buildKit(origin, token, found.brand, found.project)
   const files = kit.approved_files
+  const prompt = agentPrompt(kit)
   const cell: React.CSSProperties = { padding: '9px 12px', borderTop: '1px solid var(--border)', verticalAlign: 'top', fontSize: 'var(--text-sm)' }
   const head: React.CSSProperties = { padding: '8px 12px', textAlign: 'left', fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-muted)' }
   const link: React.CSSProperties = { color: 'var(--accent)', wordBreak: 'break-all' }
@@ -60,7 +61,7 @@ export default async function AdKitPage({
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-start' }}>
           {files.length > 0 && (
             <>
-              <CopyText text={kitInstructions(kit)} label="Copy instructions for an AI agent" primary />
+              <CopyText text={prompt} label="Copy agent prompt" primary />
               <DownloadApproved
                 token={token}
                 files={found.project.approved.map(a => ({ id: a.id, name: safeName(a.name, `creative-${a.id.slice(0, 8)}`) }))}
@@ -118,9 +119,6 @@ export default async function AdKitPage({
         {files.length === 0 ? (
           <p style={{ fontSize: 14, color: 'var(--text-muted)', padding: '0 var(--space-6) var(--space-5)' }}>
             No approved files on this project yet.
-            {found.project.driveUrl && (
-              <> The working files are in <a href={found.project.driveUrl} target="_blank" rel="noopener noreferrer" style={link}>the project’s Drive folder</a>.</>
-            )}
           </p>
         ) : (
           <div style={{ overflowX: 'auto' }}>
@@ -149,6 +147,27 @@ export default async function AdKitPage({
           </div>
         )}
       </section>
+
+      {files.length > 0 && (
+        <section id="agent-prompt" aria-labelledby="kit-prompt" className="card" style={{ padding: 'var(--space-5) var(--space-6)', marginTop: 'var(--space-5)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 6 }}>
+            <h2 id="kit-prompt" style={{ fontSize: 'var(--text-md)', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
+              Prompt for your AI agent
+            </h2>
+            <CopyText text={prompt} label="Copy agent prompt" />
+          </div>
+          <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', margin: '0 0 10px' }}>
+            Paste this into your agent. It connects Ads Uploader if needed, uploads these files, then asks you before it creates any ad.
+          </p>
+          <pre style={{
+            margin: 0, padding: 12, maxHeight: 320, overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+            fontSize: 12, lineHeight: 1.55, color: 'var(--text-secondary)',
+            background: 'var(--surface-raised)', border: '1px solid var(--border)', borderRadius: 8,
+          }}>
+            {prompt}
+          </pre>
+        </section>
+      )}
 
       <section aria-labelledby="kit-rules" className="card" style={{ padding: 'var(--space-5) var(--space-6)', marginTop: 'var(--space-5)' }}>
         <h2 id="kit-rules" style={{ fontSize: 'var(--text-md)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 10 }}>
