@@ -17,6 +17,7 @@ import BrandContracts from '@/components/brand/BrandContracts'
 import ContractFill from '@/components/brand/ContractFill'
 import BrandProjects from '@/components/brand/BrandProjects'
 import ClientRulesBoard from '@/components/brand/ClientRulesBoard'
+import UnsortedClientFeedback from '@/components/brand/UnsortedClientFeedback'
 import ContactsCard from '@/components/brand/ContactsCard'
 import IntakeAnswers from '@/components/brand/IntakeAnswers'
 import IntakePanel from '@/components/brand/IntakePanel'
@@ -29,7 +30,7 @@ import { intakeCompleteness, intakeSections, intakeText, normalizeIntake } from 
 import OnboardingCall from '@/components/brand/OnboardingCall'
 import { loadContracts, type BrandContract } from '@/lib/bfcm/production-server'
 import { dnaSources } from '@/lib/brands/dna-sources'
-import { loadRules, type BrandContact, type DocKind } from '@/lib/brands/profile'
+import { loadRules, loadUnsortedFeedback, type BrandContact, type DocKind } from '@/lib/brands/profile'
 import { saveBrandProfileFields } from '@/lib/brands/actions'
 import '@/components/brand/brand.css'
 
@@ -99,6 +100,10 @@ export default async function BrandPage({
     supabase.from('client_checkins').select('*').eq('brand_id', brandId).order('created_at', { ascending: false }).limit(24),
     supabase.from('brand_asset_links').select('*').eq('brand_id', brandId).order('created_at', { ascending: false }),
   ])
+
+  // Client comments from review links that are not yet a rule or a one-off.
+  // Only the Feedback tab shows them.
+  const unsorted = tab === 'feedback' ? await loadUnsortedFeedback(supabase, brandId, rules) : []
 
   const b = brand as Brand
   const allProjects = (projects ?? []) as Project[]
@@ -458,14 +463,23 @@ export default async function BrandPage({
       )}
 
       {tab === 'feedback' && (
-        <ClientRulesBoard
-          brandId={brandId}
-          brandName={b.name}
-          rules={rules}
-          people={people}
-          projects={projectNames}
-          canEdit={isAuthorized}
-        />
+        <>
+          <UnsortedClientFeedback
+            brandId={brandId}
+            comments={unsorted}
+            rules={rules.filter(r => r.status === 'active').map(r => ({ id: r.id, rule: r.rule, area: r.area }))}
+            projects={projectNames}
+            canEdit={isAuthorized}
+          />
+          <ClientRulesBoard
+            brandId={brandId}
+            brandName={b.name}
+            rules={rules}
+            people={people}
+            projects={projectNames}
+            canEdit={isAuthorized}
+          />
+        </>
       )}
     </div>
   )

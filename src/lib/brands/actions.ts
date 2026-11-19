@@ -7,6 +7,7 @@
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/service'
 import { canEdit } from '@/lib/permissions'
 import { getCachedProfiles } from '@/lib/profiles'
 import { CHANNELS, RULE_AREAS, RULE_SOURCES, type Channel, type DocKind, type RuleArea, type RuleSource } from './profile'
@@ -175,6 +176,30 @@ export async function addClientRule(formData: FormData): Promise<Result> {
     if (error) return { ok: false, error: error.message }
   }
   refresh(brandId, projectId)
+  return { ok: true }
+}
+
+/**
+ * A client comment that is a one-off fix, not a standing rule: take it off the
+ * Feedback tab's unsorted list. Undo puts it back. project_comments has no
+ * UPDATE policy for signed-in users (see toggleCommentResolved), so this writes
+ * with the service client after canEdit and a brand-ownership check.
+ */
+export async function setCommentRuleChecked(brandId: string, commentId: string, checked: boolean): Promise<Result> {
+  const auth = await editor()
+  if (!auth.ok) return auth
+  const db = createServiceClient()
+  const { data: c } = await db.from('project_comments').select('id, projects!inner(brand_id)').eq('id', commentId).maybeSingle()
+  const owner = (c as { projects?: { brand_id: string } } | null)?.projects?.brand_id
+  if (!c || owner !== brandId) return { ok: false, error: 'That comment is not on this brand.' }
+  const { error } = await db.from('project_comments').update({
+    rule_checked_at: checked ? new Date().toISOString() : null,
+    rule_checked_by: checked ? auth.meId : null,
+  }).eq('id', commentId)
+  if (error) {
+    return { ok: false, error: error.code === '42703' ? 'The 20261119_client_feedback_sorting migration has not been run yet.' : error.message }
+  }
+  refresh(brandId)
   return { ok: true }
 }
 

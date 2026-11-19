@@ -1,5 +1,7 @@
 import type { ProjectComment, CreativeAsset } from '@/lib/types'
 import FeedbackComment from '@/components/FeedbackComment'
+import SaveCommentAsRule from '@/components/brand/SaveCommentAsRule'
+import { rulesByComment, type RuleWithMentions } from '@/lib/brands/profile'
 
 // Read-only consolidation of everything the client left on the review link:
 // landing-page feedback (by section) and per-creative feedback (with pins),
@@ -25,6 +27,7 @@ export default function ClientFeedbackPanel({
   brandId,
   canResolve,
   reviewToken = null,
+  rules,
 }: {
   lpFeedback: ProjectComment[]
   creativeFeedback: ProjectComment[]
@@ -37,7 +40,17 @@ export default function ClientFeedbackPanel({
   /** The project's share token, so a pinned comment can link to its spot on
    *  the client review page. Null when no link has been generated yet. */
   reviewToken?: string | null
+  /** The brand's active client rules. When given, each client comment can be
+   *  saved as a rule, or as one more time the client said one. */
+  rules?: RuleWithMentions[]
 }) {
+  const savedTo = rules ? rulesByComment(rules) : {}
+  const ruleOptions = (rules ?? []).map(r => ({ id: r.id, rule: r.rule, area: r.area }))
+  // Only the client's own words become rules; staff replies carry an author_id.
+  const ruleSave = (c: ProjectComment) => rules && canResolve && !c.author_id ? (
+    <SaveCommentAsRule brandId={brandId} projectId={projectId} comment={c} rules={ruleOptions} saved={savedTo[c.id]} />
+  ) : undefined
+
   const total = lpFeedback.length + creativeFeedback.length
   const doneCount = [...lpFeedback, ...creativeFeedback].filter(c => c.resolved_at != null).length
   const openCount = total - doneCount
@@ -108,6 +121,7 @@ export default function ClientFeedbackPanel({
                     pin={lpPinNumber.get(c.id)}
                     pinned={c.pin_x != null}
                     pinHref={c.pin_x != null && c.resolved_at == null ? lpPinHref(c) : undefined}
+                    footer={ruleSave(c)}
                   />
                 ))}
               </div>
@@ -141,6 +155,7 @@ export default function ClientFeedbackPanel({
                             brandId={brandId}
                             canResolve={canResolve}
                             pin={c.pin_x != null ? ++pinN : undefined}
+                            footer={ruleSave(c)}
                           />
                         ))}
                       </div>

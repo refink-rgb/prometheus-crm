@@ -9,6 +9,7 @@ import type { Project, Brand, CreativeAsset, ProjectComment, BrandDna, ProjectIm
 import PreviewProjectView, { type BrandLandingPage } from '@/components/preview/PreviewProjectView'
 import type { LpBriefSourceOffer } from '@/lib/markdown-export'
 import type { LpLiquidFile } from '@/lib/lp-review'
+import { loadRules } from '@/lib/brands/profile'
 
 // PREVIEW ROUTE — deliberately not in the sidebar nav.
 //
@@ -57,6 +58,7 @@ export default async function ProjectPage({ projectId }: { projectId: string }) 
     { data: sourceOfferRaw },
     { data: liquidFilesRaw },
     profiles,
+    brandRules,
   ] = await Promise.all([
     supabase.from('brands').select('id, name, website, brand_notes, ai_sensitivity, brand_guidelines, growth_strategist, profit_engineer').eq('id', p.brand_id).single(),
     // ALL assets, hidden included. The page it replaces did the same. Filtering
@@ -125,6 +127,9 @@ export default async function ProjectPage({ projectId }: { projectId: string }) 
       .eq('project_id', projectId)
       .order('created_at', { ascending: true }),
     getCachedProfiles(),
+    // The brand's client rules, so a client comment can be saved as one (or as
+    // a repeat of one) from the feedback panel. Tolerant: an error is [].
+    loadRules(supabase, p.brand_id),
   ])
 
   const assets = (assetsRaw ?? []) as CreativeAsset[]
@@ -219,6 +224,7 @@ export default async function ProjectPage({ projectId }: { projectId: string }) 
       brandAdAccount={brandAdAccount}
       sourceOffer={(sourceOfferRaw ?? null) as LpBriefSourceOffer | null}
       liquidFiles={(liquidFilesRaw ?? []) as LpLiquidFile[]}
+      brandRules={brandRules}
     />
   )
 }
