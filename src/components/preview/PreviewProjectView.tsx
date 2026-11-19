@@ -48,6 +48,7 @@ import { summariseProjectOffer, fetchProductThumbnails } from '@/lib/actions'
 import { projectBriefMarkdown, projectLpBriefMarkdown, lpBriefFilename, type LpBriefSourceOffer } from '@/lib/markdown-export'
 import { STAGE_COLORS } from '@/lib/stageColors'
 import { STAGE_LABELS, normalizeStage } from '@/lib/types'
+import type { RuleWithMentions } from '@/lib/brands/profile'
 
 const isUrl = (v: string) => /^https?:\/\//i.test(v.trim())
 const hostOf = (u: string) => { try { return new URL(u).host } catch { return u } }
@@ -365,7 +366,7 @@ function CommentList({ comments, empty }: { comments: ProjectComment[]; empty: s
 
 export default function PreviewProjectView({
   project: p, brand, assets, comments, images, dna, revisionsByAsset, lpEditorName, creativeEditorName, journeyName, journeys, profiles, campaigns, todayIso, authorName, brandLandingPages, brandComments, brandDocuments, projectBriefs: allBriefs, serverNow, currentUserId,
-  lpTracking, lpAdMatches, lpDaily, accountDaily, nowMs, brandAdAccount, sourceOffer = null, liquidFiles = [],
+  lpTracking, lpAdMatches, lpDaily, accountDaily, nowMs, brandAdAccount, sourceOffer = null, liquidFiles = [], brandRules = [],
 }: {
   project: Project; brand: Brand; assets: CreativeAsset[]; comments: ProjectComment[]
   images: ProjectImage[]; dna: BrandDna | null
@@ -393,6 +394,8 @@ export default function PreviewProjectView({
   sourceOffer?: LpBriefSourceOffer | null
   /** Code files (Liquid or HTML) handed in for the landing page (no store access). */
   liquidFiles?: LpLiquidFile[]
+  /** The brand's active client rules, with every comment saved to each. */
+  brandRules?: RuleWithMentions[]
 }) {
   const [tab, setTab] = useState<Tab>('overview')
 
@@ -1897,6 +1900,7 @@ export default function PreviewProjectView({
                     brandId={p.brand_id}
                     reviewToken={p.share_token}
                     canResolve
+                    rules={brandRules}
                   />
 
                 </Card>

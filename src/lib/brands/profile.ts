@@ -120,7 +120,64 @@ export function shortDate(iso: string): string {
   return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(iso))
 }
 
+/** Where a review comment's rule most likely applies, as the form's default. */
+export function areaForTrack(track: string | null | undefined): RuleArea {
+  if (track === 'lp') return 'landing_pages'
+  if (track === 'image') return 'ads'
+  return 'general'
+}
+
+/** A rule as the save-from-a-comment picker needs it. */
+export type RuleOption = Pick<ClientRule, 'id' | 'rule' | 'area'>
+
+/** Comment id → the rules it was saved to. */
+export function rulesByComment(rules: RuleWithMentions[]): Record<string, RuleOption[]> {
+  const out: Record<string, RuleOption[]> = {}
+  for (const r of rules) {
+    for (const m of r.mentions) {
+      if (!m.project_comment_id) continue
+      const list = (out[m.project_comment_id] ??= [])
+      if (!list.some(x => x.id === r.id)) list.push({ id: r.id, rule: r.rule, area: r.area })
+    }
+  }
+  return out
+}
+
+export interface UnsortedComment {
+  id: string
+  project_id: string
+  author_name: string
+  content: string
+  created_at: string
+  track: string
+  section_tag: string | null
+}
+
 type Db = { from: (t: string) => any } // eslint-disable-line @typescript-eslint/no-explicit-any
+
+/**
+ * Client comments on this brand's review links that nobody has sorted: not
+ * saved to any rule (active or retired) and not marked a one-off. Newest first.
+ * Only what the client wrote: staff rows carry an author_id. Selects * so a
+ * missing rule_checked_at column (migration not run) means "nothing marked",
+ * not an error.
+ */
+export async function loadUnsortedFeedback(supabase: Db, brandId: string, rules: RuleWithMentions[]): Promise<UnsortedComment[]> {
+  const linked = new Set(rules.flatMap(r => r.mentions.map(m => m.project_comment_id)).filter(Boolean))
+  const { data } = await supabase
+    .from('project_comments')
+    .select('*, projects!inner(brand_id)')
+    .eq('projects.brand_id', brandId)
+    .eq('audience', 'client')
+    .order('created_at', { ascending: false })
+    .limit(1000)
+  return ((data ?? []) as Array<UnsortedComment & { author_id?: string | null; rule_checked_at?: string | null }>)
+    .filter(c => !c.author_id && !c.rule_checked_at && !linked.has(c.id) && c.content?.trim())
+    .map(c => ({
+      id: c.id, project_id: c.project_id, author_name: c.author_name, content: c.content,
+      created_at: c.created_at, track: c.track, section_tag: c.section_tag,
+    }))
+}
 
 /** Active rules for a brand with every time the client said each one, oldest
  *  mention first. Tolerant of the migration not having run: an error is an

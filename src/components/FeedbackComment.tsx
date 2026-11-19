@@ -23,6 +23,7 @@ export default function FeedbackComment({
   pinned = pin != null,
   pinHref,
   showAttachments = false,
+  footer,
 }: {
   comment: ProjectComment
   projectId: string
@@ -37,6 +38,8 @@ export default function FeedbackComment({
   pinHref?: string
   /** Render the comment's screenshots (internal LP review notes carry them). */
   showAttachments?: boolean
+  /** Extra actions under the comment (Save as rule). */
+  footer?: React.ReactNode
 }) {
   const router = useRouter()
   const toast = useToast()
@@ -147,6 +150,7 @@ export default function FeedbackComment({
           ))}
         </div>
       )}
+      {footer}
     </div>
   )
 }
