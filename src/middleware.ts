@@ -8,8 +8,11 @@ import type { NextRequest } from 'next/server'
 // (lib/status/server.ts); /offer-approval uses the brand's client_token; /api/creative uses a Bearer editor token
 // validated at the route level; /api/cron checks CRON_SECRET in-route;
 // /api/results checks RESULTS_INGEST_SECRET in-route (the scheduled Meta-MCP
-// agent posts daily campaign results and has no session cookie).
-const PUBLIC_PREFIXES = ['/login', '/review', '/portal', '/intake', '/showcase', '/offer-preview-qa', '/approvals', '/status', '/offer-approval', '/auth', '/api/preview', '/api/review', '/api/status', '/api/creative', '/api/cron', '/api/results']
+// agent posts daily campaign results and has no session cookie);
+// /api/project-briefs/upload uses the same Bearer editor token, so a person's
+// AI assistant can add a brief. The rest of /api/project-briefs stays behind
+// the session: a brief id is a uuid and never begins with "upload".
+const PUBLIC_PREFIXES = ['/login', '/review', '/portal', '/intake', '/showcase', '/offer-preview-qa', '/approvals', '/status', '/offer-approval', '/auth', '/api/preview', '/api/review', '/api/status', '/api/creative', '/api/project-briefs/upload', '/api/cron', '/api/results']
 
 function b64Decode(s: string): string {
   const normalized = s.replace(/-/g, '+').replace(/_/g, '/')
