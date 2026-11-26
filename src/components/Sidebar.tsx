@@ -8,6 +8,7 @@ import ThemeToggle from '@/components/ThemeToggle'
 import NotificationBell from '@/components/NotificationBell'
 import type { CapacitySummary } from '@/lib/capacity'
 import BrandMark from '@/components/BrandMark'
+import { BFCM_SEASON_OPEN } from '@/lib/bfcm/season'
 import { PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 
 interface SidebarProps {
@@ -213,12 +214,13 @@ export default function Sidebar({ email, capacity = null, showCodes = false, sho
       matches: (p) => p.startsWith('/results'),
       icon: ResultsIcon,
     },
-    {
+    // Hidden off-season (lib/bfcm/season.ts); the pages still open by URL.
+    ...(BFCM_SEASON_OPEN ? [{
       href: '/bfcm-creatives',
       label: 'BFCM Creatives',
-      matches: (p) => p.startsWith('/bfcm-creatives'),
+      matches: (p: string) => p.startsWith('/bfcm-creatives'),
       icon: InspirationIcon,
-    },
+    }] : []),
     {
       href: '/offers',
       label: 'Offers',
