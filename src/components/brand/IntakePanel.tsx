@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { createIntakeLink } from '@/lib/brands/intake-actions'
@@ -74,6 +75,7 @@ export default function IntakePanel({
             </li>
           ))}
         </ul>
+        <Link href={`/brands/${brandId}?tab=files`} scroll={false} className="bp-link" style={{ fontSize: 13, alignSelf: 'flex-start' }}>Open the brand kit and client answers →</Link>
         <AssetLinks brandId={brandId} links={links} canEdit={canEdit} toFile={items.filter(i => i.linked).map(i => i.label)} />
         {canEdit && (
           <div className="ik-linkbox">
@@ -145,7 +147,7 @@ function AssetLinks({ brandId, links, canEdit, toFile }: { brandId: string; link
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       {toFile.length > 0 && (
-        <div className="bp-warn">↗ We have these in a link, not filed yet: {toFile.join(', ')}. Upload them under Documents so makers have the files.</div>
+        <div className="bp-warn">↗ We have these in a link, not filed yet: {toFile.join(', ')}. Upload them in the Brand kit so makers have the files.</div>
       )}
       {links.length > 0 && (
         <ul className="al-list">

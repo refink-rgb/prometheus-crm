@@ -86,7 +86,7 @@ export interface IntakeForm {
   anything_else: string
 }
 
-const TEXT_FIELDS = [
+export const TEXT_FIELDS = [
   'ai_note', 'colours', 'fonts',
   'push_products', 'avoid_products', 'past_offers', 'offer_limits',
   'reasons', 'buyer', 'frustrations', 'competitors', 'steer_clear', 'proof',
@@ -95,6 +95,7 @@ const TEXT_FIELDS = [
   'upcoming', 'calendar_link', 'page_builder', 'tech_notes',
   'asset_links', 'anything_else',
 ] as const
+export type IntakeTextField = typeof TEXT_FIELDS[number]
 
 export const EMPTY_INTAKE: IntakeForm = {
   contacts: [{ name: '', role: '', email: '', phone: '' }],
@@ -164,63 +165,64 @@ export function ruleLines(text: string): string[] {
     .slice(0, 30)
 }
 
-export interface IntakeQA { q: string; a: string }
+/** field: set when the answer is one free-text field the team can edit. */
+export interface IntakeQA { q: string; a: string; field?: IntakeTextField }
 export interface IntakeSection { title: string; items: IntakeQA[] }
 
 /** Every question the form asks, grouped like the form, with the client's
  *  answer ('' when skipped). The team review view and intake_answers both read this. */
 export function intakeSections(f: IntakeForm): IntakeSection[] {
-  const groups: Array<[string, Array<[string, string]>]> = [
+  const groups: Array<[string, Array<[string, string, IntakeTextField?]>]> = [
     ['Products & offers', [
-      ['Products to push', f.push_products],
-      ['Products to leave out', f.avoid_products],
-      ['Offers tested before (results, conditions)', f.past_offers],
-      ['Discount and offer limits', f.offer_limits],
+      ['Products to push', f.push_products, 'push_products'],
+      ['Products to leave out', f.avoid_products, 'avoid_products'],
+      ['Offers tested before (results, conditions)', f.past_offers, 'past_offers'],
+      ['Discount and offer limits', f.offer_limits, 'offer_limits'],
     ]],
     ['Customers & market', [
-      ['Why customers pick them', f.reasons],
-      ['Main buyer (and any second type)', f.buyer],
-      ['What frustrates buyers about the alternatives', f.frustrations],
-      ['Competitors', f.competitors],
-      ['Brands or tactics to steer clear of', f.steer_clear],
-      ['Proof (reviews, results, press)', f.proof],
+      ['Why customers pick them', f.reasons, 'reasons'],
+      ['Main buyer (and any second type)', f.buyer, 'buyer'],
+      ['What frustrates buyers about the alternatives', f.frustrations, 'frustrations'],
+      ['Competitors', f.competitors, 'competitors'],
+      ['Brands or tactics to steer clear of', f.steer_clear, 'steer_clear'],
+      ['Proof (reviews, results, press)', f.proof, 'proof'],
     ]],
     ['Beyond the guidelines', [
-      ['How the brand has changed since the guidelines', f.brand_changes],
-      ['Past ads that worked / did not', f.past_ads],
-      ['Words, claims or phrases to avoid', f.copy_donts],
-      ["Visual don'ts", f.design_donts],
-      ['How sales and campaigns look and sound different', f.campaign_style],
-      ['Colours (no guidelines)', f.colours],
-      ['Fonts (no guidelines)', f.fonts],
+      ['How the brand has changed since the guidelines', f.brand_changes, 'brand_changes'],
+      ['Past ads that worked / did not', f.past_ads, 'past_ads'],
+      ['Words, claims or phrases to avoid', f.copy_donts, 'copy_donts'],
+      ["Visual don'ts", f.design_donts, 'design_donts'],
+      ['How sales and campaigns look and sound different', f.campaign_style, 'campaign_style'],
+      ['Colours (no guidelines)', f.colours, 'colours'],
+      ['Fonts (no guidelines)', f.fonts, 'fonts'],
     ]],
     ['Video & music', [
-      ['Existing footage', f.footage_link],
-      ['Music likes and dislikes', f.music],
+      ['Existing footage', f.footage_link, 'footage_link'],
+      ['Music likes and dislikes', f.music, 'music'],
     ]],
     ['AI', [
       ['How they feel about AI', [AI_CHOICES.find(c => c.v === f.ai)?.label ?? '', f.ai_note.trim()].filter(Boolean).join(' — ')],
     ]],
     ['Coming up', [
-      ['Launches, sales, events', f.upcoming],
-      ['Marketing calendar link', f.calendar_link],
+      ['Launches, sales, events', f.upcoming, 'upcoming'],
+      ['Marketing calendar link', f.calendar_link, 'calendar_link'],
     ]],
     ['Technical setup', [
       ['Website platform', labelOf(f.platform, PLATFORMS)],
-      ['Theme / page builder', f.page_builder],
+      ['Theme / page builder', f.page_builder, 'page_builder'],
       ['Store access for us', labelOf(f.store_access, STORE_ACCESS)],
       ['Who creates discount codes', f.discounts_by === 'agency' ? 'We (the agency) do' : f.discounts_by === 'client' ? 'The client does' : ''],
       ['Who runs their ads', f.ads_by === 'agency' ? 'We (the agency) do' : labelOf(f.ads_by, ADS_BY)],
-      ['Other technical notes', f.tech_notes],
+      ['Other technical notes', f.tech_notes, 'tech_notes'],
     ]],
     ['People & files', [
       ['Points of contact', filledContacts(f).map(c => [c.name, c.role, c.email, c.phone].filter(Boolean).join(' · ')).join('\n')],
-      ['Asset links (Drive, Dropbox, …)', f.asset_links],
+      ['Asset links (Drive, Dropbox, …)', f.asset_links, 'asset_links'],
       ['What the link holds', f.asset_links.trim() ? LINKABLE.filter(l => f.asset_covers.includes(l.k)).map(l => l.label).join(', ') : ''],
-      ['Anything else', f.anything_else],
+      ['Anything else', f.anything_else, 'anything_else'],
     ]],
   ]
-  return groups.map(([title, qs]) => ({ title, items: qs.map(([q, a]) => ({ q, a: a.trim() })) }))
+  return groups.map(([title, qs]) => ({ title, items: qs.map(([q, a, field]) => ({ q, a: a.trim(), field })) }))
 }
 
 /** The readable version written to brands.intake_answers: answered questions only. */

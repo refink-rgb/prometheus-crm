@@ -32,6 +32,8 @@ import { loadContracts, type BrandContract } from '@/lib/bfcm/production-server'
 import { dnaSources } from '@/lib/brands/dna-sources'
 import { loadRules, loadUnsortedFeedback, type BrandContact, type DocKind } from '@/lib/brands/profile'
 import { saveBrandProfileFields } from '@/lib/brands/actions'
+import SectionLinks from '@/components/brand/SectionLinks'
+import { BRAND_DOC_BUCKET } from '@/lib/brand-docs'
 import '@/components/brand/brand.css'
 
 // Two-step Gemini research + synthesis for Brand DNA can run 30-90s. Vercel's
@@ -46,7 +48,7 @@ export const maxDuration = 300
 const TABS = [
   { key: 'overview', label: 'Overview' },
   { key: 'dna', label: 'Brand DNA' },
-  { key: 'files', label: 'Files' },
+  { key: 'files', label: 'Brand kit' },
   { key: 'projects', label: 'Projects' },
   { key: 'feedback', label: 'Feedback' },
 ] as const
@@ -132,6 +134,17 @@ export default async function BrandPage({
     dna,
     linkedKinds: ((linkRows ?? []) as AssetLink[]).flatMap(l => l.covers ?? []),
   })
+
+  // Brand kit: signed image URLs so logos and product shots show as thumbnails.
+  const assetLinks = (linkRows ?? []) as AssetLink[]
+  const thumbs: Record<string, string> = {}
+  if (tab === 'files' && isAuthorized) {
+    const imgs = documents.filter(d => /^image\/(png|jpeg|webp|gif|svg\+xml)$/.test(d.mime_type))
+    if (imgs.length) {
+      const { data: signed } = await supabase.storage.from(BRAND_DOC_BUCKET).createSignedUrls(imgs.map(d => d.storage_path), 3600)
+      signed?.forEach((x, i) => { if (x.signedUrl) thumbs[imgs[i].id] = x.signedUrl })
+    }
+  }
 
   // Who works on this account: the named leads, then whoever is on live work.
   const nameOf = (id: string | null | undefined) => (id ? people[id] : null)
@@ -244,16 +257,6 @@ export default async function BrandPage({
               requestedAt={b.checkin_requested_at ?? null}
               canEdit={isAuthorized}
             />
-
-            {intakeForm && (
-              <IntakeReview
-                brandName={b.name}
-                sections={intakeSections(intakeForm)}
-                text={intakeText(intakeForm)}
-                submittedAt={b.intake_submitted_at ?? null}
-                updatedAt={b.intake_updated_at ?? null}
-              />
-            )}
 
             {/* What was agreed, readable by the whole team */}
             <section className="mo-panel" aria-label="Contract">
@@ -380,11 +383,56 @@ export default async function BrandPage({
 
       {tab === 'files' && (
         isAuthorized ? (
-          <section className="mo-panel" aria-label="Files">
+          <section className="mo-panel" aria-label="Brand kit">
             <div className="bp-card-body" style={{ display: 'flex', flexDirection: 'column', gap: 26, paddingTop: 20 }}>
+              {([
+                ['logo', 'Logos', 'Upload logo files', 'Vector (SVG, AI, EPS, PDF) and PNG versions'],
+                ['product_images', 'Product images', 'Upload product images', 'High-quality packshots and lifestyle shots'],
+                ['fonts', 'Fonts', 'Upload font files', 'OTF, TTF, WOFF or a .zip'],
+              ] as const).map(([k, label, up, hint]) => (
+                <div key={k}>
+                  <p className="bp-label">{label}</p>
+                  <BrandDocuments
+                    brandId={brandId}
+                    documents={docsOf(k)}
+                    kind={k}
+                    title={label}
+                    uploadLabel={up}
+                    uploadHint={hint}
+                    emptyText={`No ${label.toLowerCase()} yet. The client can add them on the intake link.`}
+                    thumbs={thumbs}
+                    downloadAll
+                    links={<SectionLinks brandId={brandId} kind={k} links={assetLinks} />}
+                  />
+                </div>
+              ))}
+              <div>
+                <p className="bp-label">Client answers</p>
+                {intakeForm
+                  ? <IntakeReview
+                      brandId={brandId}
+                      brandName={b.name}
+                      sections={intakeSections(intakeForm)}
+                      text={intakeText(intakeForm)}
+                      submittedAt={b.intake_submitted_at ?? null}
+                      updatedAt={b.intake_updated_at ?? null}
+                      canEdit={isAuthorized}
+                    />
+                  : <IntakeAnswers brandId={brandId} answers={b.intake_answers ?? null} canEdit={isAuthorized} />}
+                <BrandDocuments
+                  brandId={brandId}
+                  documents={docsOf('intake')}
+                  kind="intake"
+                  title="Intake files & marketing calendar"
+                  uploadLabel="Upload intake form"
+                  uploadHint="The filled-in intake form or questionnaire"
+                  emptyText="No intake files."
+                />
+              </div>
               <div>
                 <p className="bp-label">Brand guidelines</p>
                 {!hasGuidelines && <div className="bp-warn" style={{ marginBottom: 10 }}>No brand guidelines on file. Every client should have them: ask {contacts.find(c => c.is_primary)?.name ?? 'the client'} for their brand book.</div>}
+                <SectionLinks brandId={brandId} kind="guidelines" links={assetLinks} />
                 <BrandGuidelines
                   key={brandId}
                   brandId={brandId}
@@ -404,42 +452,9 @@ export default async function BrandPage({
                   documents={docsOf('contract').map(d => ({ id: d.id, file_name: d.file_name }))}
                 />
               </div>
-              {([
-                ['logo', 'Logos', 'Upload logo files', 'Vector (SVG, AI, EPS, PDF) and PNG versions'],
-                ['product_images', 'Product images', 'Upload product images', 'High-quality packshots and lifestyle shots'],
-                ['fonts', 'Fonts', 'Upload font files', 'OTF, TTF, WOFF or a .zip'],
-              ] as const).map(([k, label, up, hint]) => (
-                <div key={k}>
-                  <p className="bp-label">{label}</p>
-                  <BrandDocuments
-                    brandId={brandId}
-                    documents={docsOf(k)}
-                    kind={k}
-                    title={label}
-                    uploadLabel={up}
-                    uploadHint={hint}
-                    emptyText={`No ${label.toLowerCase()} yet. The client can add them on the intake link.`}
-                  />
-                </div>
-              ))}
               <div>
                 <p className="bp-label">Onboarding call</p>
                 <OnboardingCall brandId={brandId} url={b.onboarding_call_url ?? null} transcript={b.onboarding_transcript ?? null} canEdit={isAuthorized} />
-              </div>
-              <div>
-                <p className="bp-label">Intake</p>
-                {intakeForm
-                  ? <p className="bp-empty" style={{ marginBottom: 8 }}>The client&apos;s answers are under Intake answers on the Overview tab.</p>
-                  : <IntakeAnswers brandId={brandId} answers={b.intake_answers ?? null} canEdit={isAuthorized} />}
-                <BrandDocuments
-                  brandId={brandId}
-                  documents={docsOf('intake')}
-                  kind="intake"
-                  title="Intake files & marketing calendar"
-                  uploadLabel="Upload intake form"
-                  uploadHint="The filled-in intake form or questionnaire"
-                  emptyText="No intake files."
-                />
               </div>
               <div>
                 <p className="bp-label">Everything else they have shared</p>
@@ -451,11 +466,13 @@ export default async function BrandPage({
                   uploadLabel="Upload a file"
                   uploadHint="Product sheets, price lists, research, anything the client sends"
                   emptyText="Nothing else yet."
+                  thumbs={thumbs}
+                  downloadAll
                 />
               </div>
             </div>
           </section>
-        ) : <p className="bp-empty">Files are visible to editors.</p>
+        ) : <p className="bp-empty">The brand kit is visible to editors.</p>
       )}
 
       {tab === 'projects' && (

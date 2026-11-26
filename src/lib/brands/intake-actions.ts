@@ -17,7 +17,7 @@ import { canEdit } from '@/lib/permissions'
 import {
   BRAND_DOC_BUCKET, BRAND_DOC_TYPES, MAX_BRAND_DOC_BYTES, brandDocPath, safeDocName,
 } from '@/lib/brand-docs'
-import { filledContacts, intakeText, isIntakeToken, normalizeIntake, ruleLines } from './intake'
+import { TEXT_FIELDS, filledContacts, intakeText, isIntakeToken, normalizeIntake, ruleLines } from './intake'
 
 type Result<T = object> = ({ ok: true } & T) | { ok: false; error: string }
 
@@ -27,6 +27,24 @@ const CLIENT_KINDS = ['guidelines', 'logo', 'product_images', 'fonts', 'intake',
 type ClientKind = typeof CLIENT_KINDS[number]
 
 // ── staff ─────────────────────────────────────────────────────────────────
+
+/** The team corrects or fills one free-text intake answer. Written into
+ *  intake_form (so the client's form re-opens with it) and intake_answers. */
+export async function saveIntakeAnswer(brandId: string, field: string, value: string): Promise<Result> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!(await canEdit(user.email))) return { ok: false, error: 'Not authorized.' }
+  if (!(TEXT_FIELDS as readonly string[]).includes(field)) return { ok: false, error: 'That answer cannot be edited here.' }
+  const { data: row, error: readErr } = await supabase.from('brands').select('intake_form').eq('id', brandId).maybeSingle()
+  if (readErr || !row) return { ok: false, error: readErr?.message ?? 'Brand not found.' }
+  const form = normalizeIntake({ ...(row.intake_form as object ?? {}), [field]: value.slice(0, 4000) })
+  const { error } = await supabase.from('brands')
+    .update({ intake_form: form, intake_answers: intakeText(form) || null }).eq('id', brandId)
+  if (error) return { ok: false, error: error.message }
+  revalidatePath(`/brands/${brandId}`)
+  return { ok: true }
+}
 
 /** Creates the brand's intake link, or a new one (the old link stops working). */
 export async function createIntakeLink(brandId: string): Promise<Result<{ token: string }>> {

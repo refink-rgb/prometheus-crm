@@ -3829,6 +3829,31 @@ export async function getBrandDocumentUrl(
   return { ok: true, url: data.signedUrl }
 }
 
+/** Signed view URLs for several of one brand's documents in one round trip.
+ *  Feeds the Brand kit's "Download all", which zips them in the browser. */
+export async function getBrandDocumentUrls(
+  brandId: string,
+  documentIds: string[],
+): Promise<{ ok: true; files: { name: string; url: string }[] } | { ok: false; error: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!(await canEdit(user.email))) return { ok: false, error: 'Not authorized.' }
+  const ids = documentIds.filter(isUuid).slice(0, 200)
+  if (!ids.length) return { ok: true, files: [] }
+  const { data: rows } = await supabase
+    .from('brand_documents').select('storage_path, file_name').eq('brand_id', brandId).in('id', ids)
+  const docs = (rows ?? []) as { storage_path: string; file_name: string }[]
+  if (!docs.length) return { ok: true, files: [] }
+  const { data, error } = await supabase.storage
+    .from(BRAND_DOC_BUCKET).createSignedUrls(docs.map(d => d.storage_path), BRAND_DOC_URL_TTL_SECONDS)
+  if (error || !data) return { ok: false, error: error?.message ?? 'Could not open those files.' }
+  return {
+    ok: true,
+    files: data.flatMap((s, i) => (s.signedUrl ? [{ name: docs[i].file_name, url: s.signedUrl }] : [])),
+  }
+}
+
 // ── Project briefs ────────────────────────────────────────────────────────
 //
 // The client's brief files on a project. Same two-step upload as brand
