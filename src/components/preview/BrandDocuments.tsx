@@ -1,11 +1,11 @@
 'use client'
 
-import { useEffect, useState, useTransition } from 'react'
+import { useEffect, useState, useTransition, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import {
   createBrandDocumentUploadUrl, attachBrandDocument,
-  removeBrandDocument, getBrandDocumentUrl,
+  removeBrandDocument, getBrandDocumentUrl, getBrandDocumentUrls,
 } from '@/lib/actions'
 import {
   BRAND_DOC_ACCEPT, BRAND_DOC_BUCKET, BRAND_DOC_TYPES,
@@ -24,6 +24,7 @@ import { DOC_KINDS, type DocKind } from '@/lib/brands/profile'
 
 export default function BrandDocuments({
   brandId, projectId, documents, compact = false, kind, title, uploadLabel, uploadHint, emptyText,
+  thumbs, links, downloadAll = false,
 }: {
   brandId: string
   /** Absent on the brand page, which has no project to revalidate. */
@@ -38,6 +39,13 @@ export default function BrandDocuments({
   uploadLabel?: string
   uploadHint?: string
   emptyText?: string
+  /** Brand kit: document id -> signed image URL. These files show as a
+   *  thumbnail grid with a large preview instead of list rows. */
+  thumbs?: Record<string, string>
+  /** Brand kit: shared links (Drive folders) that hold this kind of file. */
+  links?: ReactNode
+  /** Brand kit: a "Download all" button that saves one .zip. */
+  downloadAll?: boolean
 }) {
   const router = useRouter()
   const [busy, setBusy] = useState<{ done: number; total: number; name: string } | null>(null)
@@ -52,7 +60,43 @@ export default function BrandDocuments({
   const [frame, setFrame] = useState<{ id: string; url: string } | null>(null)
   const [rowErr, setRowErr] = useState<{ id: string; message: string } | null>(null)
   const [narrow, setNarrow] = useState(false)
+  const [big, setBig] = useState<BrandDocument | null>(null)
+  const [zipping, setZipping] = useState(false)
   const [, startTransition] = useTransition()
+  const tiles = thumbs ? documents.filter(d => thumbs[d.id]) : []
+  const rows = thumbs ? documents.filter(d => !thumbs[d.id]) : documents
+
+  // One .zip, built in the browser. Browsers block a burst of separate
+  // downloads, and the files never pass through our server.
+  async function zipAll() {
+    if (zipping || !documents.length) return
+    setZipping(true); setFailures([])
+    try {
+      const r = await getBrandDocumentUrls(brandId, documents.map(d => d.id))
+      if (!r.ok) { setFailures([r.error]); return }
+      const { default: JSZip } = await import('jszip')
+      const zip = new JSZip()
+      const used = new Set<string>()
+      const errs: string[] = []
+      for (const f of r.files) {
+        try {
+          const res = await fetch(f.url)
+          if (!res.ok) throw new Error(`HTTP ${res.status}`)
+          let name = f.name, n = 1
+          while (used.has(name)) name = f.name.replace(/(\.[^.]*)?$/, ` (${++n})$1`)
+          used.add(name)
+          zip.file(name, await res.blob())
+        } catch (e) { errs.push(`${f.name}: ${e instanceof Error ? e.message : 'could not fetch'}`) }
+      }
+      const blob = await zip.generateAsync({ type: 'blob' })
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = `${(title ?? 'files').replace(/[^\w\- ]+/g, '').trim() || 'files'}.zip`
+      a.click()
+      setTimeout(() => URL.revokeObjectURL(a.href), 10_000)
+      setFailures(errs)
+    } finally { setZipping(false) }
+  }
 
   // Read after mount only. This is a client component inside a server-rendered
   // page, and matchMedia during render is a hydration mismatch. Safe to start
@@ -65,6 +109,13 @@ export default function BrandDocuments({
     mq.addEventListener('change', sync)
     return () => mq.removeEventListener('change', sync)
   }, [])
+
+  useEffect(() => {
+    if (!big) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setBig(null) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [big])
 
   // Sequential, like the batch creative uploader: five 30MB files in parallel is
   // a stalled tab and five half-written objects.
@@ -161,9 +212,17 @@ export default function BrandDocuments({
 
   return (
     <section style={{ marginTop: 16, borderTop: '1px solid var(--border)', paddingTop: 14 }}>
-      <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: 8 }}>
-        {title ?? 'Brand guideline files'}{documents.length ? ` · ${documents.length}` : ''}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+        <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', flex: 1 }}>
+          {title ?? 'Brand guideline files'}{documents.length ? ` · ${documents.length}` : ''}
+        </div>
+        {downloadAll && documents.length > 1 && (
+          <button onClick={zipAll} disabled={zipping} style={miniLink}>
+            {zipping ? 'Zipping…' : `⬇ Download all (${documents.length})`}
+          </button>
+        )}
       </div>
+      {links}
 
       {/* Click or drop. Hidden input inside a label, the same idiom the creative
           uploader uses; the drop handlers sit on the label so the whole target
@@ -214,11 +273,60 @@ export default function BrandDocuments({
         </div>
       )}
 
+      {tiles.length > 0 && (
+        <div className="bk-grid">
+          {tiles.map(d => (
+            <figure key={d.id} className="bk-tile">
+              <button className="bk-img" onClick={() => setBig(d)} aria-label={`Preview ${d.file_name}`}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={thumbs![d.id]} alt="" loading="lazy" decoding="async" />
+              </button>
+              <figcaption>
+                <span title={d.file_name}>{d.file_name}</span>
+                <button onClick={() => download(d)} style={miniLink} aria-label={`Download ${d.file_name}`}>⬇</button>
+              </figcaption>
+              {rowErr?.id === d.id && <div style={{ fontSize: 11, color: 'var(--danger)' }}>{rowErr.message}</div>}
+            </figure>
+          ))}
+        </div>
+      )}
+
+      {big && thumbs?.[big.id] && (
+        <div className="bk-light" role="dialog" aria-modal="true" aria-label={big.file_name} onClick={() => setBig(null)}>
+          <div className="bk-light-box" onClick={e => e.stopPropagation()}>
+            <div className="bk-light-img">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={thumbs[big.id]} alt={big.file_name} />
+            </div>
+            <div className="bk-light-bar">
+              <b title={big.file_name}>{big.file_name}</b>
+              <span>{fmtSize(big.byte_size)} · {fmtDate(big.created_at)}{big.uploaded_by_name ? ` · ${big.uploaded_by_name}` : ''}</span>
+              <button className="btn-primary" style={{ fontSize: 13 }} onClick={() => download(big)}>Download</button>
+              {kind && (
+                <select aria-label={`Move ${big.file_name} to`} value={kind} style={{ fontSize: 12, width: 'auto' }}
+                  onChange={e => {
+                    const to = e.target.value as DocKind
+                    startTransition(async () => {
+                      const r = await setDocumentKind(brandId, big.id, to)
+                      if (!r.ok) setRowErr({ id: big.id, message: r.error })
+                      else { setBig(null); router.refresh() }
+                    })
+                  }}>
+                  {Object.entries(DOC_KINDS).map(([k, v]) => <option key={k} value={k}>{k === kind ? v : `Move to ${v}`}</option>)}
+                </select>
+              )}
+              <button className="bp-link bp-link-muted" style={{ fontSize: 13, color: 'var(--danger)' }} onClick={() => { const d = big; setBig(null); remove(d) }}>Remove</button>
+              <button className="bp-link bp-link-muted" style={{ fontSize: 13 }} onClick={() => setBig(null)} aria-label="Close">Close ✕</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {documents.length === 0 ? (
         <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
           {emptyText ?? 'No brand guideline files yet: the brand book, a type specimen, a signed style guide.'}
         </div>
-      ) : documents.map(d => {
+      ) : rows.map(d => {
         const spec = BRAND_DOC_TYPES[d.mime_type]
         const isOpen = openId === d.id
         return (
