@@ -6,6 +6,7 @@ import { easternToday } from '@/lib/eastern'
 import { loadDashboard } from '@/lib/dashboard/load'
 import { computeInsights } from '@/lib/insights'
 import { loadMyBfcmTasks } from '@/lib/bfcm/production-server'
+import { BFCM_SEASON_OPEN } from '@/lib/bfcm/season'
 import { loadMyEvergreenAds } from '@/lib/evergreen-server'
 import MyAssignmentsPanel from '@/components/MyAssignmentsPanel'
 import InsightsCharts from '@/components/InsightsCharts'
@@ -82,7 +83,7 @@ async function EditorHome({ profileId }: { profileId: string }) {
       .select('id, name, brand_id, due_date, is_complete, lp_stage, creatives_stage, lp_approved, creatives_approved, lp_editor_id, creative_editor_id, brands(id, name), moment_code')
       .eq('is_complete', false)
       .order('due_date', { ascending: true }),
-    loadMyBfcmTasks(profileId),
+    BFCM_SEASON_OPEN ? loadMyBfcmTasks(profileId) : Promise.resolve([]),
     loadMyEvergreenAds(profileId),
   ])
   const pipeline = (pipelineRaw ?? []) as unknown as PipelineProject[]

@@ -5,6 +5,8 @@ import { notFound } from 'next/navigation'
 import BfcmPlanner from '@/components/bfcm/BfcmPlanner'
 import { loadPlan, resolveClientPlan } from '@/lib/bfcm/server'
 import { saveClientBfcmPlan } from '@/lib/bfcm/actions'
+import { BFCM_SEASON_OPEN } from '@/lib/bfcm/season'
+import BfcmSeasonClosed from '@/components/bfcm/BfcmSeasonClosed'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -13,6 +15,7 @@ export default async function ClientBfcmPlanPage({ params }: { params: Promise<{
   const { token } = await params
   const resolved = await resolveClientPlan(token)
   if (!resolved) notFound()
+  if (!BFCM_SEASON_OPEN) return <BfcmSeasonClosed />
   const loaded = await loadPlan(resolved.slug, resolved.client)
   const fileAccess = { token }
   const files = await listBfcmFiles(fileAccess)

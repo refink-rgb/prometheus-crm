@@ -5,6 +5,8 @@ import { loadClientCalibration } from '@/lib/bfcm/production-server'
 import BfcmCalibrationReview from '@/components/bfcm/BfcmCalibrationReview'
 import BrandMark from '@/components/BrandMark'
 import ThemeToggle from '@/components/ThemeToggle'
+import { BFCM_SEASON_OPEN } from '@/lib/bfcm/season'
+import BfcmSeasonClosed from '@/components/bfcm/BfcmSeasonClosed'
 
 export const dynamic = 'force-dynamic'
 export const metadata: Metadata = { title: 'Creative Calibration', robots: { index: false, follow: false }, referrer: 'no-referrer' }
@@ -15,6 +17,7 @@ export default async function BfcmCalibrationPage({ params }: { params: Promise<
   if (!/^[a-f0-9]{64}$/.test(token)) notFound()
   const round = await loadClientCalibration(token)
   if (!round) notFound()
+  if (!BFCM_SEASON_OPEN) return <BfcmSeasonClosed />
   const { data: plan } = await createServiceClient().from('bfcm_plans').select('config').eq('slug', round.slug).maybeSingle()
   const brandName = (plan?.config as { brand?: { name?: string } } | null)?.brand?.name ?? 'Your brand'
 
