@@ -49,6 +49,7 @@ import {
   type DailyResult,
   type TrackedCampaign,
   normalizeLpUrl,
+  lpUrlMatches,
   sumFunnel,
   deriveFunnelKpis,
   restOfAccount,
@@ -827,6 +828,17 @@ checkTrue('a discount link to a DIFFERENT page does not match',
   normalizeLpUrl('https://bather.com/discount/XTRA20?redirect=%2Fpages%2Fother') !== normalizeLpUrl('https://bather.com/pages/end-of-season-sale'))
 checkTrue('a different subdomain does NOT match',
   normalizeLpUrl('https://shop.brand.com/pages/offer') !== normalizeLpUrl('https://brand.com/pages/offer'))
+checkTrue('a different ?view= template on the same path does NOT match',
+  normalizeLpUrl('https://heymila.co/pages/about-us?view=ctc-lp_close-the-gap') !==
+  normalizeLpUrl('https://heymila.co/pages/about-us?view=ctc-lp_heymila-ritual-bundle'))
+checkTrue('the bare page does NOT match its ?view= template',
+  normalizeLpUrl('https://heymila.co/pages/about-us') !== normalizeLpUrl('https://heymila.co/pages/about-us?view=ctc-lp_close-the-gap'))
+check('?view= survives while UTMs, pb and preview params are dropped',
+  normalizeLpUrl('https://www.Skinit.com/collections/custom/?utm_source=fb&view=ctc-lp_skinit_gaming-setup&pb=0&fbclid=x'),
+  'skinit.com/collections/custom?view=ctc-lp_skinit_gaming-setup')
+check('a discount link redirecting to a ?view= page keeps the view',
+  normalizeLpUrl('https://brand.com/discount/X20?redirect=%2Fpages%2Fabout-us%3Fview%3Dctc-lp_a'),
+  normalizeLpUrl('https://brand.com/pages/about-us?view=ctc-lp_a'))
 
 const funnelDay = (over: Partial<FunnelDailyRow>): FunnelDailyRow => ({
   stat_date: '2026-09-01',
@@ -842,6 +854,18 @@ const funnelDay = (over: Partial<FunnelDailyRow>): FunnelDailyRow => ({
   reported_at: '2026-09-02T11:00:00Z',
   ...over,
 })
+
+console.log('\n--- LP matching: ?view= is identity only when the tracked URL names one ---')
+checkTrue('a ?view= tracking does NOT take another template\'s ads',
+  !lpUrlMatches('https://heymila.co/pages/about-us?view=ctc-lp_close-the-gap', 'https://heymila.co/pages/about-us?view=ctc-lp_mila-aura-trial-month'))
+checkTrue('a ?view= tracking does NOT take the bare page\'s ads',
+  !lpUrlMatches('https://heymila.co/pages/about-us?view=ctc-lp_close-the-gap', 'https://heymila.co/pages/about-us'))
+checkTrue('a ?view= tracking takes its own template with UTMs',
+  lpUrlMatches('https://heymila.co/pages/about-us?view=ctc-lp_close-the-gap', 'https://www.heymila.co/pages/about-us?utm_source=fb&view=ctc-lp_close-the-gap'))
+checkTrue('a BARE tracking still takes ads on any template of its path',
+  lpUrlMatches('https://leafshave.com/pages/cyclists-gwp', 'https://leafshave.com/pages/cyclists-gwp?view=ctc-lp_leaf-shave-cyclists-gwp'))
+checkTrue('a bare tracking still rejects a different path',
+  !lpUrlMatches('https://leafshave.com/pages/cyclists-gwp', 'https://leafshave.com/pages/cyclists-gwp-2?view=x'))
 
 console.log('\n--- funnel rollups and derived KPIs ---')
 const ft = sumFunnel([funnelDay({}), funnelDay({ stat_date: '2026-09-02' })])

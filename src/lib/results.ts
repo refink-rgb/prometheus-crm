@@ -686,10 +686,28 @@ export function normalizeLpUrl(raw: string): string {
       /* malformed encoding: fall through to plain normalization */
     }
   }
+  // Shopify alternate templates: ?view=<template> renders a DIFFERENT page on
+  // the same path (CTC ships LPs as ?view=ctc-lp_… on an existing page — Hey
+  // Mila's four moments all live on /pages/about-us), so `view` is part of the
+  // page's identity. Every other param (UTMs, fbclid, pb, preview_theme_id) is
+  // noise and dropped.
+  const view = s.match(/[?&]view=([^&#]+)/)?.[1]
   const cut = s.search(/[?#]/)
   if (cut !== -1) s = s.slice(0, cut)
   while (s.endsWith('/')) s = s.slice(0, -1)
-  return s
+  return view ? `${s}?view=${view}` : s
+}
+
+/** Does an ad's destination land on the tracked page? Asymmetric on purpose:
+ *  a tracked URL that names a ?view= template matches ONLY that template (four
+ *  moments on one /pages/about-us must not share each other's ads), while a
+ *  bare tracked URL keeps matching any template of its path — the pages that
+ *  were enrolled bare before ?view= mattered must not lose their ads. */
+export function lpUrlMatches(trackedUrl: string, destinationUrl: string): boolean {
+  const tracked = normalizeLpUrl(trackedUrl)
+  const dest = normalizeLpUrl(destinationUrl)
+  if (tracked === dest) return true
+  return !tracked.includes('?view=') && dest.replace(/\?view=.*$/, '') === tracked
 }
 
 export interface FunnelTotals {

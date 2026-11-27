@@ -20,7 +20,7 @@ import {
   metaGet, metaGetAll, actionNumber, MetaApiError, MetaDeadlineError,
   INSIGHTS_FIELDS, ATTRIBUTION, type InsightsRow,
 } from '@/lib/meta/graph'
-import { normalizeLpUrl, addDaysIso } from '@/lib/results'
+import { lpUrlMatches, addDaysIso } from '@/lib/results'
 
 // ---------------------------------------------------------------------------
 // Work-list shapes (what GET /api/results/ingest returns)
@@ -174,7 +174,6 @@ async function discoverAds(work: LpWork) {
   }
   const effectiveSpecs = await specsPromise
 
-  const wanted = normalizeLpUrl(work.lp_url)
   const known = new Set(work.known_ad_ids)
   const matches: Array<{
     lp_tracking_id: string
@@ -189,7 +188,7 @@ async function discoverAds(work: LpWork) {
 
   for (const ad of ads) {
     if (known.has(ad.id)) continue
-    const hit = destinationUrls(ad, effectiveSpecs).find(u => normalizeLpUrl(u) === wanted)
+    const hit = destinationUrls(ad, effectiveSpecs).find(u => lpUrlMatches(work.lp_url, u))
     if (!hit) continue
     matches.push({
       lp_tracking_id: work.lp_tracking_id,

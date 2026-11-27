@@ -47,6 +47,7 @@ export default async function ResultsPage() {
   if (trackingErr?.code === '42P01') return <SetupNotice />
 
   const trackings = (trackingRaw ?? []) as unknown as TrackingRow[]
+  const engineHealth = await loadEngineHealth(supabase)
 
   const launched = trackings.filter(t => t.launched_on !== null)
   const accountIds = [...new Set(launched.map(t => t.meta_ad_account_id))]
@@ -169,6 +170,8 @@ export default async function ResultsPage() {
         </Link>
       </div>
 
+      <EngineHealthBanner health={engineHealth} nowMs={nowMs} />
+
       {trackings.length === 0 ? (
         <EmptyState />
       ) : (
@@ -281,6 +284,96 @@ function SetupNotice() {
           so this page can appear before its schema does.
         </p>
       </div>
+    </div>
+  )
+}
+
+// ── Engine health ──────────────────────────────────────────────────────────
+// Per-row freshness stamps can't say "the whole pipeline is down" — a page
+// that simply stopped spending looks the same as a dead engine. The ingest
+// log can: the cron fires every 2h, so no successful save in 6h means it's
+// broken, and the newest engine-error row (written by /api/cron/results-pull)
+// usually says why — an expired Meta token reads verbatim.
+const ENGINE_DOWN_AFTER_HOURS = 6
+
+interface EngineHealth {
+  lastSuccessAt: string | null
+  lastError: { at: string; message: string; count: number } | null
+}
+
+async function loadEngineHealth(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+): Promise<EngineHealth> {
+  const [ok, failed] = await Promise.all([
+    supabase
+      .from('campaign_result_ingests')
+      .select('run_at')
+      .gt('rows_upserted', 0)
+      .order('run_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from('campaign_result_ingests')
+      .select('run_at, warnings')
+      .eq('warnings->>source', 'engine')
+      .order('run_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ])
+  const lastSuccessAt = (ok.data as { run_at: string } | null)?.run_at ?? null
+  const f = failed.data as { run_at: string; warnings: { engine_errors?: string[]; error_count?: number } } | null
+  return {
+    lastSuccessAt,
+    lastError: f
+      ? { at: f.run_at, message: f.warnings?.engine_errors?.[0] ?? 'unknown error', count: f.warnings?.error_count ?? 1 }
+      : null,
+  }
+}
+
+function EngineHealthBanner({ health, nowMs }: { health: EngineHealth; nowMs: number }) {
+  const hoursSince = health.lastSuccessAt
+    ? (nowMs - Date.parse(health.lastSuccessAt)) / 3_600_000
+    : Infinity
+  // Only an error NEWER than the last success is news; an old one was fixed.
+  const freshError = health.lastError &&
+    (!health.lastSuccessAt || health.lastError.at > health.lastSuccessAt)
+  const down = hoursSince > ENGINE_DOWN_AFTER_HOURS
+  if (!down && !freshError) return null
+
+  const age = !Number.isFinite(hoursSince)
+    ? 'never'
+    : hoursSince < 48 ? `${Math.round(hoursSince)}h ago` : `${Math.round(hoursSince / 24)} days ago`
+
+  return (
+    <div
+      role="alert"
+      style={{
+        marginBottom: 'var(--space-5)',
+        padding: '12px 16px',
+        borderRadius: 8,
+        border: `1px solid ${down ? 'var(--danger)' : 'var(--warning)'}`,
+        background: `color-mix(in srgb, ${down ? 'var(--danger)' : 'var(--warning)'} 8%, transparent)`,
+        fontSize: 13,
+        lineHeight: 1.6,
+        color: 'var(--text-primary)',
+      }}
+    >
+      <div style={{ fontWeight: 700 }}>
+        {down
+          ? `⚠ Results engine down — last successful save ${age}`
+          : `⚠ Last results run had ${health.lastError!.count} error${health.lastError!.count === 1 ? '' : 's'}`}
+      </div>
+      {freshError && (
+        <div style={{ color: 'var(--text-muted)', wordBreak: 'break-word' }}>
+          Latest error: {health.lastError!.message}
+          {health.lastError!.count > 1 && ` (+${health.lastError!.count - 1} more)`}
+        </div>
+      )}
+      {down && !freshError && (
+        <div style={{ color: 'var(--text-muted)' }}>
+          No error was recorded — check the Vercel logs for /api/cron/results-pull and the Meta token.
+        </div>
+      )}
     </div>
   )
 }

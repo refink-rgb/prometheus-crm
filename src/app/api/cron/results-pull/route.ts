@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { runResultsPull } from '@/lib/meta/engine'
+import { createServiceClient } from '@/lib/supabase/service'
 
 // Nightly results ingestion — the in-app replacement for the scheduled Claude
 // agent (dead since Aug 18 and retired for good; see RESULTS_AGENT_PROMPT.md).
@@ -34,10 +35,39 @@ export async function GET(request: Request) {
     // Errors inside the summary are per-entity and non-fatal; a run that
     // pulled 19 of 20 brands is a success with one loud line, not a failure.
     for (const e of summary.errors) console.error(`[results-pull] ${e}`)
+    if (summary.errors.length > 0) await logEngineRun(summary.errors, summary.rows_posted)
     return NextResponse.json({ ok: true, ...summary })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     console.error(`[results-pull] run failed: ${msg}`)
+    await logEngineRun([`run failed: ${msg}`], 0)
     return NextResponse.json({ ok: false, error: msg }, { status: 500 })
+  }
+}
+
+// The ingest POST only writes its audit row when there is something to post.
+// A run where EVERY Meta call fails (an expired token) posts nothing, so it
+// left no trace but a Vercel log line — that is how the Nov 16 token expiry
+// went unseen for 11 days. Engine errors get their own audit row, marked
+// source='engine', which the /results banner reads. Best-effort: a logging
+// failure never turns the run into an error.
+async function logEngineRun(errors: string[], rowsPosted: number) {
+  try {
+    const { error } = await createServiceClient().from('campaign_result_ingests').insert({
+      date_range: null,
+      rows_received: 0,
+      rows_upserted: 0,
+      rows_rejected: 0,
+      warnings: {
+        source: 'engine',
+        rows_posted: rowsPosted,
+        error_count: errors.length,
+        // Bounded: one bad token fails every entity with the same message.
+        engine_errors: errors.slice(0, 25),
+      },
+    })
+    if (error) console.error(`[results-pull] engine audit write failed: ${error.message}`)
+  } catch (err) {
+    console.error(`[results-pull] engine audit write failed: ${err instanceof Error ? err.message : String(err)}`)
   }
 }
