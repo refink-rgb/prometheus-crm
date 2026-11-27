@@ -1,6 +1,10 @@
--- Results tracking repair, 2026-11-27. Run ONCE in the Supabase SQL editor,
--- AFTER the ?view= matching fix is deployed (otherwise the engine re-adds the
--- wrong ads on its next run). One transaction: all of it lands or none of it.
+-- Results tracking repair, 2026-11-27. Run in the Supabase SQL editor AFTER
+-- the ?view= matching fix (a123bb8) is deployed — otherwise the engine re-adds
+-- the wrong ads on its next run.
+--
+-- No temp tables: the SQL editor doesn't keep them alive between statements.
+-- Every statement stands alone and is safe to re-run (a second run finds
+-- nothing left to change).
 --
 --   A. Wire Meta ad accounts on 9 brands that had none (ids read from the
 --      token's /me/adaccounts listing on 2026-11-27, matched by name).
@@ -18,8 +22,10 @@
 BEGIN;
 
 -- Mirror of normalizeLpUrl() in src/lib/results.ts (minus the discount-link
--- decode; discount-link matches are left alone below).
-CREATE FUNCTION pg_temp.norm_lp(u text) RETURNS text LANGUAGE sql IMMUTABLE AS $$
+-- decode; discount-link matches are left alone below). Kept as a real
+-- function — handy for ad-hoc diagnostics too.
+CREATE OR REPLACE FUNCTION public.norm_lp_url(u text) RETURNS text
+LANGUAGE sql IMMUTABLE AS $$
   SELECT CASE WHEN v IS NULL THEN b ELSE b || '?view=' || v END
   FROM (
     SELECT regexp_replace(split_part(split_part(s, '#', 1), '?', 1), '/+$', '') AS b,
@@ -28,10 +34,9 @@ CREATE FUNCTION pg_temp.norm_lp(u text) RETURNS text LANGUAGE sql IMMUTABLE AS $
   ) y
 $$;
 
-CREATE TEMP TABLE fix_log (step text, brand text, moment text, detail text) ON COMMIT DROP;
-
 -- A. Ad accounts ------------------------------------------------------------
-WITH v(name, acct) AS (VALUES
+UPDATE brands b SET meta_ad_account_id = v.acct
+FROM (VALUES
   ('Cat Ladies',      'act_386895569680753'),
   ('Encha',           'act_571528900654455'),
   ('Flav City',       'act_264055765332804'),
@@ -41,31 +46,18 @@ WITH v(name, acct) AS (VALUES
   ('Roobi',           'act_545299944081354'),
   ('String Swing',    'act_402092893601171'),
   ('Viante',          'act_591553886182213')
-), upd AS (
-  UPDATE brands b SET meta_ad_account_id = v.acct
-  FROM v
-  WHERE b.name = v.name AND coalesce(b.meta_ad_account_id, '') = ''
-  RETURNING b.name, b.meta_ad_account_id
-)
-INSERT INTO fix_log SELECT 'A account set', name, NULL, meta_ad_account_id FROM upd;
+) AS v(name, acct)
+WHERE b.name = v.name AND coalesce(b.meta_ad_account_id, '') = '';
 
 -- B. Preview URL → live URL ---------------------------------------------------
-WITH upd AS (
-  UPDATE lp_tracking t SET lp_url = trim(p.lp_url)
-  FROM projects p
-  WHERE p.id = t.project_id
-    AND t.lp_url ILIKE '%shopifypreview.com%'
-    AND p.lp_url ~* '^https?://\S+\.\S+'
-    AND p.lp_url !~* '(shopifypreview\.com|preview_theme_id|preview_key)'
-  RETURNING t.id, t.project_id, t.lp_url
-)
-INSERT INTO fix_log
-SELECT 'B url -> live', b.name, p.name, upd.lp_url
-FROM upd JOIN projects p ON p.id = upd.project_id JOIN brands b ON b.id = p.brand_id;
+UPDATE lp_tracking t SET lp_url = trim(p.lp_url)
+FROM projects p
+WHERE p.id = t.project_id
+  AND t.lp_url ILIKE '%shopifypreview.com%'
+  AND p.lp_url ~* '^https?://\S+\.\S+'
+  AND p.lp_url !~* '(shopifypreview\.com|preview_theme_id|preview_key)';
 
--- C. ?view= collisions --------------------------------------------------------
-CREATE TEMP TABLE view_fixed (lp_tracking_id uuid PRIMARY KEY, dropped int) ON COMMIT DROP;
-
+-- C. ?view= collisions (one statement: the three writes share one set) --------
 WITH dropped AS (
   DELETE FROM lp_ad_matches m
   USING lp_tracking t
@@ -74,56 +66,55 @@ WITH dropped AS (
     AND m.source = 'agent'
     AND m.destination_url IS NOT NULL
     AND m.destination_url !~* '/discount/'
-    AND pg_temp.norm_lp(m.destination_url) <> pg_temp.norm_lp(t.lp_url)
+    AND public.norm_lp_url(m.destination_url) <> public.norm_lp_url(t.lp_url)
   RETURNING m.lp_tracking_id
+), fixed AS (
+  SELECT DISTINCT lp_tracking_id FROM dropped
+), cleared_days AS (
+  DELETE FROM lp_daily_results d
+  USING fixed f
+  WHERE d.lp_tracking_id = f.lp_tracking_id AND d.source = 'mcp_agent'
+  RETURNING d.lp_tracking_id
 )
-INSERT INTO view_fixed SELECT lp_tracking_id, count(*) FROM dropped GROUP BY 1;
-
-DELETE FROM lp_daily_results d
-USING view_fixed f
-WHERE d.lp_tracking_id = f.lp_tracking_id AND d.source = 'mcp_agent';
-
 UPDATE lp_tracking t SET launched_on = NULL
-FROM view_fixed f
+FROM fixed f
 WHERE t.id = f.lp_tracking_id;
 
-INSERT INTO fix_log
-SELECT 'C view cleanup', b.name, p.name, f.dropped || ' wrong ads dropped; days re-pull'
-FROM view_fixed f
-JOIN lp_tracking t ON t.id = f.lp_tracking_id
-JOIN projects p ON p.id = t.project_id
-JOIN brands b ON b.id = t.brand_id;
-
--- D. Enroll untracked moments -------------------------------------------------
-WITH candidates AS (
-  SELECT DISTINCT ON (b.meta_ad_account_id, pg_temp.norm_lp(p.lp_url))
-         p.id AS project_id, p.brand_id, b.meta_ad_account_id, trim(p.lp_url) AS lp_url,
-         p.name AS moment, b.name AS brand
-  FROM projects p
-  JOIN brands b ON b.id = p.brand_id
-  WHERE p.due_date BETWEEN current_date - 180 AND current_date
-    AND b.is_active
-    AND coalesce(b.meta_ad_account_id, '') <> ''
-    AND p.lp_url ~* '^https?://\S+\.\S+'
-    AND p.lp_url !~* '(shopifypreview\.com|preview_theme_id|preview_key|example\.com|dev-test)'
-    AND NOT EXISTS (SELECT 1 FROM lp_tracking t WHERE t.project_id = p.id)
-    -- never two trackings on one page in one account: they'd double-count
-    AND NOT EXISTS (
-      SELECT 1 FROM lp_tracking t2
-      WHERE t2.meta_ad_account_id = b.meta_ad_account_id
-        AND pg_temp.norm_lp(t2.lp_url) = pg_temp.norm_lp(p.lp_url))
-  ORDER BY b.meta_ad_account_id, pg_temp.norm_lp(p.lp_url), p.due_date DESC
-), ins AS (
-  INSERT INTO lp_tracking (project_id, brand_id, meta_ad_account_id, lp_url, launched_on)
-  SELECT project_id, brand_id, meta_ad_account_id, lp_url, NULL FROM candidates
-  ON CONFLICT (project_id) DO NOTHING
-  RETURNING project_id
-)
-INSERT INTO fix_log
-SELECT 'D enrolled', c.brand, c.moment, c.lp_url
-FROM ins JOIN candidates c ON c.project_id = ins.project_id;
-
--- What changed (the editor shows this last result).
-SELECT * FROM fix_log ORDER BY step, brand, moment;
+-- D. Enroll untracked moments (runs after A, so newly wired brands count) -----
+INSERT INTO lp_tracking (project_id, brand_id, meta_ad_account_id, lp_url, launched_on)
+SELECT DISTINCT ON (b.meta_ad_account_id, public.norm_lp_url(p.lp_url))
+       p.id, p.brand_id, b.meta_ad_account_id, trim(p.lp_url), NULL::date
+FROM projects p
+JOIN brands b ON b.id = p.brand_id
+WHERE p.due_date BETWEEN current_date - 180 AND current_date
+  AND b.is_active
+  AND coalesce(b.meta_ad_account_id, '') <> ''
+  AND p.lp_url ~* '^https?://\S+\.\S+'
+  AND p.lp_url !~* '(shopifypreview\.com|preview_theme_id|preview_key|example\.com|dev-test)'
+  AND NOT EXISTS (SELECT 1 FROM lp_tracking t WHERE t.project_id = p.id)
+  -- never two trackings on one page in one account: they'd double-count
+  AND NOT EXISTS (
+    SELECT 1 FROM lp_tracking t2
+    WHERE t2.meta_ad_account_id = b.meta_ad_account_id
+      AND public.norm_lp_url(t2.lp_url) = public.norm_lp_url(p.lp_url))
+ORDER BY b.meta_ad_account_id, public.norm_lp_url(p.lp_url), p.due_date DESC
+ON CONFLICT (project_id) DO NOTHING;
 
 COMMIT;
+
+-- Report (the editor shows this last result) ----------------------------------
+SELECT 'A account' AS step, b.name AS brand, NULL::text AS moment, b.meta_ad_account_id AS detail
+FROM brands b
+WHERE b.name IN ('Cat Ladies','Encha','Flav City','FORM BASKETBALL','Indah Clothing',
+                 'Natural Dog','Roobi','String Swing','Viante')
+UNION ALL
+SELECT 'C ?view= tracking', b.name, p.name,
+       (SELECT count(*) FROM lp_ad_matches m WHERE m.lp_tracking_id = t.id AND m.status = 'included')
+         || ' ads kept · launch ' || coalesce(t.launched_on::text, 're-detecting')
+FROM lp_tracking t JOIN projects p ON p.id = t.project_id JOIN brands b ON b.id = t.brand_id
+WHERE t.lp_url ~* '[?&]view='
+UNION ALL
+SELECT 'D enrolled', b.name, p.name, t.lp_url
+FROM lp_tracking t JOIN projects p ON p.id = t.project_id JOIN brands b ON b.id = t.brand_id
+WHERE t.created_by IS NULL AND t.created_at > now() - interval '30 minutes'
+ORDER BY 1, 2, 3;
